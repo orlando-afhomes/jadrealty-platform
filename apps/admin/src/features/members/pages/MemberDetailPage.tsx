@@ -1,0 +1,702 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams, useNavigate, useBlocker } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+
+import {
+  Button,
+  ConfirmDialog,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  StatusChip,
+  useToast,
+} from '@jad/ui';
+
+import { formatDate } from '../../../lib/format';
+import { useMember } from '../hooks/useMember';
+import { useMemberRegistration } from '../hooks/useMemberRegistration';
+import { GovernmentIdPreview } from '../../registrations/components/GovernmentIdPreview';
+import {
+  updateMember,
+  deactivateMember,
+  activateMember,
+  archiveMember,
+  setMemberQualified,
+} from '../repositories/memberRepository';
+import { MEMBER_STATUS_LABEL, MEMBER_STATUS_TONE } from '../status';
+import styles from './MemberDetail.module.css';
+
+export function MemberDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isPending, isError, error: fetchError } = useMember(id ?? '');
+  const { data: application, isPending: applicationPending } = useMemberRegistration(
+    data?.registrationId,
+  );
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [edit, setEdit] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    address: '',
+    gender: '',
+  });
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
+  const [showQualifyConfirm, setShowQualifyConfirm] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+
+  const isDirty = useMemo(() => {
+    if (!isEditing || !data) return false;
+    return (
+      edit.firstName !== data.firstName ||
+      edit.lastName !== data.lastName ||
+      edit.phone !== data.phone ||
+      (edit.address ?? '') !== (data.address ?? '') ||
+      edit.gender !== data.gender
+    );
+  }, [isEditing, edit, data]);
+
+  // Prevent accidental loss of edits on navigation
+  let blocker: unknown = null;
+  try {
+    blocker = useBlocker(isEditing && isDirty);
+  } catch {
+    blocker = null;
+  }
+
+  useEffect(() => {
+    if (!blocker) return;
+    const state = (blocker as unknown as { state?: string }).state;
+    if (state === 'blocked') {
+      const confirmed = window.confirm('You have unsaved changes. Discard them?');
+      const b = blocker as unknown as { proceed?: () => void; reset?: () => void };
+      if (confirmed) b.proceed?.();
+      else b.reset?.();
+    }
+  }, [blocker]);
+
+  useEffect(() => {
+    if (!isEditing || !isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isEditing, isDirty]);
+
+  if (isPending) {
+    return (
+      <section>
+        <PageHeader title="Member Detail" description="Member profile and status" />
+        <div className={styles.detailGrid}>
+          <div className={styles.card}>
+            <Skeleton style={{ height: 200 }} />
+          </div>
+          <div className={styles.card}>
+            <Skeleton style={{ height: 200 }} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section>
+        <PageHeader title="Member Detail" description="Member profile and status" />
+        <ErrorState error={fetchError as Error} />
+      </section>
+    );
+  }
+
+  if (!data) {
+    return (
+      <section>
+        <PageHeader title="Member Detail" description="Member profile and status" />
+        <ErrorState
+          title="Member not found"
+          message="The requested member does not exist or was archived."
+        />
+        <Link className={styles.backLink} to="/admin/members">
+          Back to list
+        </Link>
+      </section>
+    );
+  }
+
+  const startEdit = () => {
+    setEdit({
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phone: data.phone,
+      address: data.address ?? '',
+      gender: data.gender,
+    });
+    setIsEditing(true);
+    setError(undefined);
+  };
+
+  const validateEdit = (): Record<string, string> => {
+    const errs: Record<string, string> = {};
+    if (!edit.firstName.trim()) errs.firstName = 'First name is required';
+    if (!edit.lastName.trim()) errs.lastName = 'Last name is required';
+    if (!edit.phone.trim()) errs.phone = 'Phone is required';
+    else if (!/^\+?[\d\s\-()]{7,20}$/.test(edit.phone.trim()))
+      errs.phone = 'Enter a valid phone number';
+    if (!edit.gender.trim()) errs.gender = 'Gender is required';
+    return errs;
+  };
+
+  const handleSave = async () => {
+    const errs = validateEdit();
+    setEditErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+    try {
+      await updateMember(data.id, {
+        firstName: edit.firstName.trim(),
+        lastName: edit.lastName.trim(),
+        phone: edit.phone.trim(),
+        address: edit.address.trim() || undefined,
+        gender: edit.gender.trim(),
+      } as never);
+      setIsEditing(false);
+      setEditErrors({});
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'member', data.id] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const handleToggleActive = async () => {
+    try {
+      if (data.accountStatus === 'ACTIVE') await deactivateMember(data.id);
+      else await activateMember(data.id);
+      setShowDeactivateConfirm(false);
+      setError(undefined);
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'member', data.id] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const handleToggleQualified = async () => {
+    try {
+      await setMemberQualified(data.id, !data.isQualified);
+      setShowQualifyConfirm(false);
+      setError(undefined);
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'member', data.id] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const handleArchive = async () => {
+    try {
+      await archiveMember(data.id);
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'archived'] });
+      toast({
+        title: 'Member archived',
+        message: `${data.firstName} ${data.lastName} moved to archives`,
+        tone: 'success',
+      });
+      navigate('/admin/members');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const memberName = `${data.firstName}${data.middleInitial ? ` ${data.middleInitial}.` : ''} ${data.lastName}${data.nameSuffix ? ` ${data.nameSuffix}` : ''}`;
+
+  return (
+    <section>
+      <PageHeader
+        title={memberName}
+        description={
+          <span
+            style={{
+              display: 'inline-flex',
+              gap: 'var(--space-2)',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <StatusChip
+              label={MEMBER_STATUS_LABEL[data.status]}
+              tone={MEMBER_STATUS_TONE[data.status]}
+            />
+            <StatusChip
+              label={data.accountStatus}
+              tone={data.accountStatus === 'ACTIVE' ? 'success' : 'danger'}
+            />
+            {data.isQualified ? (
+              <StatusChip label="Qualified" tone="success" />
+            ) : data.status === 'APPROVED_ACTIVE' ? (
+              <StatusChip label="Not Qualified" tone="neutral" />
+            ) : null}
+            <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-body-s)' }}>
+              {data.program.name} · {data.email} · {formatDate(data.registeredAt)}
+            </span>
+          </span>
+        }
+        actions={
+          <Link className={styles.backLink} to="/admin/members">
+            Back to list
+          </Link>
+        }
+      />
+      <div className={styles.detailGrid}>
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>Member Details</h2>
+          {isEditing ? (
+            <div className={styles.editForm}>
+              <label className={styles.editLabel} htmlFor="edit-firstName">
+                First Name{' '}
+                <span aria-hidden="true" style={{ color: 'var(--color-danger)' }}>
+                  *
+                </span>
+              </label>
+              <input
+                id="edit-firstName"
+                className={`${styles.editInput} ${editErrors.firstName ? styles.inputError : ''}`}
+                value={edit.firstName}
+                onChange={(e) => setEdit((s) => ({ ...s, firstName: e.target.value }))}
+                aria-label="First Name"
+                aria-invalid={Boolean(editErrors.firstName)}
+                aria-describedby={editErrors.firstName ? 'edit-firstName-error' : undefined}
+              />
+              {editErrors.firstName ? (
+                <span id="edit-firstName-error" className={styles.errorText}>
+                  {editErrors.firstName}
+                </span>
+              ) : null}
+
+              <label className={styles.editLabel} htmlFor="edit-lastName">
+                Last Name{' '}
+                <span aria-hidden="true" style={{ color: 'var(--color-danger)' }}>
+                  *
+                </span>
+              </label>
+              <input
+                id="edit-lastName"
+                className={`${styles.editInput} ${editErrors.lastName ? styles.inputError : ''}`}
+                value={edit.lastName}
+                onChange={(e) => setEdit((s) => ({ ...s, lastName: e.target.value }))}
+                aria-label="Last Name"
+                aria-invalid={Boolean(editErrors.lastName)}
+                aria-describedby={editErrors.lastName ? 'edit-lastName-error' : undefined}
+              />
+              {editErrors.lastName ? (
+                <span id="edit-lastName-error" className={styles.errorText}>
+                  {editErrors.lastName}
+                </span>
+              ) : null}
+
+              <label className={styles.editLabel} htmlFor="edit-phone">
+                Phone{' '}
+                <span aria-hidden="true" style={{ color: 'var(--color-danger)' }}>
+                  *
+                </span>
+              </label>
+              <input
+                id="edit-phone"
+                className={`${styles.editInput} ${editErrors.phone ? styles.inputError : ''}`}
+                value={edit.phone}
+                onChange={(e) => setEdit((s) => ({ ...s, phone: e.target.value }))}
+                aria-label="Phone"
+                aria-invalid={Boolean(editErrors.phone)}
+                aria-describedby={editErrors.phone ? 'edit-phone-error' : undefined}
+              />
+              {editErrors.phone ? (
+                <span id="edit-phone-error" className={styles.errorText}>
+                  {editErrors.phone}
+                </span>
+              ) : null}
+
+              <label className={styles.editLabel} htmlFor="edit-gender">
+                Gender{' '}
+                <span aria-hidden="true" style={{ color: 'var(--color-danger)' }}>
+                  *
+                </span>
+              </label>
+              <select
+                id="edit-gender"
+                className={`${styles.editInput} ${editErrors.gender ? styles.inputError : ''}`}
+                value={edit.gender}
+                onChange={(e) => setEdit((s) => ({ ...s, gender: e.target.value }))}
+                aria-label="Gender"
+                aria-invalid={Boolean(editErrors.gender)}
+                aria-describedby={editErrors.gender ? 'edit-gender-error' : undefined}
+              >
+                <option value="">Select gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="LGBT">LGBT</option>
+                <option value="Others">Others</option>
+              </select>
+              {editErrors.gender ? (
+                <span id="edit-gender-error" className={styles.errorText}>
+                  {editErrors.gender}
+                </span>
+              ) : null}
+
+              <label className={styles.editLabel} htmlFor="edit-address">
+                Address
+              </label>
+              <input
+                id="edit-address"
+                className={styles.editInput}
+                value={edit.address}
+                onChange={(e) => setEdit((s) => ({ ...s, address: e.target.value }))}
+                aria-label="Address"
+              />
+
+              <div className={styles.immutableField}>
+                <span className={styles.immutableLabel}>Country — immutable</span>
+                <div className={styles.immutableValue}>
+                  {data.countryName} ({data.countryCode}) — cannot be changed
+                </div>
+              </div>
+              {error ? (
+                <p className={styles.errorText} role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className={styles.editActions}>
+                <Button onClick={handleSave} variant="primary">
+                  Save
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (isDirty) setShowDiscardConfirm(true);
+                    else setIsEditing(false);
+                  }}
+                  variant="secondary"
+                >
+                  Cancel
+                </Button>
+              </div>
+              <ConfirmDialog
+                open={showDiscardConfirm}
+                onCancel={() => setShowDiscardConfirm(false)}
+                onConfirm={() => {
+                  setShowDiscardConfirm(false);
+                  setIsEditing(false);
+                  setEditErrors({});
+                }}
+                title="Discard changes?"
+                message="You have unsaved changes. Are you sure you want to discard them?"
+                confirmLabel="Discard"
+                cancelLabel="Keep editing"
+              />
+            </div>
+          ) : (
+            <dl className={styles.fieldGrid}>
+              <div className={styles.field}>
+                <dt>Full Name</dt>
+                <dd>{memberName}</dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Member ID</dt>
+                <dd className={styles.mono}>{data.id}</dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Email</dt>
+                <dd>{data.email}</dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Phone</dt>
+                <dd>{data.phone}</dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Date of Birth</dt>
+                <dd>
+                  {formatDate(data.dateOfBirth)} · {data.age} years old
+                </dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Gender</dt>
+                <dd>{data.gender}</dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Country</dt>
+                <dd>
+                  {data.countryName} ({data.countryCode})
+                </dd>
+              </div>
+              {data.address ? (
+                <div className={styles.field}>
+                  <dt>Address</dt>
+                  <dd>{data.address}</dd>
+                </div>
+              ) : null}
+            </dl>
+          )}
+        </div>
+
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>Account Status</h2>
+          <dl className={styles.fieldGrid}>
+            <div className={styles.field}>
+              <dt>Membership</dt>
+              <dd>
+                <StatusChip
+                  label={MEMBER_STATUS_LABEL[data.status]}
+                  tone={MEMBER_STATUS_TONE[data.status]}
+                />
+              </dd>
+            </div>
+            <div className={styles.field}>
+              <dt>Account</dt>
+              <dd>
+                <StatusChip
+                  label={data.accountStatus}
+                  tone={data.accountStatus === 'ACTIVE' ? 'success' : 'danger'}
+                />
+              </dd>
+            </div>
+            <div className={styles.field}>
+              <dt>Qualified</dt>
+              <dd>
+                <StatusChip
+                  label={data.isQualified ? 'Qualified' : 'Not qualified'}
+                  tone={data.isQualified ? 'success' : 'neutral'}
+                />
+              </dd>
+            </div>
+            <div className={styles.field}>
+              <dt>Program</dt>
+              <dd>
+                {data.program.name} ({data.program.code})
+              </dd>
+            </div>
+            <div className={styles.field}>
+              <dt>Referral Code</dt>
+              <dd className={styles.mono}>{data.referralCode}</dd>
+            </div>
+            <div className={styles.field}>
+              <dt>Registered</dt>
+              <dd>{formatDate(data.registeredAt)}</dd>
+            </div>
+            <div className={styles.field}>
+              <dt>Registration ID</dt>
+              <dd className={styles.mono}>{data.registrationId}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>Application Details</h2>
+          {!data.registrationId ? (
+            <p
+              style={{
+                fontSize: 'var(--text-body-s)',
+                color: 'var(--color-text-muted)',
+                margin: 0,
+              }}
+            >
+              Direct-created member — no application on file.
+            </p>
+          ) : applicationPending ? (
+            <p
+              style={{
+                fontSize: 'var(--text-body-s)',
+                color: 'var(--color-text-muted)',
+                margin: 0,
+              }}
+            >
+              Loading application…
+            </p>
+          ) : !application ? (
+            <p
+              style={{
+                fontSize: 'var(--text-body-s)',
+                color: 'var(--color-text-muted)',
+                margin: 0,
+              }}
+            >
+              Application {data.registrationId} not found.
+            </p>
+          ) : (
+            <dl className={styles.fieldGrid}>
+              <div className={styles.field}>
+                <dt>Program</dt>
+                <dd>
+                  {application.programCode} ({application.programId})
+                </dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Referral Code</dt>
+                <dd className={styles.mono}>{application.referralCode ?? '—'}</dd>
+              </div>
+              <div className={styles.field}>
+                <dt>Submitted</dt>
+                <dd>{formatDate(application.submittedAt)}</dd>
+              </div>
+              {application.reviewedAt ? (
+                <div className={styles.field}>
+                  <dt>Reviewed</dt>
+                  <dd>
+                    {formatDate(application.reviewedAt)} ·{' '}
+                    <span className={styles.mono}>{application.reviewedBy ?? '—'}</span>
+                  </dd>
+                </div>
+              ) : null}
+              {application.rejectionNote ? (
+                <div className={styles.field}>
+                  <dt>Rejection Note</dt>
+                  <dd>
+                    {application.rejectionNote.reason} — {application.rejectionNote.requiredChanges}
+                  </dd>
+                </div>
+              ) : null}
+              <div className={styles.field}>
+                <dt>Qualification Answers</dt>
+                <dd>
+                  {application.qualificationAnswers.length === 0
+                    ? '—'
+                    : application.qualificationAnswers.map((qa) => (
+                        <div key={qa.questionId}>
+                          <span style={{ fontWeight: 600 }}>{qa.questionId}:</span> {qa.answer}
+                        </div>
+                      ))}
+                </dd>
+              </div>
+              {application.governmentId ? (
+                <>
+                  <div className={styles.field}>
+                    <dt>Government ID</dt>
+                    <dd className={styles.mono}>{application.governmentId.fileName}</dd>
+                    <dd
+                      style={{ fontSize: 'var(--text-caption)', color: 'var(--color-text-muted)' }}
+                    >
+                      {(application.governmentId.sizeBytes / 1024).toFixed(1)} KB ·{' '}
+                      {application.governmentId.mimeType}
+                    </dd>
+                  </div>
+                  <div className={styles.field}>
+                    <dt>Preview</dt>
+                    <dd>
+                      <GovernmentIdPreview
+                        registrationId={application.id}
+                        fileName={application.governmentId.fileName}
+                        mimeType={application.governmentId.mimeType}
+                        hasFile={
+                          'storagePath' in application.governmentId &&
+                          Boolean(application.governmentId.storagePath)
+                        }
+                      />
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.field}>
+                  <dt>Government ID</dt>
+                  <dd style={{ color: 'var(--color-text-muted)' }}>No document on record.</dd>
+                </div>
+              )}
+            </dl>
+          )}
+        </div>
+
+        <div className={`${styles.card} ${styles.actionsCard}`}>
+          <h2 className={styles.cardTitle}>Actions</h2>
+          {error ? (
+            <p className={styles.errorText} role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className={styles.actions}>
+            {!isEditing ? (
+              <Button variant="secondary" onClick={startEdit} aria-label="Edit member">
+                Edit
+              </Button>
+            ) : null}
+            {data.status === 'APPROVED_ACTIVE' ? (
+              <Button
+                variant="secondary"
+                onClick={() => setShowQualifyConfirm(true)}
+                aria-label={data.isQualified ? 'Revoke qualification' : 'Grant qualification'}
+              >
+                {data.isQualified ? 'Revoke Qualification' : 'Grant Qualification'}
+              </Button>
+            ) : null}
+            <Button
+              variant={data.accountStatus === 'ACTIVE' ? 'danger' : 'secondary'}
+              onClick={() => setShowDeactivateConfirm(true)}
+              aria-label={data.accountStatus === 'ACTIVE' ? 'Deactivate member' : 'Activate member'}
+            >
+              {data.accountStatus === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => setShowArchiveConfirm(true)}
+              aria-label="Archive member"
+            >
+              Archive
+            </Button>
+          </div>
+
+          <ConfirmDialog
+            open={showQualifyConfirm}
+            onCancel={() => setShowQualifyConfirm(false)}
+            onConfirm={handleToggleQualified}
+            title={
+              data.isQualified
+                ? `Revoke qualification from ${memberName}?`
+                : `Grant qualification to ${memberName}?`
+            }
+            message={
+              data.isQualified
+                ? 'Revoking qualification removes member_qualified status and blocks sales submission and sponsorship until it is re-granted.'
+                : 'Granting qualification marks the member as Active + Qualified, unlocking sales submission and sponsorship.'
+            }
+            confirmLabel={data.isQualified ? 'Revoke' : 'Grant'}
+            cancelLabel="Cancel"
+            danger={data.isQualified}
+          />
+
+          <ConfirmDialog
+            open={showDeactivateConfirm}
+            onCancel={() => setShowDeactivateConfirm(false)}
+            onConfirm={handleToggleActive}
+            title={
+              data.accountStatus === 'ACTIVE'
+                ? `Deactivate ${memberName}?`
+                : `Activate ${memberName}?`
+            }
+            message={
+              data.accountStatus === 'ACTIVE'
+                ? 'Deactivate this member? Account will become INACTIVE but not deleted. Member will need reactivation to access the platform.'
+                : 'Activate this member? Account will become ACTIVE and regain access.'
+            }
+            confirmLabel={data.accountStatus === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+            cancelLabel="Cancel"
+            danger={data.accountStatus === 'ACTIVE'}
+          />
+
+          <ConfirmDialog
+            open={showArchiveConfirm}
+            onCancel={() => setShowArchiveConfirm(false)}
+            onConfirm={handleArchive}
+            title={`Archive ${memberName}?`}
+            message="Archive this member? Record will be moved to Archives and removed from active Members. Original data retained for audit."
+            confirmLabel="Archive"
+            cancelLabel="Cancel"
+            danger
+          />
+        </div>
+      </div>
+    </section>
+  );
+}

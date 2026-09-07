@@ -1,0 +1,38 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router';
+
+import { ToastProvider } from '@jad/ui';
+
+import { SessionProvider, type SessionUser } from '../lib/session';
+import { adminMockHandlers } from '../mock/handlers';
+import { createMockServer } from '@jad/mock';
+
+/**
+ * Test renderer mirroring the providers used in `main.tsx`: fresh QueryClient
+ * (no retries), MemoryRouter, and the app session provider (restore instant).
+ */
+export function renderWithProviders(
+  ui: ReactElement,
+  { route = '/admin', user }: { route?: string; user?: SessionUser } = {},
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const result = render(
+    <ToastProvider>
+      <SessionProvider initialUser={user} restoreDelayMs={0}>
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+        </QueryClientProvider>
+      </SessionProvider>
+    </ToastProvider>,
+  );
+  return { ...result, client };
+}
+
+/** Install the admin mock API with zero latency; returns the server for `restore()`. */
+export function installMockApi() {
+  return createMockServer(adminMockHandlers, 0);
+}

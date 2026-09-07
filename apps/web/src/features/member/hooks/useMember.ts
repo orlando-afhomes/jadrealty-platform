@@ -1,0 +1,237 @@
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+
+import { useSession } from '../../../lib/session';
+import { getSupabaseClient, isSupabaseConfigured } from '../../../lib/supabase';
+
+import {
+  getBroadcasts,
+  getCommissions,
+  getContentLibrary,
+  getCustomers,
+  getDirectReferrals,
+  getGenealogy,
+  getGroupNetwork,
+  getLedgerPage,
+  getPayoutAccounts,
+  getPolicies,
+  getProfile,
+  getQualification,
+  getReferralCode,
+  getSale,
+  getSales,
+  getVoucher,
+  getVouchers,
+  getWallet,
+  getWithdrawal,
+  getWithdrawals,
+} from '../services/member';
+
+/** `GET /members/:id` — the signed-in member's profile (SCR-MEM-002). */
+export function useMemberProfile() {
+  const { user } = useSession();
+  return useQuery({
+    queryKey: ['member', 'profile', user?.id],
+    queryFn: () => getProfile(user!.id),
+    enabled: Boolean(user?.id),
+  });
+}
+
+/** `GET /me/wallet` — eWallet summary (SCR-MEM-001). */
+export function useWallet() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'wallet', user?.id], queryFn: getWallet, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/ledger` — append-only ledger, cursor-paginated (SCR-MEM-009, API-SPECIFICATION §4). */
+export function useLedgerPage(type: string) {
+  const { user } = useSession();
+  return useInfiniteQuery({
+    queryKey: ['member', 'ledger', 'page', type, user?.id],
+    queryFn: ({ pageParam }) => getLedgerPage(pageParam as string | undefined, type || undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled: Boolean(user?.id),
+  });
+}
+
+/** `GET /me/commissions` — own commissions (SCR-MEM-015). */
+export function useCommissions() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'commissions', user?.id], queryFn: getCommissions, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/payout-accounts` — own payout accounts (SCR-MEM-010). */
+export function usePayoutAccounts() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'payout-accounts', user?.id], queryFn: getPayoutAccounts, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/withdrawals` — own withdrawals (SCR-MEM-013). */
+export function useWithdrawals() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'withdrawals', user?.id], queryFn: getWithdrawals, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/withdrawals/:id` — one withdrawal (SCR-MEM-014). */
+export function useWithdrawal(withdrawalId: string) {
+  return useQuery({
+    queryKey: ['member', 'withdrawals', withdrawalId],
+    queryFn: () => getWithdrawal(withdrawalId),
+    enabled: withdrawalId.length > 0,
+  });
+}
+
+/** `GET /me/qualification` — server-authoritative checklist (SCR-MEM-004). */
+export function useQualification() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'qualification', user?.id], queryFn: getQualification, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/referral-code` — immutable referral code (SCR-MEM-003). */
+export function useReferralCode() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'referral-code', user?.id], queryFn: getReferralCode, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/broadcasts` — member notification feed (SCR-MEM-001). Supabase Realtime when configured. */
+export function useBroadcasts() {
+  return useQuery({
+    queryKey: ['member', 'broadcasts'],
+    queryFn: async () => {
+      if (
+        (import.meta.env as Record<string, string | undefined>).MODE !== 'test' &&
+        isSupabaseConfigured()
+      ) {
+        const client = getSupabaseClient() as unknown as {
+          from: (t: string) => {
+            select: (c: string) => Promise<{ data: unknown[] | null; error: unknown }>;
+          };
+        } | null;
+        if (client) {
+          try {
+            const { data, error } = await client.from('notifications').select('*');
+            if (!error && Array.isArray(data)) return data as never;
+          } catch {
+            // fallback to mock
+          }
+        }
+      }
+      return getBroadcasts();
+    },
+  });
+}
+
+/** `GET /customers` — the member's own customer records (SCR-MEM-006). */
+export function useCustomers() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'customers', user?.id], queryFn: getCustomers, enabled: Boolean(user?.id) });
+}
+
+/** `GET /sales` — the member's own sales (SCR-MEM-005). */
+export function useSales() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'sales', user?.id], queryFn: getSales, enabled: Boolean(user?.id) });
+}
+
+/** `GET /sales/:id` — one of the member's own sales (SCR-MEM-007). */
+export function useSale(saleId: string) {
+  return useQuery({
+    queryKey: ['member', 'sales', saleId],
+    queryFn: () => getSale(saleId),
+    enabled: saleId.length > 0,
+  });
+}
+
+/** `GET /me/direct-referrals` — direct referrals (SCR-MEM-016, reporting only). */
+export function useDirectReferrals() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'direct-referrals', user?.id], queryFn: getDirectReferrals, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/reports/group-network` — network summary (SCR-MEM-017, reporting only). */
+export function useGroupNetwork() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'group-network', user?.id], queryFn: getGroupNetwork, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/genealogy` — referral tree (SCR-MEM-018, no MLM). */
+export function useGenealogy() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'genealogy', user?.id], queryFn: getGenealogy, enabled: Boolean(user?.id) });
+}
+
+/** `GET /me/vouchers` — own vouchers (SCR-MEM-020). */
+export function useVouchers() {
+  const { user } = useSession();
+  return useQuery({ queryKey: ['member', 'vouchers', user?.id], queryFn: getVouchers, enabled: Boolean(user?.id) });
+}
+
+/** `GET /vouchers/:id` — one of the member's own vouchers (SCR-MEM-021). */
+export function useVoucher(voucherId: string) {
+  return useQuery({
+    queryKey: ['member', 'vouchers', voucherId],
+    queryFn: () => getVoucher(voucherId),
+    enabled: voucherId.length > 0,
+  });
+}
+
+/** `GET /content/forwardable` — content library (SCR-MEM-022). Supabase Storage `marketing-tools` when configured. */
+export function useContentLibrary() {
+  return useQuery({
+    queryKey: ['member', 'content-library'],
+    queryFn: async () => {
+      if (
+        (import.meta.env as Record<string, string | undefined>).MODE !== 'test' &&
+        isSupabaseConfigured()
+      ) {
+        const client = getSupabaseClient() as unknown as {
+          from: (t: string) => {
+            select: (c: string) => {
+              eq: (k: string, v: boolean) => Promise<{ data: unknown[] | null; error: unknown }>;
+            };
+          };
+        } | null;
+        if (client) {
+          try {
+            const { data, error } = await client
+              .from('content_items')
+              .select('*')
+              .eq('published', true);
+            if (!error && Array.isArray(data)) return data as never;
+          } catch {
+            // fallback
+          }
+        }
+      }
+      return getContentLibrary();
+    },
+  });
+}
+
+/** `GET /policies` — policies, guidelines, T&C (SCR-MEM-023). CMS `policies` table when Supabase configured. */
+export function usePolicies() {
+  return useQuery({
+    queryKey: ['member', 'policies'],
+    queryFn: async () => {
+      if (
+        (import.meta.env as Record<string, string | undefined>).MODE !== 'test' &&
+        isSupabaseConfigured()
+      ) {
+        const client = getSupabaseClient() as unknown as {
+          from: (t: string) => {
+            select: (c: string) => Promise<{ data: unknown[] | null; error: unknown }>;
+          };
+        } | null;
+        if (client) {
+          try {
+            const { data, error } = await client.from('policies').select('*');
+            if (!error && Array.isArray(data)) return data as never;
+          } catch {
+            // fallback
+          }
+        }
+      }
+      return getPolicies();
+    },
+  });
+}

@@ -1,0 +1,8 @@
+/* Admin app global styles — the shared design system (tokens/base) comes from
+ * @jad/ui. Only app-specific overrides live here. */
+
+/* Horizontal scroll for wide operational tables on short viewports. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}

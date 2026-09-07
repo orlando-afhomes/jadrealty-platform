@@ -1,0 +1,26 @@
+/**
+ * Shared Supabase env resolution for api/ handlers (server-only).
+ * Resolution order mirrors supabase/seed.ts: explicit SUPABASE_URL, then
+ * VITE_/NEXT_PUBLIC_ variants, then derived from DATABASE_URL. Never commit
+ * secrets — all values come from process env.
+ */
+export function getSupabaseEnv() {
+  let url =
+    process.env.SUPABASE_URL ??
+    process.env.VITE_SUPABASE_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // Fallback: derive from DATABASE_URL like supabase/seed.ts does (for local .env without VITE_ URL).
+  // Note: the project ref is the label after an optional `db.` prefix
+  // (real DATABASE_URL hosts look like `db.<ref>.supabase.co`).
+  if ((!url || url.includes('your-project')) && process.env.DATABASE_URL) {
+    try {
+      const dbUrl = new URL(process.env.DATABASE_URL);
+      const ref = dbUrl.hostname.replace(/^db\./, '').split('.')[0];
+      if (ref) url = `https://${ref}.supabase.co`;
+    } catch {}
+  }
+  if (url?.includes('your-project')) url = 'https://vudwoqduebdgtzvybywb.supabase.co';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+  return { url, serviceKey, anonKey };
+}

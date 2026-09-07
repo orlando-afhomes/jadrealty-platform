@@ -1,0 +1,20 @@
+{
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "pnpm install",
+  "framework": "vite",
+  "functions": {
+    "api/v1/cms/[key].ts": {
+      "includeFiles": "packages/**"
+    },
+    "api/v1/cms/upload.ts": {
+      "includeFiles": "packages/**"
+    },
+    "api/v1/cms/upload/sign.ts": {
+      "includeFiles": "packages/**"
+    },
+    "api/v1/registration/location-verify.ts": {
+      "includeFiles": "packages/**"
+    }
+  }
+}

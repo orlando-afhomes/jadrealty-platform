@@ -1,0 +1,100 @@
+/*
+ * Shared base + accessibility contract (@jad/ui/base.css).
+ * Consumed by every JAD app before its own global styles: box-sizing, body
+ * defaults, visible focus, screen-reader helpers, skip link, reduced motion.
+ * (UI-UX §12, DESIGN-SYSTEM §7.)
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-state-focus);
+  outline-offset: 2px;
+}
+
+img,
+svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+::selection {
+  background-color: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+/* Skip link (UI-UX §12.3, DESIGN-SYSTEM §7.2) */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: var(--space-4);
+  z-index: var(--z-skip-link);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: var(--space-2);
+}
+
+/* Screen-reader-only helper */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Table scroll container — shared by Admin and Member panels (DESIGN-SYSTEM §6.4) */
+.table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+@media (max-width: 639px) {
+  .table-scroll {
+    overflow-x: visible;
+  }
+}
+
+/* Reduced motion (UI-UX §12.9, DESIGN-SYSTEM §7.8) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

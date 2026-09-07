@@ -1,0 +1,14 @@
+.loading {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.link {
+  font-weight: 600;
+  color: var(--color-brand-primary);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

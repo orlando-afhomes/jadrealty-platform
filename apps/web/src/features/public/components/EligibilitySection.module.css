@@ -1,0 +1,9 @@
+.sectionTitle {
+  margin-bottom: var(--space-4);
+}
+
+.skeleton {
+  height: 24px;
+  width: 300px;
+  max-width: 100%;
+}

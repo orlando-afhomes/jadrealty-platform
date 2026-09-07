@@ -1,0 +1,157 @@
+.wrapper {
+  position: relative;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-2) 2px 2px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.trigger:hover,
+.trigger:focus-visible {
+  background: var(--color-state-hover, rgba(28, 43, 58, 0.06));
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-brand-primary, #2c6aa7);
+  border: 2px solid var(--color-brand-primary, #2c6aa7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  color: var(--color-on-dark, #fff);
+  flex-shrink: 0;
+  line-height: 1;
+  user-select: none;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.name {
+  font-weight: 600;
+  font-size: var(--text-body-s);
+}
+
+.role {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+.chevron {
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.trigger[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Mobile: hide text/chevron, show only avatar ────────────────── */
+
+@media (max-width: 639px) {
+  .avatar {
+    display: flex;
+  }
+
+  .userInfo,
+  .chevron {
+    display: none;
+  }
+
+  .trigger {
+    padding: 0;
+  }
+}
+
+/* ── Panel (dropdown) ──────────────────────────────────────────── */
+
+.backdrop {
+  display: none;
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 180px;
+  background: var(--color-bg-surface-raised, #fff);
+  border: 1px solid var(--color-border-default, #e5e0d4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+  padding: var(--space-1) 0;
+  outline: none;
+  /* Reset Topbar mobile dark overrides so panel stays light with dark text */
+  --color-text-primary: #1c2b3a;
+  --color-text-secondary: #40505f;
+  --color-text-muted: #64737f;
+  --color-text-error: #a63a32;
+  --color-border-default: #e5e0d4;
+  color: var(--color-text-primary);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: var(--text-body-s);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--color-state-hover, rgba(28, 43, 58, 0.06));
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.itemIcon {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.itemDanger {
+  composes: item;
+  color: var(--color-text-error);
+}
+
+.itemDanger .itemIcon {
+  color: var(--color-text-error);
+}
+
+.divider {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--color-border-default, #e5e0d4);
+}

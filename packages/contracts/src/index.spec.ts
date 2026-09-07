@@ -1,0 +1,425 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  listResponseSchema,
+  errorEnvelopeSchema,
+  publicConfigSchema,
+  programSchema,
+  policySchema,
+  staffRoleSchema,
+  staffModuleSchema,
+  STAFF_ROLE_LABEL,
+  STAFF_PERMISSIONS,
+  canStaffAccess,
+  roleRecordSchema,
+  systemRoleRecords,
+  slugifyRoleName,
+  isRoleNameUnique,
+  resolveRoleModules,
+  roleNameFor,
+  STAFF_MODULE_LABEL,
+  staffMemberSchema,
+  auditLogEntrySchema,
+  systemConfigEntrySchema,
+  CONFIG_SEEDS,
+  PROGRAM_SEEDS,
+  PROGRAM_QUESTION_SEEDS,
+  POLICY_SEEDS,
+  qualificationQuestionSchema,
+} from '../src/index';
+import type { RoleRecord, StaffModule, StaffRole } from '../src/index';
+
+describe('errorEnvelopeSchema', () => {
+  it('accepts a valid envelope', () => {
+    const result = errorEnvelopeSchema.safeParse({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Resource not found',
+        requestId: 'abc',
+        timestamp: '2026-08-18T10:00:00Z',
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a missing message', () => {
+    const result = errorEnvelopeSchema.safeParse({
+      error: { code: 'NOT_FOUND', timestamp: '2026-08-18T10:00:00Z' },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('listResponseSchema', () => {
+  const schema = listResponseSchema(programSchema);
+
+  it('accepts a data array with optional meta', () => {
+    const result = schema.safeParse({
+      data: [{ id: 'p1', code: 'D', name: 'Domestic' }],
+      meta: { pagination: { page: 1 } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an invalid item in data', () => {
+    const result = schema.safeParse({ data: [{ id: 'p1' }] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('publicConfigSchema', () => {
+  it('accepts a minimum age and optional genders', () => {
+    expect(
+      publicConfigSchema.safeParse({ minimumAge: 18, genders: ['Male', 'Female'] }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a negative minimum age', () => {
+    expect(publicConfigSchema.safeParse({ minimumAge: -1 }).success).toBe(false);
+  });
+
+  it('rejects a missing minimum age', () => {
+    expect(publicConfigSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('programSchema', () => {
+  it('accepts a minimal program', () => {
+    expect(programSchema.safeParse({ id: 'p1', code: 'D', name: 'Domestic' }).success).toBe(true);
+  });
+
+  it('rejects a program without a name', () => {
+    expect(programSchema.safeParse({ id: 'p1', code: 'D' }).success).toBe(false);
+  });
+});
+
+describe('policySchema', () => {
+  it('accepts a policy with content', () => {
+    expect(
+      policySchema.safeParse({
+        id: 'pol1',
+        title: 'Terms',
+        type: 'TERMS',
+        content: '...',
+        updatedAt: '2026-08-18T10:00:00Z',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a policy without a title', () => {
+    expect(
+      policySchema.safeParse({ id: 'pol1', type: 'TERMS', updatedAt: '2026-08-18T10:00:00Z' })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('staffRoleSchema', () => {
+  it('accepts the four staff roles', () => {
+    for (const role of ['super_admin', 'admin', 'finance', 'merchant'] as const) {
+      expect(staffRoleSchema.safeParse(role).success).toBe(true);
+    }
+  });
+
+  it('rejects session/member role values', () => {
+    expect(staffRoleSchema.safeParse('user').success).toBe(false);
+    expect(staffRoleSchema.safeParse('member_basic').success).toBe(false);
+    expect(staffRoleSchema.safeParse('').success).toBe(false);
+  });
+
+  it('labels every role', () => {
+    const roles = staffRoleSchema.options as readonly StaffRole[];
+    for (const role of roles) {
+      expect(STAFF_ROLE_LABEL[role]).toBeTruthy();
+    }
+  });
+});
+
+describe('STAFF_PERMISSIONS matrix', () => {
+  const allModules = staffModuleSchema.options as readonly StaffModule[];
+
+  it('covers every module for super_admin', () => {
+    expect([...STAFF_PERMISSIONS.super_admin].sort()).toEqual([...allModules].sort());
+  });
+
+  it('grants admin operational + content modules but not governance', () => {
+    expect(canStaffAccess('admin', 'sales')).toBe(true);
+    expect(canStaffAccess('admin', 'members')).toBe(true);
+    expect(canStaffAccess('admin', 'properties')).toBe(true);
+    expect(canStaffAccess('admin', 'marketing_tools')).toBe(true);
+    expect(canStaffAccess('admin', 'cms')).toBe(true);
+    expect(canStaffAccess('admin', 'config')).toBe(false);
+    expect(canStaffAccess('admin', 'programs')).toBe(false);
+    expect(canStaffAccess('admin', 'audit')).toBe(false);
+    expect(canStaffAccess('admin', 'staff')).toBe(false);
+  });
+
+  it('limits finance to sales queue, payouts and withdrawals', () => {
+    expect(STAFF_PERMISSIONS.finance).toEqual(['dashboard', 'sales', 'payouts', 'withdrawals']);
+    expect(canStaffAccess('finance', 'config')).toBe(false);
+    expect(canStaffAccess('finance', 'audit')).toBe(false);
+    expect(canStaffAccess('finance', 'members')).toBe(false);
+  });
+
+  it('limits merchant to vouchers redemption scope', () => {
+    expect(STAFF_PERMISSIONS.merchant).toEqual(['vouchers']);
+    expect(canStaffAccess('merchant', 'sales')).toBe(false);
+    expect(canStaffAccess('merchant', 'dashboard')).toBe(false);
+  });
+
+  it('denies null role everything', () => {
+    for (const module of allModules) {
+      expect(canStaffAccess(null, module)).toBe(false);
+    }
+  });
+});
+
+describe('roleRecordSchema', () => {
+  it('accepts a valid custom role record', () => {
+    expect(
+      roleRecordSchema.safeParse({
+        id: 'role-finance-reviewer',
+        name: 'Finance Reviewer',
+        permissions: ['dashboard', 'sales', 'payouts', 'withdrawals'],
+        isSystem: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects empty permissions, blank names, and overlong names', () => {
+    expect(
+      roleRecordSchema.safeParse({ id: 'r', name: 'X', permissions: [], isSystem: false })
+        .success,
+    ).toBe(false);
+    expect(
+      roleRecordSchema.safeParse({ id: 'r', name: '  ', permissions: ['sales'], isSystem: false })
+        .success,
+    ).toBe(false);
+    expect(
+      roleRecordSchema.safeParse({ id: 'r', name: 'x'.repeat(61), permissions: ['sales'], isSystem: false })
+        .success,
+    ).toBe(false);
+  });
+
+  it('rejects unknown modules', () => {
+    expect(
+      roleRecordSchema.safeParse({ id: 'r', name: 'X', permissions: ['nope'], isSystem: false })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('staffMemberSchema', () => {
+  it('accepts a roster-shaped staff member', () => {
+    expect(
+      staffMemberSchema.safeParse({
+        id: 'stf-001',
+        name: 'Saul Super',
+        email: 'superadmin@gmail.com',
+        roleId: 'super_admin',
+        status: 'ACTIVE',
+        createdAt: '2026-07-01T09:00:00.000Z',
+        createdBy: 'System',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects bad emails, roles, and statuses', () => {
+    const base = {
+      id: 'stf-009',
+      name: 'New Hire',
+      email: 'new.hire@jad.example',
+      roleId: 'admin',
+      status: 'ACTIVE',
+      createdAt: '2026-09-04T00:00:00.000Z',
+      createdBy: 'Saul Super',
+    };
+    expect(staffMemberSchema.safeParse({ ...base, email: 'nope' }).success).toBe(false);
+    expect(staffMemberSchema.safeParse({ ...base, roleId: '' }).success).toBe(false);
+    expect(staffMemberSchema.safeParse({ ...base, status: 'SUSPENDED' }).success).toBe(false);
+  });
+});
+
+describe('auditLogEntrySchema', () => {
+  it('accepts a fully attributed entry', () => {
+    expect(
+      auditLogEntrySchema.safeParse({
+        id: 'aud-001',
+        action: 'STAFF_CREATED',
+        actor: 'Saul Super',
+        actorRole: 'SUPER_ADMIN',
+        targetType: 'Staff',
+        targetId: 'stf-009',
+        targetName: 'New Hire',
+        detail: 'Created staff account with role Admin',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects unattributed entries', () => {
+    expect(
+      auditLogEntrySchema.safeParse({
+        id: 'aud-002',
+        action: 'STAFF_CREATED',
+        actor: '',
+        actorRole: 'SUPER_ADMIN',
+        targetType: 'Staff',
+        targetId: 'stf-009',
+        targetName: 'New Hire',
+        detail: '',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('systemRoleRecords seed parity', () => {
+  it('builds one system record per matrix row with identical permissions', () => {
+    const seeds = systemRoleRecords();
+    expect(seeds.map((r) => r.id).sort()).toEqual(
+      (staffRoleSchema.options as readonly StaffRole[]).map(String).sort(),
+    );
+    for (const seed of seeds) {
+      expect(seed.isSystem).toBe(true);
+      expect(seed.name).toBe(STAFF_ROLE_LABEL[seed.id as StaffRole]);
+      expect([...seed.permissions].sort()).toEqual([...STAFF_PERMISSIONS[seed.id as StaffRole]].sort());
+    }
+  });
+});
+
+describe('slugifyRoleName', () => {
+  it('derives stable slugs', () => {
+    expect(slugifyRoleName('Finance Reviewer')).toBe('role-finance-reviewer');
+    expect(slugifyRoleName('  CMS  & Content!! ')).toBe('role-cms-content');
+    expect(slugifyRoleName('')).toBe('role-custom');
+  });
+});
+
+describe('isRoleNameUnique', () => {
+  const roles: Pick<RoleRecord, 'id' | 'name'>[] = [
+    { id: 'admin', name: 'Admin' },
+    { id: 'role-finance-reviewer', name: 'Finance Reviewer' },
+  ];
+
+  it('compares case-insensitively with surrounding whitespace ignored', () => {
+    expect(isRoleNameUnique(roles, 'finance reviewer')).toBe(false);
+    expect(isRoleNameUnique(roles, '  ADMIN ')).toBe(false);
+    expect(isRoleNameUnique(roles, 'Auditor')).toBe(true);
+  });
+
+  it('ignores the excluded id (rename keeps its own name)', () => {
+    expect(isRoleNameUnique(roles, 'Finance Reviewer', 'role-finance-reviewer')).toBe(true);
+    expect(isRoleNameUnique(roles, 'Finance Reviewer', 'admin')).toBe(false);
+  });
+});
+
+describe('resolveRoleModules', () => {
+  const custom: RoleRecord = {
+    id: 'role-finance-reviewer',
+    name: 'Finance Reviewer',
+    permissions: ['dashboard', 'sales', 'payouts', 'withdrawals'],
+    isSystem: false,
+  };
+
+  it('resolves custom record permissions', () => {
+    expect(resolveRoleModules([custom], 'role-finance-reviewer')).toEqual([
+      'dashboard',
+      'sales',
+      'payouts',
+      'withdrawals',
+    ]);
+  });
+
+  it('falls back to the matrix seed for system ids without records', () => {
+    expect(resolveRoleModules(undefined, 'finance')).toEqual([
+      'dashboard',
+      'sales',
+      'payouts',
+      'withdrawals',
+    ]);
+    expect(resolveRoleModules([], 'merchant')).toEqual(['vouchers']);
+  });
+
+  it('denies null, undefined, and unknown ids by default', () => {
+    expect(resolveRoleModules([custom], null)).toEqual([]);
+    expect(resolveRoleModules([custom], undefined)).toEqual([]);
+    expect(resolveRoleModules([custom], 'role-ghost')).toEqual([]);
+    expect(resolveRoleModules(undefined, 'role-ghost')).toEqual([]);
+  });
+
+  it('prefers the record over the matrix seed when both exist', () => {
+    const edited: RoleRecord = { ...custom, id: 'finance', permissions: ['sales'] };
+    expect(resolveRoleModules([edited], 'finance')).toEqual(['sales']);
+  });
+});
+
+describe('roleNameFor', () => {
+  it('prefers record names, then system labels, then the raw id', () => {
+    const records: Pick<RoleRecord, 'id' | 'name'>[] = [
+      { id: 'role-finance-reviewer', name: 'Finance Reviewer' },
+    ];
+    expect(roleNameFor(records, 'role-finance-reviewer')).toBe('Finance Reviewer');
+    expect(roleNameFor(records, 'admin')).toBe('Admin');
+    expect(roleNameFor(records, 'role-ghost')).toBe('role-ghost');
+    expect(roleNameFor(undefined, 'finance')).toBe('Finance');
+  });
+});
+
+describe('systemConfigEntrySchema', () => {
+  it('accepts a config row and rejects blanks', () => {
+    expect(
+      systemConfigEntrySchema.safeParse({
+        key: 'QUALIFICATION_MIN_AGE',
+        label: 'Minimum Member Age',
+        value: '18',
+        category: 'Qualification',
+      }).success,
+    ).toBe(true);
+    expect(
+      systemConfigEntrySchema.safeParse({ key: '', label: 'x', value: '1', category: 'y' }).success,
+    ).toBe(false);
+  });
+
+  it('seeds cover the public surface plus governance rows', () => {
+    const keys = CONFIG_SEEDS.map((c) => c.key);
+    expect(keys).toContain('QUALIFICATION_MIN_AGE');
+    expect(keys).toContain('GENDERS');
+    expect(keys).toContain('COMMISSION_DIRECT_RATE');
+    expect(JSON.parse(CONFIG_SEEDS.find((c) => c.key === 'GENDERS')!.value)).toEqual([
+      'Male',
+      'Female',
+      'Others',
+    ]);
+  });
+
+  it('seeds both programs with matching question sets', () => {
+    expect(PROGRAM_SEEDS.map((p) => p.id).sort()).toEqual(['prg-abroad', 'prg-domestic']);
+    for (const group of PROGRAM_QUESTION_SEEDS) {
+      expect(group.questions.length).toBeGreaterThan(0);
+      for (const q of group.questions) {
+        expect(qualificationQuestionSchema.safeParse({ id: q.id, questionText: q.questionText }).success).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it('seeds the three published policies', () => {
+    expect(POLICY_SEEDS.map((p) => p.id)).toEqual(['pol-001', 'pol-002', 'pol-003']);
+    for (const p of POLICY_SEEDS) {
+      expect(policySchema.safeParse({ ...p, updatedAt: p.updatedAt }).success).toBe(true);
+    }
+  });
+});
+
+describe('STAFF_MODULE_LABEL', () => {
+  it('labels every module', () => {
+    const modules = staffModuleSchema.options as readonly StaffModule[];
+    for (const module of modules) {
+      expect(STAFF_MODULE_LABEL[module]).toBeTruthy();
+    }
+    expect(STAFF_MODULE_LABEL.staff).toBe('Staff');
+    expect(STAFF_MODULE_LABEL.marketing_tools).toBe('Marketing Tools');
+  });
+});

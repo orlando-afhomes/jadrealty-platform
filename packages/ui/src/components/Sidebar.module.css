@@ -1,0 +1,264 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  background-color: var(--color-brand-deep);
+  /* Override text/icon tokens for light-on-dark within the sidebar. */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: rgba(255, 255, 255, 0.84);
+  --color-text-muted: rgba(255, 255, 255, 0.64);
+  --color-state-hover: rgba(255, 255, 255, 0.1);
+  --color-brand-soft: rgba(255, 255, 255, 0.12);
+  --color-border-default: rgba(255, 255, 255, 0.12);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-3) var(--space-4);
+}
+
+/* ── Primary list ─────────────────────────────────────────────────────── */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Primary nav link ─────────────────────────────────────────────────── */
+.sidebar a.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-s);
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.sidebar a.link:hover {
+  background-color: var(--color-state-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar a.active {
+  background-color: var(--color-brand-soft);
+  color: var(--color-on-dark);
+  font-weight: 600;
+}
+
+/* ── Icon + label + badge shared ──────────────────────────────────────── */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.badge {
+  flex: 0 0 auto;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-accent-light);
+  color: #1c2b3a;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  border: 1px solid rgba(28, 43, 58, 0.08);
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+.footer {
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-border-default);
+  font-size: var(--text-body-s);
+  color: var(--color-text-muted);
+}
+
+/* ── Category (expandable) ────────────────────────────────────────────── */
+.category {
+  /* Block layout: header + sub-list stack vertically. */
+}
+
+.categoryLink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-s);
+  font-weight: 500;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.categoryLink:hover,
+.categoryLink:focus-visible {
+  background-color: var(--color-state-hover);
+  color: var(--color-text-primary);
+}
+
+.categoryLink:focus-visible {
+  outline: 2px solid var(--color-accent-light);
+  outline-offset: -2px;
+}
+
+.categoryLink > .icon {
+  flex-shrink: 0;
+}
+
+.categoryLink > .label {
+  flex: 1 1 auto;
+}
+
+/* ── Chevron ──────────────────────────────────────────────────────────── */
+.chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  transition: transform var(--transition-fast);
+  color: var(--color-text-muted);
+}
+
+/* ── Sub-item list ────────────────────────────────────────────────────── */
+.subList {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 6px var(--space-8);
+}
+
+.sidebar a.subLink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 8px var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: var(--text-body-s);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.sidebar a.subLink:hover,
+.sidebar a.subLink:focus-visible {
+  background-color: var(--color-state-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar a.activeSubLink {
+  color: var(--color-on-dark);
+  font-weight: 600;
+  background-color: var(--color-brand-soft);
+}
+
+.subIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.subLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ── Divider inside dropdown ──────────────────────────────────────────────── */
+.subDivider {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+
+.subDividerHr {
+  border: none;
+  border-top: 1px solid var(--color-border-default);
+  margin: 0;
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+/* ── Collapsed sidebar (icons only) ──────────────────────────────────── */
+.sidebar.collapsed {
+  align-items: center;
+}
+
+.sidebar.collapsed .brand {
+  justify-content: center;
+  padding: var(--space-3);
+}
+
+.sidebar.collapsed .brand > *:not(img) {
+  display: none;
+}
+
+.sidebar.collapsed .nav {
+  padding: var(--space-3) var(--space-2);
+}
+
+.sidebar.collapsed a.link,
+.sidebar.collapsed .categoryLink {
+  justify-content: center;
+  padding: 10px;
+  gap: 0;
+}
+
+.sidebar.collapsed .categoryLink {
+  cursor: default;
+}
+
+.sidebar.collapsed .label,
+.sidebar.collapsed .badge,
+.sidebar.collapsed .chevron,
+.sidebar.collapsed .subList {
+  display: none;
+}
+
+.sidebar.collapsed .footer {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+}

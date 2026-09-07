@@ -1,0 +1,20 @@
+{
+  "name": "api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@jad/contracts": "workspace:*",
+    "@jad/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.112.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

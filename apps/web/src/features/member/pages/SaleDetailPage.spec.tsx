@@ -1,0 +1,112 @@
+import { describe, expect, it } from 'vitest';
+import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Route, Routes } from 'react-router';
+import { MOCK_MEMBER } from '@jad/mock';
+
+import { SaleDetailPage } from './SaleDetailPage';
+import { renderMember } from '../test/utils';
+import { mockFetchNetworkError, mockFetchRoutes } from '../../../test/utils';
+
+const CUSTOMERS = {
+  data: [{ id: 'cus-001', fullName: 'Ramon Reyes', phone: '+63 917 555 0111' }],
+  meta: {},
+};
+
+const SALE = {
+  id: 'sal-001',
+  status: 'SUBMITTED',
+  propertyId: 'prisma-2storey-house',
+  propertyName: '2-Storey House',
+  propertyValue: '3200000.00',
+  customerId: 'cus-001',
+  customerName: 'Celine Cruz',
+  sellerId: 'mem-001',
+  sellerName: 'Juan Dela Cruz',
+  resubmissionCount: 0,
+  submittedAt: '2026-08-18T10:00:00.000Z',
+};
+
+const LOCKED_SALE = {
+  id: 'sal-006',
+  status: 'LOCKED',
+  propertyId: 'prisma-celeste-building',
+  propertyName: 'Prisma Residences – Celeste Building Condo',
+  propertyValue: '8300000.00',
+  customerId: 'cus-001',
+  customerName: 'Celine Cruz',
+  sellerId: 'mem-001',
+  sellerName: 'Juan Dela Cruz',
+  resubmissionCount: 3,
+  submittedAt: '2026-08-10T10:00:00.000Z',
+  lockedAt: '2026-08-18T10:00:00.000Z',
+  rejectionReason: 'The submitted payment reference was invalid after multiple resubmissions.',
+};
+
+describe('member SaleDetailPage (SCR-MEM-007)', () => {
+  function renderSale(saleId: string) {
+    return renderMember(
+      <Routes>
+        <Route path="/member/sales/:saleId" element={<SaleDetailPage />} />
+      </Routes>,
+      { route: `/member/sales/${saleId}`, user: MOCK_MEMBER },
+    );
+  }
+
+  it('renders the server snapshot for one of the member\u2019s sales', async () => {
+    mockFetchRoutes({
+      '/sales/sal-001': SALE,
+      '/customers': CUSTOMERS,
+    });
+    renderSale('sal-001');
+
+    expect(await screen.findByText('2-Storey House')).toBeInTheDocument();
+    expect(screen.getByText('₱3,200,000.00')).toBeInTheDocument();
+    expect(screen.getByText('Celine Cruz')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to sales' })).toHaveAttribute(
+      'href',
+      '/member/sales',
+    );
+  });
+
+  it('requests staff review for a LOCKED sale (FR-SAL-007)', async () => {
+    mockFetchRoutes({
+      '/sales/sal-006': LOCKED_SALE,
+      '/customers': CUSTOMERS,
+      '/me/sales/sal-006/reopen-request': { saleId: 'sal-006', requested: true },
+    });
+    const user = userEvent.setup();
+    renderSale('sal-006');
+
+    const reopenButton = await screen.findByRole('button', { name: 'Request reopen' });
+    await user.click(reopenButton);
+
+    expect(
+      (
+        await screen.findAllByText(
+          'Your request was recorded. JA&D staff will review the locked sale.',
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('surfaces an error state when the sale endpoint fails', async () => {
+    mockFetchRoutes({
+      '/customers': CUSTOMERS,
+      '/sales/sal-999': {
+        body: { error: { code: 'NOT_FOUND', message: 'Not found' } },
+        status: 404,
+      },
+    });
+    renderSale('sal-999');
+
+    expect(await screen.findByText('Could not load this sale')).toBeInTheDocument();
+  });
+
+  it('shows a network error state', async () => {
+    mockFetchNetworkError();
+    renderSale('sal-001');
+
+    expect(await screen.findByText('Could not load this sale')).toBeInTheDocument();
+  });
+});

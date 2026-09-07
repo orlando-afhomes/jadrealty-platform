@@ -1,0 +1,189 @@
+import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
+
+import { SUPER_ADMIN_ONLY } from '../../_lib/access.js';
+import { findAuthUserId, isAuthConflict, verifyStaff } from '../../_lib/auth.js';
+import { appendAudit } from '../../_lib/audit.js';
+import { getSupabaseEnv } from '../../_lib/env.js';
+import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
+import { listRoleRecords, listStaffEntries, MEMBER_SLUGS } from '../../_lib/rbac.js';
+import { methodNotAllowed, okList, readJsonBody, requireService } from '../../_lib/rest.js';
+import { toErrorEnvelope } from '../../_lib/envelope.js';
+import { staffMemberSchema } from '@jad/contracts';
+
+function validEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/** GET /admin/staff — directory. POST — create staff + auth account + audit. */
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    methodNotAllowed(res, req.method);
+    return;
+  }
+  const auth = await verifyStaff(req, [...SUPER_ADMIN_ONLY]);
+  if ('error' in auth) {
+    const { error, status } = auth.error;
+    res.status(status).json({ error });
+    return;
+  }
+  const { url, serviceKey } = getSupabaseEnv();
+  if (!url || !serviceKey) {
+    const { error, status } = toErrorEnvelope('INTERNAL', 'Supabase not configured', 500);
+    res.status(status).json({ error });
+    return;
+  }
+  const supabase = createClient(url, serviceKey, { auth: { autoRefreshToken: false } });
+
+  if (req.method === 'GET') {
+    const entries = await listStaffEntries(supabase);
+    okList(
+      res,
+      entries.filter((e) => staffMemberSchema.safeParse(e).success),
+    );
+    return;
+  }
+
+  const parsedBody = readJsonBody(req);
+  if (!parsedBody.ok) {
+    const { error, status } = parsedBody.error;
+    res.status(status).json({ error });
+    return;
+  }
+  const input = (parsedBody.body ?? {}) as Record<string, unknown>;
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
+  const roleId = typeof input.roleId === 'string' ? input.roleId : '';
+  if (!name) {
+    const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Name is required.', 400);
+    res.status(status).json({ error });
+    return;
+  }
+  if (!validEmail(email)) {
+    const { error, status } = toErrorEnvelope(
+      'VALIDATION_ERROR',
+      'A valid email address is required.',
+      400,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  const roles = await listRoleRecords(supabase);
+  const role = roles.find((r) => r.id === roleId);
+  if (!role) {
+    const { error, status } = toErrorEnvelope(
+      'VALIDATION_ERROR',
+      'Selected role does not exist.',
+      400,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  if (MEMBER_SLUGS.includes(roleId)) {
+    const { error, status } = toErrorEnvelope(
+      'VALIDATION_ERROR',
+      'Selected role is not a staff role.',
+      400,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  const { data: dupe } = await supabase.from('Member').select('id').eq('email', email).limit(1);
+  if (Array.isArray(dupe) && dupe.length > 0) {
+    const { error, status } = toErrorEnvelope(
+      'CONFLICT',
+      'A staff member with this email already exists.',
+      409,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  const created = await supabase.auth.admin.createUser({
+    email,
+    password: randomUUID(),
+    email_confirm: true,
+    user_metadata: { full_name: name },
+  });
+  if (created.error && !isAuthConflict(created.error)) {
+    const { error, status } = toErrorEnvelope('INTERNAL', created.error.message, 500);
+    res.status(status).json({ error });
+    return;
+  }
+  let authId = (created.data as { user?: { id: string } } | null)?.user?.id ?? null;
+  // Duplicate identity (orphaned auth row): adopt the existing account.
+  if (!authId) {
+    authId = await findAuthUserId(supabase, { email });
+  }
+  if (!authId) {
+    const { error, status } = toErrorEnvelope('INTERNAL', 'Staff auth account unresolvable', 500);
+    res.status(status).json({ error });
+    return;
+  }
+  const [firstName, ...rest] = name.split(' ');
+  const now = new Date().toISOString();
+  const { error: memberError } = await supabase.from('Member').upsert(
+    {
+      id: authId,
+      email,
+      name,
+      status: 'APPROVED_ACTIVE',
+      isQualified: false,
+      firstName,
+      lastName: rest.join(' ') || firstName,
+      accountStatus: 'ACTIVE',
+      createdAt: now,
+    },
+    { onConflict: 'id' },
+  );
+  if (memberError) {
+    const { error, status } = toErrorEnvelope('INTERNAL', memberError.message, 500);
+    res.status(status).json({ error });
+    return;
+  }
+  const { data: roleUuidRows } = await supabase
+    .from('Role')
+    .select('id')
+    .or(`key.eq.${roleId},slug.eq.${roleId}`)
+    .limit(1);
+  const roleUuid = ((roleUuidRows as { id: string }[] | null) ?? [])[0]?.id;
+  if (!roleUuid) {
+    const { error, status } = toErrorEnvelope('INTERNAL', 'Role record unresolvable', 500);
+    res.status(status).json({ error });
+    return;
+  }
+  const { error: linkError } = await supabase
+    .from('MemberRole')
+    .upsert({ memberId: authId, roleId: roleUuid }, { onConflict: '"memberId","roleId"' });
+  if (linkError) {
+    const { error, status } = toErrorEnvelope('INTERNAL', linkError.message, 500);
+    res.status(status).json({ error });
+    return;
+  }
+  const entry = {
+    id: authId,
+    name,
+    email,
+    roleId,
+    status: 'ACTIVE',
+    createdAt: now,
+    createdBy: 'System',
+  };
+  await appendAudit(supabase, {
+    action: 'STAFF_CREATED',
+    actorId: auth.userId,
+    actorRole: auth.slugs[0] ?? 'super_admin',
+    targetType: 'Staff',
+    targetId: authId,
+    targetName: name,
+    detail: `Created staff account with role ${role.name}`,
+  });
+  const parsed = staffMemberSchema.safeParse(entry);
+  res.status(201).json(parsed.success ? parsed.data : entry);
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+pnpm-lock.yaml
+CHANGELOG.md
+# SSOT documentation must never be reformatted by tooling
+docs/

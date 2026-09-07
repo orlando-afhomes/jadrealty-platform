@@ -1,0 +1,10 @@
+.body {
+  display: grid;
+  gap: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.link {
+  color: var(--color-brand-primary);
+  text-decoration: underline;
+}

@@ -1,0 +1,80 @@
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(20, 27, 34, 0.45);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(85vh, 720px);
+  background-color: var(--color-bg-surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: rise var(--transition-fast) ease;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-h3);
+}
+
+.body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--color-border-default);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Small viewports: dialog becomes a full-screen sheet (UI-UX §11). */
+@media (max-width: 639px) {
+  .root {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .panel {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+}

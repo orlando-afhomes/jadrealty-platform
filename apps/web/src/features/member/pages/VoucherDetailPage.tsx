@@ -1,0 +1,212 @@
+import { useState } from 'react';
+import { useParams } from 'react-router';
+
+import { formatMoney, isExpired } from '@jad/shared';
+import {
+  Breadcrumbs,
+  Dialog,
+  ErrorState,
+  NotFound,
+  PageHeader,
+  Skeleton,
+  StatusChip,
+} from '@jad/ui';
+import type { VoucherStatus } from '@jad/contracts';
+
+import { ButtonLink } from '@/components/ButtonLink';
+import { useVoucher } from '../hooks/useMember';
+import { formatDate, VOUCHER_STATUS_TONE, voucherStatusLabel } from '../lib/presentation';
+import styles from './VoucherDetailPage.module.css';
+
+/**
+ * Voucher detail (SCR-MEM-021, FR-VCH-001..003). Shows the voucher and its
+ * remaining value (Original − Redeemed = Remaining, BR-VCH-002) plus its
+ * human code (JAD-VCH-…) and QR code. Ownership is server-authoritative — an
+ * unknown or non-owned id renders a not-found state. Production copy, no dev
+ * preview.
+ */
+export function VoucherDetailPage() {
+  const { voucherId = '' } = useParams();
+  const voucherQuery = useVoucher(voucherId);
+  const [copied, setCopied] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+
+  if (voucherQuery.isError && !voucherQuery.data) {
+    return (
+      <section>
+        <PageHeader title="Voucher not found" />
+        <Breadcrumbs
+          items={[
+            { label: 'Dashboard', to: '/member' },
+            { label: 'Resources' },
+            { label: 'Vouchers', to: '/member/vouchers' },
+            { label: 'Not found' },
+          ]}
+        />
+        <NotFound
+          title="Voucher not found"
+          action={
+            <ButtonLink to="/member/vouchers" variant="secondary">
+              All vouchers
+            </ButtonLink>
+          }
+        />
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <PageHeader
+        title={voucherQuery.data?.title ?? 'Voucher'}
+        description="Voucher details, code, QR code, and remaining value."
+        actions={
+          <ButtonLink to="/member/vouchers" variant="ghost">
+            All vouchers
+          </ButtonLink>
+        }
+      />
+      <Breadcrumbs
+        items={[
+          { label: 'Dashboard', to: '/member' },
+          { label: 'Resources' },
+          { label: 'Vouchers', to: '/member/vouchers' },
+          { label: voucherQuery.data?.title ?? 'Voucher' },
+        ]}
+      />
+
+      {voucherQuery.isLoading || !voucherQuery.data ? (
+        <div className={styles.loading} role="status" aria-live="polite" aria-busy="true">
+          <Skeleton />
+          <Skeleton />
+          <Skeleton />
+        </div>
+      ) : voucherQuery.isError ? (
+        <ErrorState
+          error={voucherQuery.error}
+          title="Could not load this voucher"
+          onRetry={() => void voucherQuery.refetch()}
+        />
+      ) : (
+        <>
+          <div className={styles.qrCard}>
+            <button
+              type="button"
+              className={styles.qrButton}
+              onClick={() => setQrOpen(true)}
+              aria-label={`View QR code for ${voucherQuery.data.code} enlarged`}
+            >
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(voucherQuery.data.code)}`}
+                alt={`QR code for ${voucherQuery.data.code}`}
+                className={styles.qrImage}
+                loading="lazy"
+              />
+            </button>
+            <div className={styles.qrMeta}>
+              <span className={styles.code}>{voucherQuery.data.code}</span>
+              <div className={styles.qrActions}>
+                <button
+                  type="button"
+                  className={styles.copyButton}
+                  aria-live="polite"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(voucherQuery.data.code);
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 1600);
+                    } catch {
+                      setCopied(false);
+                    }
+                  }}
+                >
+                  {copied ? 'Copied' : 'Copy code'}
+                </button>
+                <a
+                  className={styles.copyButton}
+                  href={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(voucherQuery.data.code)}`}
+                  download={`${voucherQuery.data.code}.png`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Download QR
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <dl className={styles.details}>
+            <div className={styles.detailItem}>
+              <dt>Code</dt>
+              <dd className={styles.code}>{voucherQuery.data.code}</dd>
+            </div>
+            <div className={styles.detailItem}>
+              <dt>Status</dt>
+              <dd style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+                <StatusChip
+                  label={voucherStatusLabel(voucherQuery.data.status)}
+                  tone={VOUCHER_STATUS_TONE[voucherQuery.data.status as VoucherStatus]}
+                />
+                {voucherQuery.data.status === 'ACTIVE' && isExpired(voucherQuery.data.expiresAt) ? (
+                  <StatusChip label="Expired" tone="warning" />
+                ) : null}
+              </dd>
+            </div>
+            <div className={styles.detailItem}>
+              <dt>Original value</dt>
+              <dd>{formatMoney(voucherQuery.data.originalValue)}</dd>
+            </div>
+            <div className={styles.detailItem}>
+              <dt>Remaining value</dt>
+              <dd className={styles.remainingValue}>
+                {formatMoney(voucherQuery.data.remainingValue)}
+              </dd>
+            </div>
+            <div className={styles.detailItem}>
+              <dt>Issued</dt>
+              <dd>{formatDate(voucherQuery.data.createdAt)}</dd>
+            </div>
+            <div className={styles.detailItem}>
+              <dt>Expires</dt>
+              <dd>{voucherQuery.data.expiresAt ? formatDate(voucherQuery.data.expiresAt) : 'No expiry'}</dd>
+            </div>
+          </dl>
+        </>
+      )}
+
+      <p className={styles.note}>
+        Vouchers are for your use only. Remaining value is server-computed.
+      </p>
+
+      <Dialog
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        title={`QR code — ${voucherQuery.data?.code ?? 'Voucher'}`}
+        footer={
+          voucherQuery.data ? (
+            <a
+              className={styles.copyButton}
+              href={`https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(voucherQuery.data.code)}`}
+              download={`${voucherQuery.data.code}.png`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Download QR
+            </a>
+          ) : undefined
+        }
+      >
+        {voucherQuery.data ? (
+          <div className={styles.qrDialogBody}>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(voucherQuery.data.code)}`}
+              alt={`QR code for ${voucherQuery.data.code} large`}
+              className={styles.qrLarge}
+            />
+            <p className={styles.code}>{voucherQuery.data.code}</p>
+          </div>
+        ) : null}
+      </Dialog>
+    </section>
+  );
+}

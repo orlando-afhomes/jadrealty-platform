@@ -1,0 +1,73 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-bg-surface-raised);
+  border-bottom: 1px solid var(--color-border-default);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar);
+  backdrop-filter: saturate(1.2);
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.mobileLeading {
+  display: none;
+  align-items: center;
+}
+
+.menuHiddenOnMobile {
+  display: inline-flex;
+}
+
+.menuOnDesktopOnly {
+  display: inline-flex;
+}
+
+.menuOnMobileOnly {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .mobileLeading {
+    display: flex;
+  }
+
+  .menuHiddenOnMobile {
+    display: none;
+  }
+
+  .menuOnDesktopOnly {
+    display: none;
+  }
+
+  .menuOnMobileOnly {
+    display: inline-flex;
+  }
+
+  .topbar {
+    background-color: var(--color-brand-deep);
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+    color: var(--color-on-dark);
+    /* Light-on-dark overrides so slotted content (user name, icons) matches sidebar */
+    --color-text-primary: var(--color-on-dark);
+    --color-text-secondary: var(--color-on-dark-muted);
+    --color-text-muted: var(--color-on-dark-faint);
+    --color-border-default: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

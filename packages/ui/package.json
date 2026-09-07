@@ -1,0 +1,37 @@
+{
+  "name": "@jad/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared dashboard design-system primitives for the JAD Admin and Member panels (DESIGN-SYSTEM §6). Consumed by apps/web and apps/admin; token/base CSS ships from here so both apps share a single source.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/styles/tokens.css",
+    "./base.css": "./src/styles/base.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^7.18.2"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "jsdom": "^30.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^7.18.2",
+    "typescript": "~5.9.3",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.11"
+  }
+}

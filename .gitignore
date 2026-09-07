@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Environment — secrets are never committed (FOLDER-STRUCTURE §7, §9.4)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Vercel local dev config (not production)
+vercel.local.json
+
+# Turborepo
+.turbo/
+
+# Vitest
+*.local
+
+.vercel

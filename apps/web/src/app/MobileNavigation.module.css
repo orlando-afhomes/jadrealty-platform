@@ -1,0 +1,151 @@
+/* Mobile-first: nav is collapsed below 640px and opened via the `.navOpen`
+   class (UI-UX §11.3). Closed = display:none so links are not keyboard-reachable.
+   The header is a dark brand-navy surface, so all nav styling uses the
+   light-on-dark tokens to keep the white JA&D logo and links readable. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.toggle:hover {
+  background-color: var(--color-on-dark-hover);
+}
+
+.toggleIcon {
+  position: relative;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--color-on-dark);
+}
+
+.toggleIcon::before,
+.toggleIcon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--color-on-dark);
+}
+
+.toggleIcon::before {
+  top: -6px;
+}
+
+.toggleIcon::after {
+  top: 6px;
+}
+
+.nav {
+  width: 100%;
+  display: none;
+}
+
+.navOpen {
+  display: block;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  font-weight: 500;
+  color: var(--color-on-dark);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+/* `a.link:visited`/`a.active:visited` (0,2,1) beat the global `a:visited`
+   (0,1,1) so visited nav links keep their white label. */
+a.link:visited,
+a.active:visited {
+  color: var(--color-on-dark);
+}
+
+.link:hover {
+  background-color: var(--color-on-dark-hover);
+  color: var(--color-on-dark);
+}
+
+.active {
+  color: var(--color-on-dark);
+  font-weight: 600;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Member auth actions (Login/Register): full-width rows in the collapsed menu,
+   compact inline buttons on desktop. Both keep the light-on-dark chrome. */
+.authGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.authLink {
+  width: 100%;
+}
+
+/* Desktop: persistent inline nav (DESIGN-SYSTEM §5 `sm` breakpoint, UI-UX §11.1). */
+@media (min-width: 640px) {
+  .toggle {
+    display: none;
+  }
+
+  .nav,
+  .navOpen {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: auto;
+  }
+
+  .list {
+    flex-direction: row;
+    gap: var(--space-2);
+    margin: 0;
+    border-top: 0;
+  }
+
+  .authGroup {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    margin-left: var(--space-2);
+  }
+
+  .authLink {
+    width: auto;
+    padding-inline: var(--space-4);
+  }
+}

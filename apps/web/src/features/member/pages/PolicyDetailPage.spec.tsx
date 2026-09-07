@@ -1,0 +1,82 @@
+import { describe, expect, it } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { MOCK_MEMBER } from '@jad/mock';
+
+import { PolicyDetailPage } from './PolicyDetailPage';
+import { mockFetchRoutes } from '../../../test/utils';
+import { SessionProvider } from '../../../lib/session';
+
+function renderAt(path: string) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <SessionProvider initialUser={MOCK_MEMBER} restoreDelayMs={0}>
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/member/policies/:policyId" element={<PolicyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </SessionProvider>,
+  );
+}
+
+const POLICIES = {
+  data: [
+    {
+      id: 'pol-001',
+      title: 'Terms and Conditions',
+      type: 'terms',
+      updatedAt: '2026-07-01T10:00:00.000Z',
+      content: 'These are the terms and conditions.\nSecond paragraph, plain text.',
+    },
+    {
+      id: 'pol-002',
+      title: 'Program Guidelines',
+      type: 'guidelines',
+      updatedAt: '2026-07-15T10:00:00.000Z',
+      content: 'These are the program guidelines.',
+    },
+  ],
+  meta: {},
+};
+
+describe('member PolicyDetailPage', () => {
+  it('renders policy content as plain text (no raw HTML, SCR-MEM-023)', async () => {
+    mockFetchRoutes({ '/policies': POLICIES });
+    renderAt('/member/policies/pol-001');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Terms and Conditions' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/These are the terms and conditions\.\s+Second paragraph, plain text\./),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'All policies' })).toHaveAttribute(
+      'href',
+      '/member/policies',
+    );
+    expect(document.querySelector('[data-testid]')).toBeNull();
+    // Breadcrumbs — Dashboard > Resources > Policies > Title
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Resources')).toBeInTheDocument();
+    expect(screen.getAllByText('Policies').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Terms and Conditions').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('renders a not-found state for an unknown policy id', async () => {
+    mockFetchRoutes({ '/policies': POLICIES });
+    renderAt('/member/policies/pol-999');
+
+    expect(await screen.findAllByText('Policy not found')).toHaveLength(2);
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'All policies' })).toHaveAttribute(
+      'href',
+      '/member/policies',
+    );
+  });
+});

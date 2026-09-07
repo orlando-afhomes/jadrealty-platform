@@ -1,0 +1,26 @@
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.iconButton:hover:not(:disabled) {
+  background-color: var(--color-state-hover);
+  color: var(--color-text-primary);
+}
+
+.iconButton:disabled {
+  cursor: not-allowed;
+  color: var(--color-state-disabled-text);
+}
