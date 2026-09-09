@@ -1,34 +1,37 @@
 /**
- * Dev-only database reset for seed/sample cleanup (local/dev projects only).
+ * Seed-data purge that preserves ONLY the production core (Phase B).
  *
- * Context: `Member` rows own financial history through `ON DELETE RESTRICT`
- * FKs (`LedgerEntry`, `Commission`, `Wallet`, `Sale`, `Customer`,
- * `PayoutAccount` — see `supabase/migrations/20260916000001_delete_protection.sql`
- * and `AGENTS.md` "No hard member deletion"). Deleting members piecemeal is
- * therefore blocked BY DESIGN (archive via `POST /admin/members/:id/archive`
- * is the sanctioned lifecycle) and would orphan genealogy links, SET NULL
- * attributions, and `auth.users` logins. For full dev-seed cleanup, reset the
- * whole seed-managed graph instead of fighting the constraints.
+ * Preserves (never touched):
+ *   - `cms_contents`      — Website CMS (8 keys: homepage, about, properties,
+ *                           faqs, contact, global, login, register)
+ *   - `SystemConfig`      — System Configuration (9 CONFIG_SEEDS keys)
  *
- * How it works: service-role REST (PostgREST) ordered DELETEs, leaf tables
- * first so every FK — including the RESTRICTs — stays enforced the whole
- * time. Constraints are never disabled, dropped, or altered. The run is
- * idempotent: re-running deletes whatever remains (0-row deletes succeed).
+ * Deletes (leaf-first, every FK enforced the whole time):
+ *   - All member/staff/transactional/reference rows (see PURGE_ORDER)
+ *   - `Role` catalog (rebuilt by `provision-superadmin.ts` before login works)
+ *   - `AuditLog` seed-era rows (owner-approved BI-005 exception for the seed
+ *     reset; pass `--keep-audit-log` to retain instead)
+ *   - Auth users via `auth.admin.deleteUser`, EXCEPT addresses in
+ *     `PURGE_KEEP_AUTH_EMAILS` (comma-separated, case-insensitive). Default is
+ *     empty = delete all listed users (fresh slate for the prod super-admin).
  *
- * Safety model (fail-closed):
+ * Constraints are never disabled, dropped, or altered. Storage
+ * buckets/objects are left untouched.
+ *
+ * Safety model (fail-closed, same as reset-dev.ts):
  * - Default mode is DRY-RUN: SELECTs + auth lookups only, changes nothing.
  * - `--execute` is required to mutate, AND the target project ref must be
  *   listed in `DEV_RESET_ALLOW_REFS` (comma-separated). Anything else aborts.
- *   Never add a production/staging ref to that allowlist.
- * - Only the three seed auth accounts are ever removed
- *   (`admin@jad.local`, `user@jad.local`, `ramon.reyes@example.com`).
- * - Storage buckets/objects are left untouched.
+ *   Never add a production ref here until the cutover is approved.
+ * - Post-execute verification asserts `cms_contents` (8) and `SystemConfig`
+ *   (9) are untouched; any deviation aborts with a non-zero exit.
  *
  * Usage:
- *   tsx supabase/reset-dev.ts                        # dry-run (default)
- *   tsx supabase/reset-dev.ts --verify               # orphan/consistency checks only
- *   DEV_RESET_ALLOW_REFS=vudwoqduebdgtzvybywb tsx supabase/reset-dev.ts --execute
- *   pnpm seed                                        # reseed afterwards
+ *   pnpm exec tsx supabase/purge-seed-keep-core.ts                                    # dry-run
+ *   pnpm exec tsx supabase/purge-seed-keep-core.ts --verify                          # orphan/count checks only
+ *   DEV_RESET_ALLOW_REFS=<ref> pnpm exec tsx supabase/purge-seed-keep-core.ts --execute
+ *   PURGE_KEEP_AUTH_EMAILS=new.admin@example.com DEV_RESET_ALLOW_REFS=<ref> pnpm exec tsx supabase/purge-seed-keep-core.ts --execute
+ *   pnpm exec tsx supabase/purge-seed-keep-core.ts --execute --keep-audit-log       # retain AuditLog
  */
 
 import fs from 'node:fs';
@@ -55,8 +58,11 @@ loadEnvFile('.env');
 
 // Seed-managed tables in leaf-first delete order (dependents before the rows
 // they reference, so RESTRICT FKs never fire). `column` is the PK used for
-// the match-all delete filter.
-const DELETE_ORDER: { table: string; column: string }[] = [
+// the match-all delete filter. `cms_contents` + `SystemConfig` are
+// deliberately ABSENT (preserved core). `AuditLog` is last — it references
+// nothing and nothing references it (actor FKs were split to StaffUser with
+// SET NULL), so deleting it cannot orphan anything.
+const PURGE_ORDER: { table: string; column: string }[] = [
   { table: 'MemberRole', column: 'memberId' },
   { table: 'StaffAssignment', column: 'staffUserId' },
   { table: 'IdempotencyKey', column: 'key' },
@@ -79,22 +85,25 @@ const DELETE_ORDER: { table: string; column: string }[] = [
   { table: 'ProgramQuestion', column: 'id' },
   { table: 'Program', column: 'id' },
   { table: 'Policy', column: 'id' },
-  { table: 'SystemConfig', column: 'key' },
   { table: 'Property', column: 'id' },
   { table: 'PropertyCategory', column: 'slug' },
-  { table: 'cms_contents', column: 'key' },
+  { table: 'AuditLog', column: 'id' },
 ];
 
-// Auth accounts created by the seed. Only these are ever deleted.
-const SEED_AUTH_EMAILS = ['admin@jad.local', 'user@jad.local', 'ramon.reyes@example.com'] as const;
+// Preserved core — asserted non-empty and unchanged after --execute.
+const PRESERVED: { table: string; column: string; expected: number }[] = [
+  { table: 'cms_contents', column: 'key', expected: 8 },
+  { table: 'SystemConfig', column: 'key', expected: 9 },
+];
 
 // Sentinel values no real row carries — match-all delete without disabling
 // anything. UUID PK/FK columns get the nil UUID; text PKs get the string
-// sentinel. Every column in DELETE_ORDER must be classified here: a text
-// sentinel sent to a uuid column aborts the whole run (same defect that
-// broke purge-seed-keep-core on StaffAssignment.staffUserId).
+// sentinel. Every column in PURGE_ORDER must be classified here: a text
+// sentinel sent to a uuid column aborts the whole run (Postgres rejects the
+// comparison), which is exactly how the first execute attempt failed on
+// StaffAssignment.staffUserId.
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
-const TEXT_SENTINEL = '__reset_dev_sentinel__';
+const TEXT_SENTINEL = '__purge_seed_keep_core_sentinel__';
 const UUID_COLUMNS = new Set(['id', 'memberId', 'staffUserId', 'sellerId', 'member_id']);
 
 function sentinelFor(column: string): string {
@@ -167,41 +176,45 @@ async function deleteAll(
   return { exists: true, deleted: count ?? 0 };
 }
 
-async function seedAuthPresent(supabase: SupabaseClient): Promise<string[]> {
-  const present: string[] = [];
-  try {
-    const { data } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    for (const email of SEED_AUTH_EMAILS) {
-      if ((data?.users ?? []).some((u) => u.email?.toLowerCase() === email)) present.push(email);
-    }
-  } catch {
-    // lookup failure → unknown; never delete on uncertainty (handled in execute)
-    throw new Error('auth user lookup failed — aborting rather than guessing.');
-  }
-  return present;
+function keepAuthEmails(): Set<string> {
+  return new Set(
+    (process.env.PURGE_KEEP_AUTH_EMAILS ?? '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
 }
 
-async function deleteSeedAuth(
+async function listAuthEmails(supabase: SupabaseClient): Promise<string[]> {
+  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error)
+    throw new Error(`auth user lookup failed — aborting rather than guessing: ${error.message}`);
+  return (data?.users ?? []).map((u) => u.email ?? '(no email)');
+}
+
+async function deleteAuthExcept(
   supabase: SupabaseClient,
-): Promise<{ deleted: string[]; missing: string[] }> {
-  const { data } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  keep: Set<string>,
+): Promise<{ deleted: string[]; kept: string[] }> {
+  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error)
+    throw new Error(`auth user lookup failed — aborting rather than guessing: ${error.message}`);
   const deleted: string[] = [];
-  const missing: string[] = [];
-  for (const email of SEED_AUTH_EMAILS) {
-    const user = (data?.users ?? []).find((u) => u.email?.toLowerCase() === email);
-    if (!user) {
-      missing.push(email);
+  const kept: string[] = [];
+  for (const user of data?.users ?? []) {
+    const email = user.email ?? '';
+    if (keep.has(email.toLowerCase())) {
+      kept.push(email || '(no email)');
       continue;
     }
-    const { error } = await supabase.auth.admin.deleteUser(user.id);
-    if (error) throw new Error(`deleteUser ${email} failed: ${error.message}`);
-    deleted.push(email);
+    const { error: delError } = await supabase.auth.admin.deleteUser(user.id);
+    if (delError) throw new Error(`deleteUser ${email || user.id} failed: ${delError.message}`);
+    deleted.push(email || user.id);
   }
-  return { deleted, missing };
+  return { deleted, kept };
 }
 
 async function findOrphans(supabase: SupabaseClient): Promise<string[]> {
-  // Member ids remaining (dev-scale sets).
   const { data: members, error: memberErr } = await supabase.from('Member').select('id');
   if (memberErr) {
     if (
@@ -250,6 +263,7 @@ async function findOrphans(supabase: SupabaseClient): Promise<string[]> {
 async function main(): Promise<void> {
   const args = new Set(process.argv.slice(2));
   const mode = args.has('--execute') ? 'execute' : args.has('--verify') ? 'verify' : 'dry-run';
+  const keepAuditLog = args.has('--keep-audit-log');
 
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '';
   const ref = projectRefFromUrl(supabaseUrl);
@@ -261,36 +275,56 @@ async function main(): Promise<void> {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+  const keep = keepAuthEmails();
 
   console.log(`Target project ref: ${ref}`);
-  console.log(`Mode: ${mode}`);
+  console.log(`Mode: ${mode}${keepAuditLog ? ' (AuditLog retained)' : ''}`);
+  console.log(
+    `Preserved core (never deleted): ${PRESERVED.map((p) => `${p.table} (~${p.expected})`).join(', ')}`,
+  );
 
   const supabase = serviceClient();
+  const purgeOrder = keepAuditLog ? PURGE_ORDER.filter((t) => t.table !== 'AuditLog') : PURGE_ORDER;
 
   if (mode === 'verify') {
     const orphans = await findOrphans(supabase);
-    const seedAccounts = await seedAuthPresent(supabase);
+    const authEmails = await listAuthEmails(supabase);
+    for (const p of PRESERVED) {
+      const { exists, count } = await tableCount(supabase, p.table);
+      console.log(`Preserved ${p.table}: ${exists ? count : '(missing table)'}`);
+    }
     console.log(`Orphaned member-linked rows: ${orphans.length}`);
     for (const o of orphans.slice(0, 20)) console.log(`  orphan ${o}`);
-    console.log(`Seed auth accounts present: ${seedAccounts.join(', ') || '(none)'}`);
+    console.log(`Auth users (${authEmails.length}): ${authEmails.join(', ') || '(none)'}`);
     if (orphans.length > 0) process.exit(2);
     return;
   }
 
   const counts: { table: string; exists: boolean; count: number }[] = [];
-  for (const t of DELETE_ORDER) {
+  for (const t of purgeOrder) {
     counts.push({ table: t.table, ...(await tableCount(supabase, t.table)) });
   }
   const total = counts.reduce((sum, c) => sum + c.count, 0);
   const present = counts.filter((c) => c.exists).length;
-  console.log(`Seed tables present: ${present}/${DELETE_ORDER.length} (${total} rows total)`);
+  console.log(`Purge tables present: ${present}/${purgeOrder.length} (${total} rows to delete)`);
   for (const c of counts.filter((c) => c.count > 0)) console.log(`  ${c.table}: ${c.count}`);
-  const seedAccounts = await seedAuthPresent(supabase);
-  console.log(`Seed auth accounts present: ${seedAccounts.join(', ') || '(none)'}`);
+  const authEmails = await listAuthEmails(supabase);
+  const doomed = authEmails.filter((e) => !keep.has(e.toLowerCase()));
+  console.log(`Auth users to delete (${doomed.length}): ${doomed.join(', ') || '(none)'}`);
+  if (keep.size > 0) {
+    console.log(
+      `Auth users kept via PURGE_KEEP_AUTH_EMAILS: ${[...keep].filter((e) => authEmails.map((a) => a.toLowerCase()).includes(e)).join(', ') || '(none matched)'}`,
+    );
+  }
+  for (const p of PRESERVED) {
+    const { exists, count } = await tableCount(supabase, p.table);
+    console.log(`Preserved ${p.table}: ${exists ? count : '(missing table)'}`);
+  }
 
   if (mode === 'dry-run') {
     console.log(
-      `\nDRY-RUN — no changes made. Re-run with --execute plus DEV_RESET_ALLOW_REFS=${ref} to delete these rows and the seed auth accounts, then run \`pnpm seed\`.`,
+      `\nDRY-RUN — no changes made. Re-run with --execute plus DEV_RESET_ALLOW_REFS=${ref} to purge. ` +
+        `Afterwards run \`provision-superadmin.ts\` to rebuild roles + the prod super-admin.`,
     );
     return;
   }
@@ -298,43 +332,49 @@ async function main(): Promise<void> {
   if (!allowed.includes(ref)) {
     console.error(
       `Refusing: project ref "${ref}" is not listed in DEV_RESET_ALLOW_REFS. ` +
-        `This script only runs against explicitly allowlisted LOCAL/DEV projects — never production. Aborting with no changes.`,
+        `This script only runs against explicitly allowlisted LOCAL/DEV projects — never production without approval. Aborting with no changes.`,
     );
     process.exit(1);
   }
 
   // --execute (guard passed): leaf-first deletes, every FK enforced.
-  // Idempotent — re-running deletes whatever remains.
   let deletedTotal = 0;
-  for (const t of DELETE_ORDER) {
+  for (const t of purgeOrder) {
     const { exists, deleted } = await deleteAll(supabase, t.table, t.column);
     if (exists && deleted > 0) console.log(`  deleted ${deleted} from ${t.table}`);
     deletedTotal += deleted;
   }
   console.log(
-    `\nDeleted ${deletedTotal} rows across ${DELETE_ORDER.length} tables (constraints enforced).`,
+    `\nDeleted ${deletedTotal} rows across ${purgeOrder.length} tables (constraints enforced).`,
   );
 
-  const { deleted, missing } = await deleteSeedAuth(supabase);
-  console.log(`Deleted seed auth accounts: ${deleted.join(', ') || '(none found)'}`);
-  if (missing.length > 0) console.log(`Already absent: ${missing.join(', ')}`);
+  const { deleted, kept } = await deleteAuthExcept(supabase, keep);
+  console.log(`Deleted auth users: ${deleted.join(', ') || '(none found)'}`);
+  if (kept.length > 0) console.log(`Kept auth users: ${kept.join(', ')}`);
 
+  // Post-execute verification: preserved core untouched.
+  let coreOk = true;
+  for (const p of PRESERVED) {
+    const { exists, count } = await tableCount(supabase, p.table);
+    const ok = exists && count === p.expected;
+    console.log(
+      `Preserved ${p.table}: ${exists ? count : '(missing!)'} (expected ${p.expected}) ${ok ? 'OK' : 'MISMATCH'}`,
+    );
+    if (!ok) coreOk = false;
+  }
   const orphans = await findOrphans(supabase);
-  const remaining = await seedAuthPresent(supabase);
-  console.log(
-    `Post-reset orphans: ${orphans.length}; seed auth accounts remaining: ${remaining.join(', ') || '(none)'}`,
-  );
-  if (orphans.length > 0 || remaining.length > 0) {
-    for (const o of orphans.slice(0, 20)) console.log(`  orphan ${o}`);
-    console.error('Verification FAILED — inspect output above.');
+  console.log(`Post-purge orphans: ${orphans.length}`);
+  for (const o of orphans.slice(0, 20)) console.log(`  orphan ${o}`);
+  if (orphans.length > 0 || !coreOk) {
+    console.error('Verification FAILED — inspect output above before provisioning.');
     process.exit(2);
   }
   console.log(
-    '\nVerification PASSED. Next steps: `pnpm seed`, then run `supabase/security/rls_invariants.sql` (empty = PASS).',
+    '\nVerification PASSED. Next: provision roles + prod super-admin via `supabase/provision-superadmin.ts`, then run `supabase/security/rls_invariants.sql` (empty = PASS).',
   );
 }
 
 void main().catch((err: unknown) => {
-  console.error('reset-dev failed:', err instanceof Error ? err.message : err);
+  console.error('purge-seed-keep-core failed:', err instanceof Error ? err.message : err);
   process.exit(1);
 });

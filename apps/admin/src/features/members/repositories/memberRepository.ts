@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { adminMemberSchema, type AdminMember, type MemberProfile } from '@jad/contracts';
+import {
+  adminMemberSchema,
+  purgeMemberResponseSchema,
+  type AdminMember,
+  type MemberProfile,
+} from '@jad/contracts';
 
 import { request, requestList } from '../../../lib/api/client';
 
@@ -70,5 +75,21 @@ export async function createMember(input: CreateMemberInput): Promise<AdminMembe
 export async function archiveMember(id: string): Promise<{ archivedId: string }> {
   return request(`/admin/members/${id}/archive`, z.object({ archivedId: z.string() }), {
     method: 'POST',
+  });
+}
+
+/**
+ * Permanently delete a member and their entire record graph (super_admin
+ * only, enforced server-side). Irreversible — prefer `archiveMember` unless
+ * the record must be destroyed (e.g. test data, lawful erasure requests).
+ */
+export async function deleteMemberPermanently(
+  id: string,
+  reason: string,
+): Promise<{ purgedId: string }> {
+  return request(`/admin/members/${id}`, purgeMemberResponseSchema, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
   });
 }

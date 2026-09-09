@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   ConfirmDialog,
+  Dialog,
   ErrorState,
   PageHeader,
   Skeleton,
@@ -13,6 +14,7 @@ import {
 } from '@jad/ui';
 
 import { formatDate } from '../../../lib/format';
+import { useSession } from '../../../lib/session';
 import { useMember } from '../hooks/useMember';
 import { useMemberRegistration } from '../hooks/useMemberRegistration';
 import { GovernmentIdPreview } from '../../registrations/components/GovernmentIdPreview';
@@ -21,6 +23,7 @@ import {
   deactivateMember,
   activateMember,
   archiveMember,
+  deleteMemberPermanently,
   setMemberQualified,
 } from '../repositories/memberRepository';
 import { MEMBER_STATUS_LABEL, MEMBER_STATUS_TONE } from '../status';
@@ -49,7 +52,13 @@ export function MemberDetailPage() {
   const [showQualifyConfirm, setShowQualifyConfirm] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showPurgeDialog, setShowPurgeDialog] = useState(false);
+  const [purgeReason, setPurgeReason] = useState('');
+  const [purgeEmailConfirm, setPurgeEmailConfirm] = useState('');
+  const [purgePending, setPurgePending] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const { user } = useSession();
+  const isSuperAdmin = user?.roleId === 'super_admin';
 
   const isDirty = useMemo(() => {
     if (!isEditing || !data) return false;
@@ -213,6 +222,33 @@ export function MemberDetailPage() {
       navigate('/admin/members');
     } catch (e) {
       setError((e as Error).message);
+    }
+  };
+
+  const resetPurgeForm = () => {
+    setShowPurgeDialog(false);
+    setPurgeReason('');
+    setPurgeEmailConfirm('');
+    setPurgePending(false);
+  };
+
+  const handlePurge = async () => {
+    setPurgePending(true);
+    try {
+      await deleteMemberPermanently(data.id, purgeReason.trim());
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'archived'] });
+      toast({
+        title: 'Member permanently deleted',
+        message: `${memberName} and all associated records were removed`,
+        tone: 'success',
+      });
+      resetPurgeForm();
+      navigate('/admin/members');
+    } catch (e) {
+      setPurgePending(false);
+      setError((e as Error).message);
+      setShowPurgeDialog(false);
     }
   };
 
@@ -645,7 +681,89 @@ export function MemberDetailPage() {
             >
               Archive
             </Button>
+            {isSuperAdmin ? (
+              <Button
+                variant="danger"
+                onClick={() => setShowPurgeDialog(true)}
+                aria-label="Delete member permanently"
+              >
+                Delete Permanently
+              </Button>
+            ) : null}
           </div>
+
+          <Dialog
+            open={showPurgeDialog}
+            onClose={() => {
+              if (!purgePending) resetPurgeForm();
+            }}
+            title={`Permanently delete ${memberName}?`}
+            footer={
+              <>
+                <Button variant="secondary" onClick={resetPurgeForm} disabled={purgePending}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={handlePurge}
+                  disabled={
+                    !purgeReason.trim() ||
+                    purgeEmailConfirm.trim().toLowerCase() !== data.email.toLowerCase() ||
+                    purgePending
+                  }
+                >
+                  {purgePending ? 'Deleting…' : 'Delete Permanently'}
+                </Button>
+              </>
+            }
+          >
+            <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+              <p style={{ margin: 0, fontSize: 'var(--text-body-s)' }}>
+                This permanently deletes <strong>{memberName}</strong> and every associated record —
+                wallet, ledger, commissions, sales, customers, withdrawals, payout accounts,
+                vouchers, and their login. <strong>This cannot be undone.</strong> Prefer{' '}
+                <strong>Archive</strong> unless the record must be destroyed (e.g. test data or a
+                lawful erasure request).
+              </p>
+              <div style={{ display: 'grid', gap: 4 }}>
+                <label className={styles.editLabel} htmlFor="purge-reason">
+                  Reason{' '}
+                  <span aria-hidden="true" style={{ color: 'var(--color-danger)' }}>
+                    *
+                  </span>
+                </label>
+                <textarea
+                  id="purge-reason"
+                  className={styles.editInput}
+                  value={purgeReason}
+                  onChange={(e) => setPurgeReason(e.target.value.slice(0, 500))}
+                  placeholder="Why is this member being permanently deleted?"
+                  rows={3}
+                  required
+                  aria-required="true"
+                  maxLength={500}
+                />
+              </div>
+              <div style={{ display: 'grid', gap: 4 }}>
+                <label className={styles.editLabel} htmlFor="purge-email-confirm">
+                  Type the member's email ({data.email}) to confirm{' '}
+                  <span aria-hidden="true" style={{ color: 'var(--color-danger)' }}>
+                    *
+                  </span>
+                </label>
+                <input
+                  id="purge-email-confirm"
+                  className={styles.editInput}
+                  value={purgeEmailConfirm}
+                  onChange={(e) => setPurgeEmailConfirm(e.target.value)}
+                  placeholder={data.email}
+                  autoComplete="off"
+                  required
+                  aria-required="true"
+                />
+              </div>
+            </div>
+          </Dialog>
 
           <ConfirmDialog
             open={showQualifyConfirm}

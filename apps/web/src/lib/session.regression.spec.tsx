@@ -10,12 +10,17 @@ const mockOnAuthStateChange = vi.fn();
 const mockSignOut = vi.fn();
 const mockMembersSingle = vi.fn();
 const mockStaffUserEq = vi.fn();
+const mockTryRefreshSession = vi.fn();
 
 vi.mock('./supabase', async () => {
   const actual = await vi.importActual<typeof import('./supabase')>('./supabase');
   return {
     ...actual,
     isSupabaseConfigured: () => true,
+    // Lazily bound: the factory is hoisted above these consts, so the
+    // reference must resolve at call time, not at factory evaluation.
+    tryRefreshSession: (...args: unknown[]) =>
+      (mockTryRefreshSession as (...a: unknown[]) => Promise<boolean>)(...args),
     getSupabaseClient: () => ({
       auth: {
         getSession: mockGetSession,
@@ -37,13 +42,14 @@ vi.mock('./supabase', async () => {
 });
 
 function Probe() {
-  const { status, role, user } = useSession();
+  const { status, role, user, sessionError } = useSession();
   return (
     <div>
       <div data-testid="status">{status}</div>
       <div data-testid="role">{role ?? 'null'}</div>
       <div data-testid="user">{user?.id ?? 'none'}</div>
       <div data-testid="name">{user?.name ?? 'none'}</div>
+      <div data-testid="sessionError">{sessionError ? 'yes' : 'no'}</div>
     </div>
   );
 }
@@ -56,6 +62,7 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
     mockSignOut.mockResolvedValue(undefined);
     mockMembersSingle.mockResolvedValue({ data: null });
     mockStaffUserEq.mockResolvedValue({ data: [], error: null });
+    mockTryRefreshSession.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -95,7 +102,12 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
       },
     });
     mockMembersSingle.mockResolvedValue({
-      data: { firstName: 'Juan', lastName: 'Dela Cruz', isQualified: true, status: 'APPROVED_ACTIVE' },
+      data: {
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
     });
     mockStaffUserEq.mockResolvedValue({ data: [], error: null });
 
@@ -123,7 +135,11 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
 
   it('Missing profile (members null) → safe user, no crash', async () => {
     mockGetSession.mockResolvedValue({
-      data: { session: { user: { id: 'unknown-1', email: 'a@b.com', user_metadata: { full_name: 'Ghost' } } } },
+      data: {
+        session: {
+          user: { id: 'unknown-1', email: 'a@b.com', user_metadata: { full_name: 'Ghost' } },
+        },
+      },
     });
     mockMembersSingle.mockResolvedValue({ data: null, error: { message: 'not found' } });
 
@@ -143,7 +159,12 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
       data: { session: { user: { id: 'mem-002', email: 'maria@example.com', user_metadata: {} } } },
     });
     mockMembersSingle.mockResolvedValue({
-      data: { firstName: 'Maria', lastName: 'Santos', isQualified: true, status: 'APPROVED_ACTIVE' },
+      data: {
+        firstName: 'Maria',
+        lastName: 'Santos',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
     });
     mockStaffUserEq.mockRejectedValue(new Error('network failure'));
 
@@ -164,9 +185,20 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
       return { data: { subscription: { unsubscribe: vi.fn() } } };
     });
     mockGetSession.mockResolvedValue({
-      data: { session: { user: { id: 'mem-001', email: 'a@b.com', user_metadata: { full_name: 'Juan' } } } },
+      data: {
+        session: {
+          user: { id: 'mem-001', email: 'a@b.com', user_metadata: { full_name: 'Juan' } },
+        },
+      },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Juan', lastName: 'Dela Cruz', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: {
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
+    });
 
     render(
       <SupabaseSessionProvider>
@@ -184,7 +216,9 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
     mockGetSession.mockResolvedValue({
       data: { session: { user: { id: 'adm-9', email: 'admin@jad.local', user_metadata: {} } } },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' },
+    });
     mockStaffUserEq.mockResolvedValue({ data: [{ id: 'adm-9' }], error: null });
 
     render(
@@ -201,7 +235,9 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
     mockGetSession.mockResolvedValue({
       data: { session: { user: { id: 'adm-001', email: 'admin@jad.local', user_metadata: {} } } },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' },
+    });
     mockStaffUserEq.mockResolvedValue({ data: [{ id: 'adm-001' }], error: null });
 
     render(
@@ -212,5 +248,41 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
 
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('role')).toHaveTextContent('admin');
+  });
+
+  it('transient StaffUser read failure preserves the verified session and flags retry', async () => {
+    let authCb: (e: string, s: unknown) => void = () => {};
+    mockOnAuthStateChange.mockImplementation((cb) => {
+      authCb = cb as unknown as typeof authCb;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const supaUser = (id: string, email: string) => ({ id, email, user_metadata: {} });
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: supaUser('adm-001', 'admin@jad.local') } },
+    });
+    mockMembersSingle.mockResolvedValue({
+      data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' },
+    });
+    mockStaffUserEq.mockResolvedValue({ data: [{ id: 'adm-001' }], error: null });
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(screen.getByTestId('role')).toHaveTextContent('admin');
+
+    // Idle return with a stale token: the StaffUser read fails and rotation fails.
+    mockStaffUserEq.mockRejectedValue(new Error('stale token'));
+    mockTryRefreshSession.mockResolvedValue(false);
+    authCb('TOKEN_REFRESHED', { user: supaUser('adm-001', 'admin@jad.local') } as unknown as never);
+
+    await waitFor(() => expect(screen.getByTestId('sessionError')).toHaveTextContent('yes'));
+    // Preserved — never silently swapped to a member session.
+    expect(screen.getByTestId('status')).toHaveTextContent('authenticated');
+    expect(screen.getByTestId('role')).toHaveTextContent('admin');
+    expect(screen.getByTestId('user')).toHaveTextContent('adm-001');
   });
 });

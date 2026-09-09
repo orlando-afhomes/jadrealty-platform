@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import type { MemberStatus, Role } from '@jad/contracts';
 import { normalizeRole } from '@jad/contracts';
@@ -7,7 +16,7 @@ import { MockSessionProvider, setMockSessionUser, useMockSession } from '@jad/mo
 import { staffSessionSchema } from '@jad/contracts';
 
 import { env } from './env';
-import { getSupabaseClient, isSupabaseConfigured } from './supabase';
+import { getSupabaseClient, isSupabaseConfigured, tryRefreshSession } from './supabase';
 
 export type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
@@ -33,6 +42,15 @@ export interface SessionContextValue {
   role: Role | null;
   roleId: string | null | undefined;
   isQualified: boolean;
+  /**
+   * True when the last role resolution failed transiently (expired token,
+   * network, unparsable response) as opposed to a verified non-staff
+   * identity. Guards render a Retry affordance instead of a dead-end
+   * Forbidden while this is set.
+   */
+  sessionError: boolean;
+  /** Re-run session resolution (used by the Retry affordance). */
+  revalidate: () => Promise<void>;
   loginAs: (user: SessionUser) => void;
   logout: () => void;
 }
@@ -53,6 +71,8 @@ function UnauthenticatedSessionProvider({ children }: { children: ReactNode }) {
       role: null,
       roleId: undefined,
       isQualified: false,
+      sessionError: false,
+      revalidate: async () => {},
       loginAs: () => {},
       logout: () => {},
     }),
@@ -70,6 +90,8 @@ function MockSessionBridge({ children }: { children: ReactNode }) {
       role: mock.role,
       roleId: mock.roleId ?? null,
       isQualified: mock.isQualified,
+      sessionError: false,
+      revalidate: async () => {},
       loginAs: (user) => mock.loginAs(user),
       logout: mock.logout,
     }),
@@ -81,6 +103,11 @@ function MockSessionBridge({ children }: { children: ReactNode }) {
 export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [sessionError, setSessionError] = useState(false);
+  // Last verified session — restored on transient resolution failures so a
+  // stale-token race (idle tab return) never demotes staff to non-staff.
+  const lastGoodUser = useRef<SessionUser | null>(null);
+  const revalidateRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     const client = getSupabaseClient() as unknown as {
@@ -94,7 +121,12 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           };
         }>;
         onAuthStateChange: (
-          cb: (e: string, s: { user: { id: string; email: string; user_metadata: Record<string, unknown> } | null }) => void,
+          cb: (
+            e: string,
+            s: {
+              user: { id: string; email: string; user_metadata: Record<string, unknown> } | null;
+            },
+          ) => void,
         ) => { data: { subscription: { unsubscribe: () => void } } };
         signOut: () => Promise<void>;
       };
@@ -109,23 +141,61 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
 
     /**
      * Own staff session via the service-role endpoint (Phase 6 — the admin
-     * client never reads Role tables with the anon key). Returns the role
-     * slugs, or an empty array when the caller holds no staff identity.
-     * Explicit Bearer (not cookies) so it works in every storage mode.
+     * client never reads Role tables with the anon key). Discriminates a
+     * verified answer (200, or 403/404 = verified non-staff) from transient
+     * failures (401 expired token, 5xx, network, unparsable body) so callers
+     * never confuse "could not verify" with "not staff" — that confusion is
+     * what stranded idle-returning admins on Access denied. Explicit Bearer
+     * (not cookies) so it works in every storage mode.
      */
-    const resolveRoleSlugs = async (accessToken: string | undefined): Promise<string[]> => {
-      if (!accessToken) return [];
+    const fetchSlugs = async (
+      accessToken: string | undefined,
+    ): Promise<{ status: number; slugs: string[] } | null> => {
+      if (!accessToken) return null;
       try {
         const res = await fetch(`${env.VITE_API_BASE_URL}/admin/session`, {
           headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
           credentials: 'same-origin',
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          // Verified non-staff identity — safe to demote.
+          if (res.status === 403 || res.status === 404) return { status: res.status, slugs: [] };
+          // 401/5xx → transient (stale token, backend hiccup).
+          return null;
+        }
         const parsed = staffSessionSchema.safeParse(await res.json().catch(() => null));
-        return parsed.success ? [...parsed.data.slugs] : [];
+        if (!parsed.success) return null;
+        return { status: 200, slugs: [...parsed.data.slugs] };
       } catch {
-        return [];
+        return null;
       }
+    };
+
+    const resolveRoleSlugs = async (
+      accessToken?: string,
+    ): Promise<{ slugs: string[]; verified: boolean }> => {
+      // Prefer the caller-supplied token (the auth event's own session);
+      // fall back to a fresh getSession read when absent.
+      let token = accessToken;
+      if (token === undefined) {
+        const { data } = await client.auth.getSession();
+        token = data.session?.access_token;
+      }
+      const first = await fetchSlugs(token);
+      if (first) return { slugs: first.slugs, verified: true };
+      // Transient failure: one token rotation, then a single retry with the
+      // fresh token before giving up.
+      try {
+        const healed = await tryRefreshSession();
+        if (healed) {
+          const { data: fresh } = await client.auth.getSession();
+          const second = await fetchSlugs(fresh.session?.access_token);
+          if (second) return { slugs: second.slugs, verified: true };
+        }
+      } catch {
+        // fall through to unverified
+      }
+      return { slugs: [], verified: false };
     };
 
     /**
@@ -135,17 +205,27 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
      * null (no staff access).
      */
     const slugToRoleId = (slugs: string[]): string | null => {
-      const normalized = slugs.map((s) => String(s ?? '').trim().toLowerCase().replace(/[-_\s]/g, '_'));
+      const normalized = slugs.map((s) =>
+        String(s ?? '')
+          .trim()
+          .toLowerCase()
+          .replace(/[-_\s]/g, '_'),
+      );
       const compact = normalized.map((s) => s.replace(/_/g, ''));
-      if (normalized.includes('super_admin') || compact.includes('superadmin')) return 'super_admin';
+      if (normalized.includes('super_admin') || compact.includes('superadmin'))
+        return 'super_admin';
       if (normalized.includes('admin')) return 'admin';
       if (normalized.includes('finance')) return 'finance';
       if (normalized.includes('merchant')) return 'merchant';
       const custom = slugs.find((s) => {
-        const c = String(s ?? '').trim().toLowerCase();
+        const c = String(s ?? '')
+          .trim()
+          .toLowerCase();
         return (
           c !== '' &&
-          !['member_basic', 'member_qualified', 'member', 'user'].includes(c.replace(/[-_\s]/g, '_'))
+          !['member_basic', 'member_qualified', 'member', 'user'].includes(
+            c.replace(/[-_\s]/g, '_'),
+          )
         );
       });
       return custom ?? null;
@@ -154,10 +234,15 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     const buildSessionUser = async (
       supaUser: { id: string; email: string; user_metadata: Record<string, unknown> },
       accessToken?: string,
-    ): Promise<SessionUser> => {
+    ): Promise<{ user: SessionUser; verified: boolean }> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supaAny = client as any;
-      let member: { firstName: string; lastName: string; isQualified: boolean; status: string } | null = null;
+      let member: {
+        firstName: string;
+        lastName: string;
+        isQualified: boolean;
+        status: string;
+      } | null = null;
       try {
         // Prefer quoted "Member" (auth foundation) with correct columns: id, email, name, status, "isQualified"
         // Fallback to legacy "members" for compat
@@ -167,7 +252,8 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
             data: Record<string, unknown> | null;
             error: unknown;
           };
-          if (!r.error && r.data) res = r as { data: Record<string, unknown> | null; error: unknown };
+          if (!r.error && r.data)
+            res = r as { data: Record<string, unknown> | null; error: unknown };
           else throw r.error;
         } catch {
           const r2 = (await supaAny.from('members').select('*').eq('id', supaUser.id).single()) as {
@@ -182,14 +268,15 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           const name = (d['name'] as string) ?? '';
           const firstName = (d['firstName'] as string) ?? name.split(' ')[0] ?? '';
           const lastName = (d['lastName'] as string) ?? name.split(' ').slice(1).join(' ') ?? '';
-          const isQualified = (d['isQualified'] as boolean) ?? (d['is_qualified'] as boolean) ?? false;
+          const isQualified =
+            (d['isQualified'] as boolean) ?? (d['is_qualified'] as boolean) ?? false;
           const status = (d['status'] as string) ?? 'PENDING';
           member = { firstName, lastName, isQualified, status };
         }
       } catch {
         member = null;
       }
-      const slugs = await resolveRoleSlugs(accessToken);
+      const { slugs, verified } = await resolveRoleSlugs(accessToken);
       let role: Role | null =
         slugs.length === 0
           ? null
@@ -202,27 +289,66 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         role = 'user';
       }
       return {
-        id: supaUser.id,
-        name: member?.firstName && member?.lastName ? `${member.firstName} ${member.lastName}` : ((supaUser.user_metadata['full_name'] as string) ?? supaUser.email ?? ''),
-        email: supaUser.email ?? '',
-        role,
-        roleId: slugToRoleId(slugs),
-        isQualified: (member?.isQualified as boolean) ?? false,
-        status: (member?.status as MemberStatus) ?? 'PENDING',
+        user: {
+          id: supaUser.id,
+          name:
+            member?.firstName && member?.lastName
+              ? `${member.firstName} ${member.lastName}`
+              : ((supaUser.user_metadata['full_name'] as string) ?? supaUser.email ?? ''),
+          email: supaUser.email ?? '',
+          role,
+          roleId: slugToRoleId(slugs),
+          isQualified: (member?.isQualified as boolean) ?? false,
+          status: (member?.status as MemberStatus) ?? 'PENDING',
+        },
+        verified,
       };
     };
 
-    client.auth.getSession().then(async ({ data }) => {
-      const supaUser = data.session?.user;
-      if (!supaUser) {
+    /**
+     * Apply a resolved session. A null user is always a real sign-out.
+     * An unverified resolution never demotes: the last verified session is
+     * kept (idle-return race) so RequireRole keeps rendering instead of
+     * flipping to Access denied; the error flag surfaces a Retry affordance.
+     */
+    const applySessionUser = (next: SessionUser | null, verified: boolean) => {
+      if (!next) {
+        lastGoodUser.current = null;
+        setUser(null);
         setStatus('unauthenticated');
+        setSessionError(false);
         setMockSessionUser(null);
         return;
       }
-      const next = await buildSessionUser(supaUser, data.session?.access_token);
-      setUser(next);
+      if (verified) {
+        lastGoodUser.current = next;
+        setUser(next);
+        setStatus('authenticated');
+        setSessionError(false);
+        setMockSessionUser(next as unknown as import('@jad/mock').MockUser);
+        return;
+      }
+      const preserved = lastGoodUser.current ?? next;
+      setUser(preserved);
       setStatus('authenticated');
-      setMockSessionUser(next as unknown as import('@jad/mock').MockUser);
+      setSessionError(true);
+      setMockSessionUser(preserved as unknown as import('@jad/mock').MockUser);
+    };
+
+    const revalidate = async () => {
+      const { data } = await client.auth.getSession();
+      const supaUser = data.session?.user ?? null;
+      if (!supaUser) {
+        applySessionUser(null, true);
+        return;
+      }
+      const { user: next, verified } = await buildSessionUser(supaUser, data.session?.access_token);
+      applySessionUser(next, verified);
+    };
+    revalidateRef.current = revalidate;
+
+    revalidate().catch(() => {
+      // getSession itself failed — stay loading rather than guessing.
     });
     const { data: sub } = client.auth.onAuthStateChange(async (_event, session) => {
       const typed = session as {
@@ -231,15 +357,11 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       } | null;
       const supaUser = typed?.user ?? null;
       if (!supaUser) {
-        setUser(null);
-        setStatus('unauthenticated');
-        setMockSessionUser(null);
+        applySessionUser(null, true);
         return;
       }
-      const next = await buildSessionUser(supaUser, typed?.access_token);
-      setUser(next);
-      setStatus('authenticated');
-      setMockSessionUser(next as unknown as import('@jad/mock').MockUser);
+      const { user: next, verified } = await buildSessionUser(supaUser, typed?.access_token);
+      applySessionUser(next, verified);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -252,24 +374,30 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const client = getSupabaseClient() as { auth: { signOut: () => Promise<void> } } | null;
     if (client) await client.auth.signOut();
+    lastGoodUser.current = null;
     setUser(null);
     setStatus('unauthenticated');
+    setSessionError(false);
     setMockSessionUser(null);
   };
+  const revalidate = useCallback(() => revalidateRef.current(), []);
 
   const value = useMemo<SessionContextValue>(
     () => ({
       status,
       user,
       role: user?.role ?? null,
-      // roleId comes from MemberRole slugs (null = no staff access, in
-      // which case module checks fall back to the legacy session-role gate).
+      // roleId comes from the server-resolved staff slugs (null = verified
+      // non-staff, in which case module checks fall back to the legacy
+      // session-role gate).
       roleId: user?.roleId ?? null,
       isQualified: user?.isQualified ?? false,
+      sessionError,
+      revalidate,
       loginAs,
       logout,
     }),
-    [status, user],
+    [status, user, sessionError, revalidate],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
@@ -278,14 +406,22 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
 export interface SessionProviderProps {
   initialUser?: SessionUser | null;
   restoreDelayMs?: number;
+  /** Test-only: simulate a role-resolution error (Retry affordance). */
+  sessionError?: boolean;
+  /** Test-only: observe Retry invocations. */
+  onRevalidate?: () => void | Promise<void>;
   children: ReactNode;
 }
 
 function TestSessionProvider({
   initialUser,
+  sessionError = false,
+  onRevalidate,
   children,
 }: {
   initialUser?: SessionUser | null;
+  sessionError?: boolean;
+  onRevalidate?: () => void | Promise<void>;
   children: ReactNode;
 }) {
   const value = useMemo<SessionContextValue>(() => {
@@ -298,6 +434,10 @@ function TestSessionProvider({
         // (unresolved) — navItemsForRole treats them differently.
         roleId: initialUser.roleId,
         isQualified: initialUser.isQualified ?? false,
+        sessionError,
+        revalidate: async () => {
+          await onRevalidate?.();
+        },
         loginAs: () => {},
         logout: () => {},
       };
@@ -308,16 +448,32 @@ function TestSessionProvider({
       role: null,
       roleId: undefined,
       isQualified: false,
+      sessionError: false,
+      revalidate: async () => {},
       loginAs: () => {},
       logout: () => {},
     };
-  }, [initialUser]);
+  }, [initialUser, sessionError, onRevalidate]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
-export function SessionProvider({ initialUser, restoreDelayMs, children }: SessionProviderProps) {
+export function SessionProvider({
+  initialUser,
+  restoreDelayMs,
+  sessionError,
+  onRevalidate,
+  children,
+}: SessionProviderProps) {
   if (initialUser !== undefined) {
-    return <TestSessionProvider initialUser={initialUser}>{children}</TestSessionProvider>;
+    return (
+      <TestSessionProvider
+        initialUser={initialUser}
+        sessionError={sessionError}
+        onRevalidate={onRevalidate}
+      >
+        {children}
+      </TestSessionProvider>
+    );
   }
   // Vitest: keep mock path to avoid real Supabase network in tests.
   if ((import.meta.env as Record<string, string | undefined>).MODE === 'test') {

@@ -137,6 +137,11 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
 
   const programs = usePrograms();
   const config = usePublicConfig();
+  // Loaded-but-empty program list (e.g. reference data not yet seeded):
+  // internal ids must never leak into visible copy — both display sites and
+  // step-0 validation use this flag instead of falling back to the raw id.
+  const programsUnavailable =
+    !programs.isLoading && !programs.isError && (programs.data ?? []).length === 0;
   const questionsQuery = useQuery({
     queryKey: ['qualification-questions', draft.programId],
     queryFn: () => getQualificationQuestions(draft.programId),
@@ -231,8 +236,19 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
 
   const stepErrors = (): Record<string, string> => {
     switch (step) {
-      case 0:
-        return validateProgramProfile(draft, minAge);
+      case 0: {
+        const base = validateProgramProfile(draft, minAge);
+        // Without a program catalog the application cannot succeed
+        // server-side — block here with a clear message instead of letting a
+        // raw id through to submit.
+        if (programsUnavailable) {
+          return {
+            ...base,
+            programId: 'Programs are unavailable right now. Please try again shortly.',
+          };
+        }
+        return base;
+      }
       case 1:
         return validateQualification(draft.answers, questions);
       case 2:
@@ -362,6 +378,16 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
     label: program.name,
   }));
 
+  // Resolved program label for the two read-only display sites below. Never
+  // falls back to the raw program id — an unresolved id renders as an
+  // explicit unavailable/unknown state instead of leaking internals.
+  const programDisplayName = (() => {
+    const match = programOptions.find((p) => p.value === draft.programId)?.label;
+    if (match) return match;
+    if (programsUnavailable) return 'Program list unavailable — please try again shortly.';
+    return '—';
+  })();
+
   return (
     <form ref={formRef} className={styles.form} noValidate onSubmit={onNext}>
       <ol className={styles.steps} aria-label="Registration progress">
@@ -474,10 +500,7 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                   role="textbox"
                   aria-label="Program"
                 >
-                  {(() => {
-                    const name = programOptions.find((p) => p.value === draft.programId)?.label;
-                    return name ?? (draft.programId ? draft.programId : '—');
-                  })()}
+                  {programDisplayName}
                 </div>
               )}
               {errors.programId ? (
@@ -925,11 +948,7 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                   </div>
                   <div className={styles.reviewRow}>
                     <dt>Program</dt>
-                    <dd>
-                      {programOptions.find((p) => p.value === draft.programId)?.label ??
-                        draft.programId ??
-                        '—'}
-                    </dd>
+                    <dd>{programDisplayName}</dd>
                   </div>
                 </dl>
               </section>

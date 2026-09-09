@@ -1,9 +1,20 @@
-import { useParams, Link } from 'react-router';
+import { useState } from 'react';
+import { useNavigate, useParams, Link } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { ErrorState, PageHeader, Skeleton, StatusChip } from '@jad/ui';
+import {
+  Button,
+  ConfirmDialog,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  StatusChip,
+  useToast,
+} from '@jad/ui';
 import type { ContentKind } from '@jad/contracts';
 
 import { useContent } from '../hooks/useContent';
+import { useDeleteContent } from '../hooks/useDeleteContent';
 import { CONTENT_KIND_LABEL, CONTENT_KIND_TONE } from '../status';
 import { formatDate } from '../../../lib/format';
 import styles from './MarketingToolDetailPage.module.css';
@@ -28,9 +39,33 @@ function isPdfUrl(url?: string): boolean {
 /** Marketing Tool Detail — read-only view of a single forwardable content item. */
 export function MarketingToolDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data, isPending, isError, error } = useContent();
+  const deleteContent = useDeleteContent();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const item = data?.find((c) => c.id === id);
+
+  const handleDelete = async () => {
+    if (!item) return;
+    try {
+      const result = await deleteContent.mutateAsync(item.id);
+      toast({
+        title: 'Marketing tool deleted',
+        message: result.fileRemoved
+          ? `"${item.title}" was permanently removed, including its uploaded file.`
+          : `"${item.title}" was permanently removed.`,
+        tone: 'success',
+      });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'content'] });
+      navigate('/admin/marketing-tools');
+    } catch (e) {
+      toast({ title: 'Delete failed', message: (e as Error).message, tone: 'danger' });
+      setShowDeleteConfirm(false);
+    }
+  };
 
   return (
     <section>
@@ -95,11 +130,7 @@ export function MarketingToolDetailPage() {
             <div className={styles.previewSection}>
               <h3 className={styles.sectionTitle}>Preview</h3>
               {item.kind === 'IMAGE' ? (
-                <img
-                  src={item.downloadUrl}
-                  alt={item.title}
-                  className={styles.previewImage}
-                />
+                <img src={item.downloadUrl} alt={item.title} className={styles.previewImage} />
               ) : (
                 <video
                   controls
@@ -114,11 +145,7 @@ export function MarketingToolDetailPage() {
           {item.kind === 'DOCUMENT' && item.downloadUrl && isPdfUrl(item.downloadUrl) && (
             <div className={styles.previewSection}>
               <h3 className={styles.sectionTitle}>Preview</h3>
-              <iframe
-                src={item.downloadUrl}
-                title={item.title}
-                className={styles.previewPdf}
-              />
+              <iframe src={item.downloadUrl} title={item.title} className={styles.previewPdf} />
             </div>
           )}
 
@@ -163,14 +190,34 @@ export function MarketingToolDetailPage() {
                     Share on Viber
                   </a>
                 )}
-                {item.share.copyUrl && (
-                  <CopyLinkButton url={item.share.copyUrl} />
-                )}
+                {item.share.copyUrl && <CopyLinkButton url={item.share.copyUrl} />}
               </div>
             </div>
           )}
+
+          <div className={styles.linksSection}>
+            <h3 className={styles.sectionTitle}>Danger zone</h3>
+            <Button
+              variant="danger"
+              onClick={() => setShowDeleteConfirm(true)}
+              aria-label={`Delete ${item.title}`}
+            >
+              Delete Permanently
+            </Button>
+          </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+        title={`Delete "${item?.title ?? ''}"?`}
+        message="This will permanently remove this marketing tool and its uploaded file. This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+      />
     </section>
   );
 }

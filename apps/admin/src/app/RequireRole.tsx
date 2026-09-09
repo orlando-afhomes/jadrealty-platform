@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
 
 import { useSession } from '../lib/session';
-import { Forbidden, Skeleton } from '@jad/ui';
+import { Button, Forbidden, Skeleton } from '@jad/ui';
 
 import {
   canAccess,
@@ -56,9 +56,13 @@ function LoadingState() {
  * visitors also see Forbidden (the real backend enforces authorization —
  * FRONTEND-ARCHITECTURE; visibility is never authorization). Unknown paths pass
  * through so the NotFound route handles them.
+ *
+ * When the session carries a role-resolution error (transient /admin/session
+ * failure, e.g. an expired token after idle), the denial offers Retry instead
+ * of stranding the user — a refresh is no longer required to recover.
  */
 export function RequireRole({ children }: { children: ReactNode }) {
-  const { status, role, roleId } = useSession();
+  const { status, role, roleId, sessionError, revalidate } = useSession();
   const { data: roles, isPending: rolesPending } = useRoles();
   const location = useLocation();
 
@@ -66,6 +70,17 @@ export function RequireRole({ children }: { children: ReactNode }) {
   if (status !== 'authenticated') {
     return <RedirectToWebLogin />;
   }
+  const denied = sessionError ? (
+    <Forbidden
+      action={
+        <Button variant="secondary" onClick={() => void revalidate()}>
+          Retry
+        </Button>
+      }
+    />
+  ) : (
+    <Forbidden />
+  );
   // Sessions carrying a role id enforce per-module access resolved against
   // role records (matrix seed as fallback). A matched sub-item (dropdown
   // link) is authoritative for its destination; the item module check
@@ -76,15 +91,15 @@ export function RequireRole({ children }: { children: ReactNode }) {
   const enforcedId = roleId ?? null;
   const sub = roleId ? findNavSubItem(location.pathname) : undefined;
   if (sub !== undefined && !canAccessSubModule(enforcedId, roles, sub.sub)) {
-    return <Forbidden />;
+    return denied;
   }
   const item = findNavItem(location.pathname);
   if (item !== undefined) {
     if (!canAccess(role, item)) {
-      return <Forbidden />;
+      return denied;
     }
     if (roleId && sub === undefined && !canAccessModule(enforcedId, roles, item)) {
-      return <Forbidden />;
+      return denied;
     }
   }
   return <>{children}</>;

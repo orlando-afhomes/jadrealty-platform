@@ -13,8 +13,19 @@ import { MOCK_CONTENT } from './data';
 let contentSeq = MOCK_CONTENT.length + 1;
 
 export const contentStore: { items: ForwardableContent[] } = {
-  items: MOCK_CONTENT.map((item) => ({ ...item, share: item.share ? { ...item.share } : undefined })),
+  items: MOCK_CONTENT.map((item) => ({
+    ...item,
+    share: item.share ? { ...item.share } : undefined,
+  })),
 };
+
+/** Remove an item by id; returns true when an item was removed. */
+export function deleteStoreContent(id: string): boolean {
+  const index = contentStore.items.findIndex((item) => item.id === id);
+  if (index === -1) return false;
+  contentStore.items.splice(index, 1);
+  return true;
+}
 
 /** Restore seed state (specs call this to isolate mutation tests). */
 export function resetContentStore(): void {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { MOCK_ADMIN } from '@jad/mock';
@@ -213,7 +213,12 @@ describe('ContentPage', () => {
     stubStorageUpload(
       () =>
         new Response(
-          JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Promos must be a document, image, or video file' } }),
+          JSON.stringify({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Promos must be a document, image, or video file',
+            },
+          }),
           { status: 400, headers: { 'Content-Type': 'application/json' } },
         ),
     );
@@ -232,7 +237,9 @@ describe('ContentPage', () => {
     fireEvent.change(fileInput);
     await user.click(screen.getByRole('button', { name: 'Publish' }));
 
-    expect(await screen.findByText(/Promos must be a document, image, or video file/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Promos must be a document, image, or video file/),
+    ).toBeInTheDocument();
   });
 
   it('surfaces the storage PUT rejection body instead of the generic message', async () => {
@@ -240,7 +247,11 @@ describe('ContentPage', () => {
       undefined,
       () =>
         new Response(
-          JSON.stringify({ statusCode: '400', error: 'Bad Request', message: 'mime type video/mp4 is not supported' }),
+          JSON.stringify({
+            statusCode: '400',
+            error: 'Bad Request',
+            message: 'mime type video/mp4 is not supported',
+          }),
           { status: 400, headers: { 'Content-Type': 'application/json' } },
         ),
     );
@@ -287,5 +298,33 @@ describe('ContentPage', () => {
     expect(row).toHaveAttribute('tabindex', '0');
     fireEvent.keyDown(row, { key: 'Enter', bubbles: true });
     expect(await screen.findByText('detail-marker')).toBeInTheDocument();
+  });
+
+  it('deletes a marketing tool after confirmation', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Delete JA&D Membership Overview' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/permanently remove/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText('JA&D Membership Overview')).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText('Marketing tool deleted')).toBeInTheDocument();
+  });
+
+  it('cancelling the delete confirm keeps the tool', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Delete JA&D Membership Overview' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByText('JA&D Membership Overview')).toBeInTheDocument();
   });
 });

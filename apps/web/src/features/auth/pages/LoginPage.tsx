@@ -17,7 +17,7 @@ import { AUTH } from '../content';
 import { AuthLayout } from '../components/AuthLayout';
 import { PasswordField } from '../components/PasswordField';
 import { TextField } from '../components/TextField';
-import { login } from '../services/auth';
+import { login, resolveLoginRole } from '../services/auth';
 import { LOGIN_FIELD_ORDER, firstInvalidField, validateLogin } from '../validation';
 import type { LoginErrors, LoginValues } from '../validation';
 import styles from './LoginPage.module.css';
@@ -30,14 +30,24 @@ import styles from './LoginPage.module.css';
  * (`VITE_ADMIN_URL` → :5174/admin) and `user` → Member App (`/member` → :5173).
  */
 export function LoginPage() {
-  const { data: cmsLogin } = useQuery({ queryKey: ['cms', 'login'], queryFn: getLoginCmsPublic, staleTime: 0 });
+  const { data: cmsLogin } = useQuery({
+    queryKey: ['cms', 'login'],
+    queryFn: getLoginCmsPublic,
+    staleTime: 0,
+  });
   const { data: globalCms } = useQuery({
     queryKey: ['cms', 'global'],
     queryFn: getGlobalCmsPublic,
     staleTime: 0,
   });
   const loginContent = cmsLogin ?? {
-    copy: { eyebrow: AUTH.login.eyebrow, title: AUTH.login.title, lead: AUTH.login.lead, brandTitle: AUTH.login.brandTitle, brandLead: AUTH.login.brandLead },
+    copy: {
+      eyebrow: AUTH.login.eyebrow,
+      title: AUTH.login.title,
+      lead: AUTH.login.lead,
+      brandTitle: AUTH.login.brandTitle,
+      brandLead: AUTH.login.brandLead,
+    },
     image: AUTH.images.login,
     fields: { identifier: AUTH.login.fields.identifier, password: AUTH.login.fields.password },
     submitLabel: AUTH.login.submitLabel,
@@ -100,7 +110,9 @@ export function LoginPage() {
       const supaClient = getSupabaseClient() as unknown as {
         auth: {
           signInWithPassword: (c: { email: string; password: string }) => Promise<{
-            data: { user: { id: string; email: string; user_metadata: Record<string, unknown> } | null };
+            data: {
+              user: { id: string; email: string; user_metadata: Record<string, unknown> } | null;
+            };
             error: { message: string } | null;
           }>;
         };
@@ -124,9 +136,29 @@ export function LoginPage() {
       }
       const userId = data.user.id;
       // Fetch profile from Member table (quoted "Member" per migration, fallback to legacy "members")
-      let member: { firstName: string; lastName: string; isQualified: boolean; status: string } | null = null;
+      let member: {
+        firstName: string;
+        lastName: string;
+        isQualified: boolean;
+        status: string;
+      } | null = null;
       try {
-        const res = (await (supaClient as unknown as { from: (t: string) => { select: (s: string) => { eq: (k: string, v: string) => { single: () => Promise<{ data: Record<string, unknown> | null }> } } } }).from('Member').select('*').eq('id', userId).single()) as {
+        const res = (await (
+          supaClient as unknown as {
+            from: (t: string) => {
+              select: (s: string) => {
+                eq: (
+                  k: string,
+                  v: string,
+                ) => { single: () => Promise<{ data: Record<string, unknown> | null }> };
+              };
+            };
+          }
+        )
+          .from('Member')
+          .select('*')
+          .eq('id', userId)
+          .single()) as {
           data: Record<string, unknown> | null;
         };
         if (res.data) {
@@ -141,56 +173,35 @@ export function LoginPage() {
         }
       } catch {
         try {
-          const res2 = (await (supaClient.from('members').select('*').eq('id', userId).single() as Promise<{ data: { firstName: string; lastName: string; isQualified: boolean; status: string } | null }>)) ?? { data: null };
+          const res2 = (await (supaClient
+            .from('members')
+            .select('*')
+            .eq('id', userId)
+            .single() as Promise<{
+            data: {
+              firstName: string;
+              lastName: string;
+              isQualified: boolean;
+              status: string;
+            } | null;
+          }>)) ?? { data: null };
           member = res2.data;
         } catch {
           member = null;
         }
       }
 
-      // Authoritative role resolution via MemberRole → Role (DB), not user_metadata.
-      // Phase 1: admin / user only; maps legacy SUPER_ADMIN → admin.
-      let authoritativeRole: string;
-      const tryRoleResolve = async (roleTable: string, linkTable: string): Promise<string | null> => {
-        try {
-          const c = supaClient as unknown as {
-            from: (t: string) => ({
-              select: (c: string) => ({
-                eq: (k: string, v: string) => Promise<{ data: unknown[] | null; error: unknown }>,
-                in: (k: string, v: string[]) => Promise<{ data: unknown[] | null; error: unknown }>,
-              }),
-            }),
-          };
-          const { data: links, error: linkErr } = await c.from(linkTable).select('roleId').eq('memberId', userId);
-          if (!linkErr && Array.isArray(links) && links.length > 0) {
-            const ids = (links as { roleId: string }[]).map((l) => l.roleId);
-            const { data: roles, error: roleErr } = await c.from(roleTable).select('slug,name').in('id', ids);
-            if (!roleErr && Array.isArray(roles) && roles.length > 0) {
-              const slugs = (roles as { slug: string }[]).map((r) => r.slug);
-              if (slugs.some((s) => normalizeRole(s) === 'admin')) return 'admin';
-              return 'user';
-            }
-            const collected: string[] = [];
-            for (const rid of ids) {
-              const { data: one } = await c.from(roleTable).select('slug,name').eq('id', rid);
-              if (Array.isArray(one)) for (const row of one as { slug: string }[]) collected.push(row.slug);
-            }
-            if (collected.some((s) => normalizeRole(s) === 'admin')) return 'admin';
-            if (collected.length > 0) return 'user';
-          }
-        } catch {
-          // ignore and try next table variant
-        }
-        return null;
-      };
-      // Try Phase 1 quoted tables first, then legacy; fallback to user_metadata if DB has no tables yet
-      const dbRole = (await tryRoleResolve('Role', 'MemberRole')) ?? (await tryRoleResolve('roles', 'member_roles')) ?? (await tryRoleResolve('role', 'memberrole'));
-      if (dbRole) authoritativeRole = dbRole;
-      else {
-        const metaRole = data.user.user_metadata?.['role'];
-        if (typeof metaRole === 'string' && normalizeRole(metaRole) === 'admin') authoritativeRole = 'admin';
-        else authoritativeRole = 'user';
-      }
+      // Authoritative role resolution (staff-first): staff-only identities
+      // (StaffUser, no Member row) resolve to admin; member-tier resolves via
+      // MemberRole → Role; user_metadata is the last resort. Mirrors
+      // SupabaseSessionProvider so login and refresh agree — otherwise an
+      // admin lands on the member panel until refresh. Phase 1: admin / user
+      // only; maps legacy SUPER_ADMIN → admin via normalizeRole.
+      const authoritativeRole: string = await resolveLoginRole(
+        supaClient as unknown as import('../services/auth').LoginRoleClient,
+        userId,
+        (data.user.user_metadata ?? {}) as Record<string, unknown>,
+      );
       return {
         id: data.user.id,
         name:
@@ -207,8 +218,17 @@ export function LoginPage() {
     };
 
     try {
-      const isSupabaseAuth = isSupabaseConfigured() && (import.meta.env as Record<string, string | undefined>).MODE !== 'test';
-      let user: { id: string; name: string; email: string; role: string; isQualified?: boolean; status?: string };
+      const isSupabaseAuth =
+        isSupabaseConfigured() &&
+        (import.meta.env as Record<string, string | undefined>).MODE !== 'test';
+      let user: {
+        id: string;
+        name: string;
+        email: string;
+        role: string;
+        isQualified?: boolean;
+        status?: string;
+      };
       if (isSupabaseAuth) {
         const supaUser = await trySupabaseLogin();
         // trySupabaseLogin throws on auth failure, returns user on success; null only if not configured
@@ -234,15 +254,20 @@ export function LoginPage() {
       const role = normalizeRole(user.role);
       if (role === 'admin') {
         const rawAdminUrl =
-          (import.meta.env as Record<string, string | undefined>).VITE_ADMIN_URL ?? 'http://localhost:5174/admin';
+          (import.meta.env as Record<string, string | undefined>).VITE_ADMIN_URL ??
+          'http://localhost:5174/admin';
         const base = rawAdminUrl.replace(/\/$/, '');
         const adminBase = base.endsWith('/admin') ? base : `${base}/admin`;
-        const target = from.startsWith('/admin') ? `${adminBase}${from.replace(/^\/admin/, '')}` : adminBase;
+        const target = from.startsWith('/admin')
+          ? `${adminBase}${from.replace(/^\/admin/, '')}`
+          : adminBase;
         window.location.href = target;
         return;
       }
       // user → Member App canonical entry is /member (keep /member/* legacy routes per Q3)
-      navigate(from.startsWith('/member') || from.startsWith('/user') ? from : '/member', { replace: true });
+      navigate(from.startsWith('/member') || from.startsWith('/user') ? from : '/member', {
+        replace: true,
+      });
     } catch (error) {
       setServerError(apiErrorMessage(error, 'Sign-in failed. Please try again shortly.'));
       setSubmitting(false);

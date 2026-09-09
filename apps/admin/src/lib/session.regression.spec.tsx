@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SupabaseSessionProvider, useSession } from './session';
@@ -8,14 +9,23 @@ const mockGetSession = vi.fn();
 const mockOnAuthStateChange = vi.fn();
 const mockSignOut = vi.fn();
 const mockMembersSingle = vi.fn();
+const mockTryRefreshSession = vi.fn();
 
 vi.mock('./supabase', async () => {
   const actual = await vi.importActual<typeof import('./supabase')>('./supabase');
   return {
     ...actual,
     isSupabaseConfigured: () => true,
+    // Lazily bound: the factory is hoisted above these consts, so the
+    // reference must resolve at call time, not at factory evaluation.
+    tryRefreshSession: (...args: unknown[]) =>
+      (mockTryRefreshSession as (...a: unknown[]) => Promise<boolean>)(...args),
     getSupabaseClient: () => ({
-      auth: { getSession: mockGetSession, onAuthStateChange: mockOnAuthStateChange, signOut: mockSignOut },
+      auth: {
+        getSession: mockGetSession,
+        onAuthStateChange: mockOnAuthStateChange,
+        signOut: mockSignOut,
+      },
       from: (table: string) => {
         if (table === 'Member' || table === 'members')
           return { select: () => ({ eq: () => ({ single: mockMembersSingle }) }) };
@@ -28,11 +38,12 @@ vi.mock('./supabase', async () => {
 /**
  * Layer the staff-session endpoint over real fetch: role slugs resolve
  * server-side (Phase 6 — the client never reads Role tables). Always wraps
- * the original fetch so stubs never chain across tests.
+ * the original fetch so stubs never chain across tests. The stub receives
+ * the request init so tests can respond per-token (stale → 401).
  */
 const originalFetch = globalThis.fetch;
 function stubStaffSession(
-  impl: () => Response = () =>
+  impl: (input?: RequestInfo | URL, init?: RequestInit) => Response = () =>
     Response.json({
       id: 'sup-001',
       email: 'superadmin@gmail.com',
@@ -42,19 +53,23 @@ function stubStaffSession(
     }),
 ) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).includes('/admin/session')) return impl();
+    if (String(input).includes('/admin/session')) return impl(input, init);
     return (originalFetch as typeof fetch)(input, init);
   }) as typeof fetch;
 }
 
 function Probe() {
-  const { status, role, roleId, user } = useSession();
+  const { status, role, roleId, user, sessionError, revalidate } = useSession();
   return (
     <div>
       <div data-testid="status">{status}</div>
       <div data-testid="role">{role ?? 'null'}</div>
       <div data-testid="roleId">{roleId ?? 'null'}</div>
       <div data-testid="user">{user?.id ?? 'none'}</div>
+      <div data-testid="sessionError">{sessionError ? 'yes' : 'no'}</div>
+      <button type="button" onClick={() => void revalidate()}>
+        Re-run session
+      </button>
     </div>
   );
 }
@@ -69,6 +84,7 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
     mockGetSession.mockResolvedValue({ data: { session: null } });
     mockOnAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
     mockMembersSingle.mockResolvedValue({ data: null });
+    mockTryRefreshSession.mockResolvedValue(false);
     stubStaffSession();
   });
 
@@ -78,22 +94,41 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
     mockGetSession.mockResolvedValue({
       data: { session: sessionWithUser('sup-001', 'superadmin@gmail.com') },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Saul', lastName: 'Super', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: { firstName: 'Saul', lastName: 'Super', isQualified: true, status: 'APPROVED_ACTIVE' },
+    });
 
-    render(<SupabaseSessionProvider><Probe /></SupabaseSessionProvider>);
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('role')).toHaveTextContent('admin');
     expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
   });
 
   it('endpoint 404 (no staff identity) → user role, null shell', async () => {
-    stubStaffSession(() => new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), { status: 404 }));
+    stubStaffSession(
+      () => new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), { status: 404 }),
+    );
     mockGetSession.mockResolvedValue({
       data: { session: sessionWithUser('mem-001', 'juan@example.com', 'tok-x') },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Juan', lastName: 'Dela Cruz', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: {
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
+    });
 
-    render(<SupabaseSessionProvider><Probe /></SupabaseSessionProvider>);
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('role')).toHaveTextContent('user');
     expect(screen.getByTestId('roleId')).toHaveTextContent('null');
@@ -106,9 +141,20 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
     mockGetSession.mockResolvedValue({
       data: { session: sessionWithUser('mem-002', 'maria@example.com', 'tok-y') },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Maria', lastName: 'Santos', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: {
+        firstName: 'Maria',
+        lastName: 'Santos',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
+    });
 
-    render(<SupabaseSessionProvider><Probe /></SupabaseSessionProvider>);
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('role')).toHaveTextContent('user');
   });
@@ -125,9 +171,20 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
       return { data: { subscription: { unsubscribe: vi.fn() } } };
     });
     mockGetSession.mockResolvedValue({ data: { session: sessionWithUser('mem-001', 'a@b.com') } });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Juan', lastName: 'Dela Cruz', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: {
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
+    });
 
-    render(<SupabaseSessionProvider><Probe /></SupabaseSessionProvider>);
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     cb('SIGNED_OUT', { user: null } as never);
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
@@ -146,9 +203,15 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
     mockGetSession.mockResolvedValue({
       data: { session: sessionWithUser('adm-1', 'admin@jad.local') },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' },
+    });
 
-    render(<SupabaseSessionProvider><Probe /></SupabaseSessionProvider>);
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
   });
@@ -166,10 +229,118 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
     mockGetSession.mockResolvedValue({
       data: { session: sessionWithUser('fin-1', 'fina@jad.example') },
     });
-    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Fina', lastName: 'Finance', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockMembersSingle.mockResolvedValue({
+      data: {
+        firstName: 'Fina',
+        lastName: 'Finance',
+        isQualified: true,
+        status: 'APPROVED_ACTIVE',
+      },
+    });
 
-    render(<SupabaseSessionProvider><Probe /></SupabaseSessionProvider>);
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('roleId')).toHaveTextContent('finance');
+  });
+
+  it('stale-token 401 engages one refresh and recovers without reload', async () => {
+    const bearerOf = (init?: RequestInit): string => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      return String(headers?.['Authorization'] ?? headers?.['authorization'] ?? '');
+    };
+    stubStaffSession((_input, init) =>
+      bearerOf(init).includes('tok-stale')
+        ? new Response('unauthorized', { status: 401 })
+        : Response.json({
+            id: 'sup-001',
+            email: 'superadmin@gmail.com',
+            name: 'Saul Super',
+            status: 'ACTIVE',
+            slugs: ['super_admin'],
+          }),
+    );
+    mockGetSession
+      .mockResolvedValueOnce({
+        data: { session: sessionWithUser('sup-001', 'superadmin@gmail.com', 'tok-stale') },
+      })
+      .mockResolvedValue({
+        data: { session: sessionWithUser('sup-001', 'superadmin@gmail.com', 'tok-fresh') },
+      });
+    mockTryRefreshSession.mockResolvedValue(true);
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(mockTryRefreshSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('role')).toHaveTextContent('admin');
+    expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
+    expect(screen.getByTestId('sessionError')).toHaveTextContent('no');
+  });
+
+  it('persistent 401 after a verified staff session preserves it and flags retry (idle-return race)', async () => {
+    let cb: (e: string, s: unknown) => void = () => {};
+    mockOnAuthStateChange.mockImplementation((c) => {
+      cb = c as unknown as typeof cb;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    mockGetSession.mockResolvedValue({
+      data: { session: sessionWithUser('sup-001', 'superadmin@gmail.com', 'tok-good') },
+    });
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
+
+    // Idle return with a stale token: endpoint 401s and rotation fails.
+    stubStaffSession(() => new Response('unauthorized', { status: 401 }));
+    mockTryRefreshSession.mockResolvedValue(false);
+    cb('TOKEN_REFRESHED', sessionWithUser('sup-001', 'superadmin@gmail.com', 'tok-stale'));
+
+    await waitFor(() => expect(screen.getByTestId('sessionError')).toHaveTextContent('yes'));
+    // Preserved — never demoted to user while the failure is transient.
+    expect(screen.getByTestId('status')).toHaveTextContent('authenticated');
+    expect(screen.getByTestId('role')).toHaveTextContent('admin');
+    expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
+  });
+
+  it('revalidate recovers the session without a page reload', async () => {
+    let cb: (e: string, s: unknown) => void = () => {};
+    mockOnAuthStateChange.mockImplementation((c) => {
+      cb = c as unknown as typeof cb;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    mockGetSession.mockResolvedValue({
+      data: { session: sessionWithUser('sup-001', 'superadmin@gmail.com', 'tok-good') },
+    });
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+
+    stubStaffSession(() => new Response('unauthorized', { status: 401 }));
+    mockTryRefreshSession.mockResolvedValue(false);
+    cb('TOKEN_REFRESHED', sessionWithUser('sup-001', 'superadmin@gmail.com', 'tok-stale'));
+    await waitFor(() => expect(screen.getByTestId('sessionError')).toHaveTextContent('yes'));
+
+    // Backend healthy again — Retry (revalidate) clears the error in place.
+    stubStaffSession();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Re-run session' }));
+    await waitFor(() => expect(screen.getByTestId('sessionError')).toHaveTextContent('no'));
+    expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
   });
 });

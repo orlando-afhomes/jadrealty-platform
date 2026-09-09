@@ -1,4 +1,5 @@
 import {
+  deleteContentItemResponseSchema,
   forwardableContentSchema,
   type ContentKind,
   type CreateContentItemRequest,
@@ -32,4 +33,15 @@ export function createContent(input: CreateContentInput): Promise<ForwardableCon
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * DELETE /admin/content/:id — permanently remove a marketing tool (row plus
+ * its bucket object when the download URL lives in `marketing-tools`).
+ * Irreversible — callers confirm first.
+ */
+export function deleteContentItem(
+  id: string,
+): Promise<{ id: string; deleted: true; fileRemoved: boolean }> {
+  return request(`/admin/content/${id}`, deleteContentItemResponseSchema, { method: 'DELETE' });
 }

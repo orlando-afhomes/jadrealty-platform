@@ -1,7 +1,7 @@
-import { adminMemberSchema } from '@jad/contracts';
+import { adminMemberSchema, purgeMemberRequestSchema } from '@jad/contracts';
 
-import { ADMIN_STAFF } from '../../../_lib/access.js';
-import { verifyStaff } from '../../../_lib/auth.js';
+import { ADMIN_STAFF, SUPER_ADMIN_ONLY } from '../../../_lib/access.js';
+import { slugsAllowed, verifyStaff } from '../../../_lib/auth.js';
 import { appendAudit } from '../../../_lib/audit.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { mapAdminMemberRow } from '../../../_lib/pipeline.js';
@@ -87,16 +87,78 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'DELETE') {
-    // Phase 1B — hard deletion is disabled. Members own financial records
-    // (Wallet, LedgerEntry, Commission, Sale, Customer) that the schema now
-    // protects with ON DELETE RESTRICT (BR-LED/BI-005: deactivate, never
-    // delete). The sanctioned lifecycle is archive (POST .../archive).
-    const { error, status } = toErrorEnvelope(
-      'CONFLICT',
-      'Members cannot be deleted. Archive the member instead (preserves all history).',
-      409,
-    );
-    res.status(status).json({ error });
+    // Phase D — permanent deletion (super_admin only, owner-approved
+    // exception to the archive-only default). The DB function deletes the
+    // member's entire graph (ledger, commissions, withdrawals, sales,
+    // customers, wallet, payout accounts, roles, notifications) in ONE
+    // transaction — the RESTRICT FKs are satisfied by the leaf-first order.
+    // The auth.users row is removed afterwards; the purge itself is audited
+    // with a snapshot of the destroyed identity.
+    if (!slugsAllowed(auth.slugs, [...SUPER_ADMIN_ONLY])) {
+      const { error, status } = toErrorEnvelope(
+        'FORBIDDEN',
+        'Only super admins can permanently delete members.',
+        403,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const parsedDeleteBody = readJsonBody(req);
+    if (!parsedDeleteBody.ok) {
+      const { error, status } = parsedDeleteBody.error;
+      res.status(status).json({ error });
+      return;
+    }
+    const parsedDelete = purgeMemberRequestSchema.safeParse(parsedDeleteBody.body ?? {});
+    if (!parsedDelete.success) {
+      const { error, status } = toErrorEnvelope(
+        'REJECTION_REASON_REQUIRED',
+        'A reason is required to permanently delete a member.',
+        422,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const { data: rpcData, error: rpcError } = await supabase.rpc('member_purge_cascade', {
+      p_member: id,
+      p_actor: auth.userId,
+      p_reason: parsedDelete.data.reason,
+    });
+    if (rpcError) {
+      const { error, status } = toErrorEnvelope('INTERNAL', rpcError.message, 500);
+      res.status(status).json({ error });
+      return;
+    }
+    const result = (rpcData ?? {}) as {
+      error?: { code: string; message: string; status?: number };
+      purged?: { id: string; email: string; name: string | null };
+    };
+    if (result.error) {
+      const { error, status } = toErrorEnvelope(
+        result.error.code as never,
+        result.error.message,
+        result.error.status ?? 500,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    // Remove the Supabase Auth identity. Best-effort: an already-missing
+    // auth account must not fail the purge (the Member row is already gone).
+    let authRemoved = true;
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id);
+    if (authDeleteError) authRemoved = false;
+    await appendAudit(supabase, {
+      action: 'MEMBER_PURGED',
+      actorId: auth.userId,
+      actorRole: auth.slugs[0] ?? 'super_admin',
+      targetType: 'Member',
+      targetId: id,
+      targetName: result.purged?.name ?? displayName,
+      detail: `Permanently deleted member ${result.purged?.email ?? ''} — reason: ${parsedDelete.data.reason}${
+        authRemoved ? '' : ' (auth user removal failed or already absent)'
+      }`,
+    });
+    res.status(200).json({ purgedId: id });
     return;
   }
 

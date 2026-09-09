@@ -104,3 +104,22 @@ export const referralCodeSchema = z.object({
 });
 
 export type ReferralCode = z.infer<typeof referralCodeSchema>;
+
+/**
+ * Permanent member purge — `DELETE /admin/members/:id` (super_admin only,
+ * owner-approved exception to the archive-only default). The reason is
+ * mandatory and written to `AuditLog` (MEMBER_PURGED). Archive via
+ * `POST /admin/members/:id/archive` remains the default lifecycle.
+ */
+export const purgeMemberRequestSchema = z.object({
+  reason: z.string().trim().min(1, 'A reason is required to permanently delete a member.'),
+});
+
+export type PurgeMemberRequest = z.infer<typeof purgeMemberRequestSchema>;
+
+/** Success payload for `DELETE /admin/members/:id`. */
+export const purgeMemberResponseSchema = z.object({
+  purgedId: z.string().min(1),
+});
+
+export type PurgeMemberResponse = z.infer<typeof purgeMemberResponseSchema>;

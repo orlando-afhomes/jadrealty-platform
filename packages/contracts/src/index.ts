@@ -72,6 +72,8 @@ export {
   qualificationRequirementSchema,
   qualificationSummarySchema,
   referralCodeSchema,
+  purgeMemberRequestSchema,
+  purgeMemberResponseSchema,
 } from './schemas/member.js';
 export type {
   MemberStatus,
@@ -82,6 +84,8 @@ export type {
   QualificationRequirement,
   QualificationSummary,
   ReferralCode,
+  PurgeMemberRequest,
+  PurgeMemberResponse,
 } from './schemas/member.js';
 export { adminQueuesSchema, adminMemberSchema } from './schemas/admin.js';
 export type { AdminQueues, AdminMember } from './schemas/admin.js';
@@ -200,12 +204,14 @@ export {
   contentKindSchema,
   forwardableContentSchema,
   createContentItemRequestSchema,
+  deleteContentItemResponseSchema,
   contentUploadSignRequestSchema,
 } from './schemas/content.js';
 export type {
   ContentKind,
   ForwardableContent,
   CreateContentItemRequest,
+  DeleteContentItemResponse,
   ContentUploadSignRequest,
 } from './schemas/content.js';
 export {

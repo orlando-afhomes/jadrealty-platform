@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MOCK_ADMIN } from '@jad/mock';
 
 import { installMockApi, renderWithProviders } from '../../../test/utils';
@@ -36,7 +37,9 @@ describe('MarketingToolDetailPage', () => {
   it('renders item details for a document', async () => {
     renderDetail('ctn-001');
     expect(await screen.findByText('JA&D Membership Overview')).toBeInTheDocument();
-    expect(screen.getByText('A one-page overview of the JA&D membership opportunity.')).toBeInTheDocument();
+    expect(
+      screen.getByText('A one-page overview of the JA&D membership opportunity.'),
+    ).toBeInTheDocument();
     expect(screen.getAllByText('Document').length).toBeGreaterThan(0);
   });
 
@@ -57,5 +60,25 @@ describe('MarketingToolDetailPage', () => {
   it('renders not found state for unknown id', async () => {
     renderDetail('unknown');
     expect(await screen.findByText('Tool not found')).toBeInTheDocument();
+  });
+
+  it('deletes the tool after confirmation and returns to the list', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin/marketing-tools/:id" element={<MarketingToolDetailPage />} />
+        <Route path="/admin/marketing-tools" element={<div>list-marker</div>} />
+      </Routes>,
+      { user: MOCK_ADMIN, route: '/admin/marketing-tools/ctn-001' },
+    );
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Delete JA&D Membership Overview' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/permanently remove/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText('list-marker')).toBeInTheDocument();
+    expect(await screen.findByText('Marketing tool deleted')).toBeInTheDocument();
   });
 });

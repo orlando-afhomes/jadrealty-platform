@@ -1085,6 +1085,7 @@ Status columns are `text` + CHECK IN (…) (or native enums), mirrored in `packa
   - **Financial/audit tables are never deleted, hard or soft** (`ledger_entries`, `commissions`, `financial_adjustments`, `voucher_redemptions`, `audit_log`) — BI-005, NFR-AUD-001.
   - **Referenced/biographical tables are never hard-deleted** (`accounts`, `members`, `customers`, `properties`, `sales`, `withdrawals`, `payout_accounts`, `vouchers`) — history and referential integrity (RESTRICT FKs) require retention. Deactivation uses status flags.
   - **Operational content** (`media_assets`, `policies`, `broadcasts`) may be deactivated via status; hard delete **REQUIRES APPROVAL** and is discouraged.
+  - **Owner-approved exception (2026-09-09):** `DELETE /admin/members/:id` (super_admin only) permanently purges one member and their entire owned graph via the `member_purge_cascade` SECURITY DEFINER function (single transaction, mandatory reason, `MEMBER_PURGED` audit, auth-user removal). This is the sole member hard-delete path; archive remains the default lifecycle.
 - **Query implications:** read queries filter by status/`is_active`; no `WHERE deleted_at IS NULL` pattern needed.
 - **Restoration:** status-based (e.g., reactivate property, re-open locked sale via audited Admin review, BR-SAL-007). No soft-delete restoration flow exists.
 - `sponsor_change_requests` and `email_verifications` expire/close via status, not deletion.

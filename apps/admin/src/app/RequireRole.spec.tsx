@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { MOCK_FINANCE, MOCK_MEMBER, MOCK_STAFF_ADMIN, MOCK_STAFF_MERCHANT, MOCK_SUPER_ADMIN } from '@jad/mock';
+import {
+  MOCK_FINANCE,
+  MOCK_MEMBER,
+  MOCK_STAFF_ADMIN,
+  MOCK_STAFF_MERCHANT,
+  MOCK_SUPER_ADMIN,
+} from '@jad/mock';
 
 import type { SessionUser } from '../lib/session';
 import { SessionProvider } from '../lib/session';
@@ -217,5 +224,60 @@ describe('RequireRole', () => {
     expect(screen.queryByText('registrations page')).not.toBeInTheDocument();
     // should NOT have rendered the admin-local /login page (which would be 404 in real admin router)
     expect(screen.queryByText('login page')).not.toBeInTheDocument();
+  });
+
+  it('offers Retry on denial while a session error is flagged', async () => {
+    const onRevalidate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SessionProvider
+        initialUser={MOCK_MEMBER}
+        sessionError
+        onRevalidate={onRevalidate}
+        restoreDelayMs={0}
+      >
+        <MemoryRouter initialEntries={['/admin/registrations']}>
+          <Routes>
+            <Route
+              path="/admin/registrations"
+              element={
+                <RequireRole>
+                  <div>registrations page</div>
+                </RequireRole>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    expect(await screen.findByText('Access denied')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRevalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no Retry affordance on genuine denial without session error', async () => {
+    renderAt('/admin/registrations', MOCK_MEMBER);
+    expect(await screen.findByText('Access denied')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
+  it('still renders allowed pages despite a flagged session error', async () => {
+    render(
+      <SessionProvider initialUser={MOCK_SUPER_ADMIN} sessionError restoreDelayMs={0}>
+        <MemoryRouter initialEntries={['/admin/registrations']}>
+          <Routes>
+            <Route
+              path="/admin/registrations"
+              element={
+                <RequireRole>
+                  <div>registrations page</div>
+                </RequireRole>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    expect(await screen.findByText('registrations page')).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import type { AdminQueues, ContentKind } from '@jad/contracts';
 import { CMS_PROPERTIES_SEED, STAFF_MODULE_LABEL, roleNameFor } from '@jad/contracts';
 import type { MockRequestContext, MockRoute } from '@jad/mock';
-import { contentStore, createStoreContent } from './contentMockStore';
+import { contentStore, createStoreContent, deleteStoreContent } from './contentMockStore';
 
 import {
   MOCK_SALES,
@@ -270,6 +270,16 @@ export const adminMockHandlers: MockRoute[] = [
           total: data.length,
         },
       };
+    },
+  },
+  {
+    path: '/admin/content/',
+    method: 'DELETE',
+    match: 'prefix',
+    handler: (ctx: MockRequestContext) => {
+      const id = idFromPath(ctx.url, /\/admin\/content\/([^/?#]+)/);
+      if (!id || !deleteStoreContent(id)) return notFound('Marketing tool');
+      return { body: { id, deleted: true, fileRemoved: false }, status: 200 };
     },
   },
   {

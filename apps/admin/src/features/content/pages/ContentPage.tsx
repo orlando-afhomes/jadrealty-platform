@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 
 import {
   Button,
+  ConfirmDialog,
   Dialog,
   EmptyState,
   ErrorState,
@@ -17,14 +18,16 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  useToast,
 } from '@jad/ui';
-import type { ContentKind } from '@jad/contracts';
+import type { ContentKind, ForwardableContent } from '@jad/contracts';
 
 import { env } from '../../../lib/env';
 import { formatDate } from '../../../lib/format';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { useContent } from '../hooks/useContent';
 import { useCreateContent } from '../hooks/useCreateContent';
+import { useDeleteContent } from '../hooks/useDeleteContent';
 import { CONTENT_KIND_LABEL, CONTENT_KIND_TONE } from '../status';
 import styles from './ContentPage.module.css';
 
@@ -84,7 +87,9 @@ async function putErrorMessage(fileName: string, putRes: Response): Promise<stri
         (typeof parsed.message === 'string' && parsed.message) ||
         (typeof parsed.error === 'string' && parsed.error) ||
         '';
-      return detail ? `"${fileName}": storage rejected the upload (${detail.slice(0, 200)})` : fallback;
+      return detail
+        ? `"${fileName}": storage rejected the upload (${detail.slice(0, 200)})`
+        : fallback;
     } catch {
       return text ? `"${fileName}": storage rejected the upload (${text.slice(0, 200)})` : fallback;
     }
@@ -122,10 +127,18 @@ function TableSkeleton() {
       <TableBody>
         {Array.from({ length: 5 }, (_, i) => (
           <TableRow key={i}>
-            <TableCell><Skeleton /></TableCell>
-            <TableCell><Skeleton /></TableCell>
-            <TableCell><Skeleton /></TableCell>
-            <TableCell><Skeleton /></TableCell>
+            <TableCell>
+              <Skeleton />
+            </TableCell>
+            <TableCell>
+              <Skeleton />
+            </TableCell>
+            <TableCell>
+              <Skeleton />
+            </TableCell>
+            <TableCell>
+              <Skeleton />
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -137,6 +150,8 @@ function TableSkeleton() {
 export function ContentPage() {
   const { data, isPending, isError, error, refetch } = useContent();
   const createContent = useCreateContent();
+  const deleteContent = useDeleteContent();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<ContentFilter>('ALL');
@@ -150,6 +165,7 @@ export function ContentPage() {
   const [fileErrors, setFileErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [activeFile, setActiveFile] = useState<{ name: string; phase: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ForwardableContent | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const allItems = useMemo(() => [...(data ?? [])], [data]);
@@ -274,6 +290,24 @@ export function ContentPage() {
     return { downloadUrl: signJson.publicUrl };
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      const result = await deleteContent.mutateAsync(deleteTarget.id);
+      toast({
+        title: 'Marketing tool deleted',
+        message: result.fileRemoved
+          ? `"${deleteTarget.title}" was permanently removed, including its uploaded file.`
+          : `"${deleteTarget.title}" was permanently removed.`,
+        tone: 'success',
+      });
+    } catch (e) {
+      toast({ title: 'Delete failed', message: (e as Error).message, tone: 'danger' });
+    } finally {
+      setDeleteTarget(null);
+    }
+  };
+
   const handleCreate = async () => {
     if (!form.title.trim() || files.length === 0) return;
     setSaving(true);
@@ -359,7 +393,11 @@ export function ContentPage() {
           title="No matches"
           description={`No ${filterLabel?.toLowerCase() ?? 'items'} match this filter.`}
           action={
-            <button type="button" className={styles.inlineLink} onClick={() => handleFilterChange('ALL')}>
+            <button
+              type="button"
+              className={styles.inlineLink}
+              onClick={() => handleFilterChange('ALL')}
+            >
               Clear filter
             </button>
           }
@@ -374,6 +412,7 @@ export function ContentPage() {
                   <TableHeaderCell>Kind</TableHeaderCell>
                   <TableHeaderCell>Description</TableHeaderCell>
                   <TableHeaderCell>Created</TableHeaderCell>
+                  <TableHeaderCell>Actions</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -407,12 +446,25 @@ export function ContentPage() {
                       />
                     </TableCell>
                     <TableCell label="Description">
-                      <span className={styles.description}>
-                        {row.description ?? '\u2014'}
-                      </span>
+                      <span className={styles.description}>{row.description ?? '\u2014'}</span>
                     </TableCell>
                     <TableCell label="Created">
                       <span className={styles.meta}>{formatDate(row.createdAt)}</span>
+                    </TableCell>
+                    <TableCell label="Actions">
+                      <div
+                        style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <Button
+                          variant="danger"
+                          onClick={() => setDeleteTarget(row)}
+                          aria-label={`Delete ${row.title}`}
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -489,9 +541,7 @@ export function ContentPage() {
             <span className={styles.fieldLabel}>Files (required)</span>
             <label className={styles.fileDropzone}>
               <Icon name="download" size={20} className={styles.fileDropzoneIcon} />
-              <span className={styles.fileHint}>
-                Click to browse or drag files here
-              </span>
+              <span className={styles.fileHint}>Click to browse or drag files here</span>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -525,13 +575,26 @@ export function ContentPage() {
             {fileErrors.length > 0 && (
               <div className={styles.fileErrors}>
                 {fileErrors.map((err, i) => (
-                  <span key={i} className={styles.fileError}>{err}</span>
+                  <span key={i} className={styles.fileError}>
+                    {err}
+                  </span>
                 ))}
               </div>
             )}
           </div>
         </div>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete marketing tool?"
+        message={`This will permanently remove "${deleteTarget?.title ?? ''}" and its uploaded file. This action cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+      />
     </section>
   );
 }

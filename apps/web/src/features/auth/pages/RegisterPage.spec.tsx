@@ -142,6 +142,37 @@ describe('RegisterPage', () => {
     expect(screen.getByText('Select your gender.')).toBeInTheDocument();
   });
 
+  it('never leaks a raw program id when the program catalog is empty', async () => {
+    const user = userEvent.setup();
+    mockFetchRoutes({
+      '/config/public': CONFIG,
+      '/programs': { data: [], meta: {} },
+      '/programs/prg-domestic/qualification-questions': QUESTIONS,
+    });
+    renderWithProviders(
+      <Routes>
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register/verify-email" element={<VerifyEmailProbe />} />
+      </Routes>,
+      { route: '/register' },
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Join JA&D' })).toBeInTheDocument();
+    // Read-only field shows the unavailable state, never the internal id —
+    // even though location verification resolved programId prg-domestic.
+    expect(
+      await screen.findByText('Program list unavailable — please try again shortly.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('prg-domestic')).not.toBeInTheDocument();
+
+    // Progression is blocked with a field-level message until programs load.
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    expect(
+      screen.getByText('Programs are unavailable right now. Please try again shortly.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('prg-domestic')).not.toBeInTheDocument();
+  });
+
   it('submits the full application through every step and routes to email verification', async () => {
     const fetchFn = mockFetchRoutes({
       '/config/public': CONFIG,

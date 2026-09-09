@@ -62,6 +62,21 @@ export const createContentItemRequestSchema = z.object({
 export type CreateContentItemRequest = z.infer<typeof createContentItemRequestSchema>;
 
 /**
+ * Delete marketing content — `DELETE /admin/content/:id` (FR-ADM-003).
+ * Removes the `ContentItem` row and, when the download URL points inside
+ * the `marketing-tools` Storage bucket, the uploaded object as well.
+ * `fileRemoved` is false when there was no bucket object to remove (external
+ * URL) or the storage removal failed — the row delete still succeeds.
+ */
+export const deleteContentItemResponseSchema = z.object({
+  id: z.string().min(1),
+  deleted: z.literal(true),
+  fileRemoved: z.boolean(),
+});
+
+export type DeleteContentItemResponse = z.infer<typeof deleteContentItemResponseSchema>;
+
+/**
  * Signed-upload request — `POST /cms/upload/sign` (FR-ADM-003 upload step).
  * `kind` selects the allowlist + size cap; legacy CMS image callers omit it
  * and get the IMAGE rules (backward compatible).

@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => {
     member: null as unknown,
     updatedMember: null as unknown,
     qualifiedRoleId: 'role-qualified' as string | null,
+    rpcResult: { data: null as unknown, error: null as unknown },
+    authDeleteError: null as unknown,
   };
   const builder = (table: string) => {
     const b: Record<string, (...a: never[]) => unknown> = {};
@@ -78,7 +80,21 @@ const mocks = vi.hoisted(() => {
     setRoleSlug: (slug: string) => {
       script.roleSlug = slug;
     },
-    service: { from: (table: string) => builder(table) },
+    service: {
+      from: (table: string) => builder(table),
+      rpc: async (fn: string, args: unknown) => {
+        calls.push({ table: `rpc:${fn}`, op: 'rpc', arg: args });
+        return script.rpcResult;
+      },
+      auth: {
+        admin: {
+          deleteUser: async (id: string) => {
+            calls.push({ table: 'auth.users', op: 'deleteUser', arg: id });
+            return { error: script.authDeleteError };
+          },
+        },
+      },
+    },
     anon: {
       auth: {
         getUser: async () => ({
@@ -153,6 +169,13 @@ describe('PATCH /admin/members/:id qualification', () => {
     mocks.script.qualifiedRoleId = 'role-qualified';
     mocks.script.member = approvedMember();
     mocks.script.updatedMember = approvedMember({ isQualified: true });
+    mocks.script.rpcResult = {
+      data: {
+        purged: { id: 'mem-uuid-1', email: 'juan@example.com', name: 'Juan Dela Cruz' },
+      },
+      error: null,
+    };
+    mocks.script.authDeleteError = null;
   });
 
   it('403s merchant and other non-staff roles', async () => {
@@ -209,16 +232,107 @@ describe('PATCH /admin/members/:id qualification', () => {
     expect(parsePatch()).toBeUndefined();
   });
 
-  it('refuses hard deletion (archive is the only sanctioned lifecycle)', async () => {
+  it('refuses hard deletion without a reason', async () => {
     const { res, seen } = capture();
     await memberById(
-      { method: 'DELETE', query: { id: 'mem-uuid-1' }, headers: authed } as VercelRequest,
+      { method: 'DELETE', query: { id: 'mem-uuid-1' }, headers: authed, body: {} } as VercelRequest,
       res,
     );
-    expect(seen.status).toBe(409);
-    expect(seen.body).toMatchObject({
-      error: { code: 'CONFLICT', message: expect.stringContaining('Archive the member') },
+    expect(seen.status).toBe(422);
+    expect(seen.body).toMatchObject({ error: { code: 'REJECTION_REASON_REQUIRED' } });
+    expect(mocks.calls.some((c) => c.op === 'rpc')).toBe(false);
+  });
+});
+
+describe('DELETE /admin/members/:id permanent purge (super_admin only)', () => {
+  const deleteReq = (body?: unknown): VercelRequest =>
+    ({ method: 'DELETE', query: { id: 'mem-uuid-1' }, headers: authed, body }) as VercelRequest;
+
+  beforeEach(() => {
+    vi.stubEnv('SUPABASE_URL', 'https://m.test.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
+    mocks.calls.length = 0;
+    mocks.setRoleSlug('super_admin');
+    mocks.script.qualifiedRoleId = 'role-qualified';
+    mocks.script.member = approvedMember();
+    mocks.script.updatedMember = approvedMember({ isQualified: true });
+    mocks.script.rpcResult = {
+      data: {
+        purged: { id: 'mem-uuid-1', email: 'juan@example.com', name: 'Juan Dela Cruz' },
+      },
+      error: null,
+    };
+    mocks.script.authDeleteError = null;
+  });
+
+  it('403s non-super-admin staff before any mutation', async () => {
+    mocks.setRoleSlug('admin');
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'cleanup' }), res);
+    expect(seen.status).toBe(403);
+    expect(mocks.calls.some((c) => c.op === 'rpc')).toBe(false);
+    expect(mocks.calls.some((c) => c.table === 'auth.users')).toBe(false);
+  });
+
+  it('422s when the reason is missing or blank', async () => {
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: '   ' }), res);
+    expect(seen.status).toBe(422);
+    expect(seen.body).toMatchObject({ error: { code: 'REJECTION_REASON_REQUIRED' } });
+    expect(mocks.calls.some((c) => c.op === 'rpc')).toBe(false);
+  });
+
+  it('404s when the member does not exist', async () => {
+    mocks.script.member = null;
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'cleanup' }), res);
+    expect(seen.status).toBe(404);
+    expect(mocks.calls.some((c) => c.op === 'rpc')).toBe(false);
+  });
+
+  it('purges via the DB function, removes the auth user, and audits', async () => {
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'Duplicate test account' }), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toEqual({ purgedId: 'mem-uuid-1' });
+    const rpc = mocks.calls.find((c) => c.table === 'rpc:member_purge_cascade');
+    expect(rpc?.arg).toEqual({
+      p_member: 'mem-uuid-1',
+      p_actor: 'staff-uuid-1',
+      p_reason: 'Duplicate test account',
     });
-    expect(mocks.calls.some((c) => c.table === 'Member' && c.op === 'delete')).toBe(false);
+    const authDelete = mocks.calls.find((c) => c.table === 'auth.users');
+    expect(authDelete?.op).toBe('deleteUser');
+    expect(authDelete?.arg).toBe('mem-uuid-1');
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(audit).toMatchObject({
+      action: 'MEMBER_PURGED',
+      actor_id: 'staff-uuid-1',
+      target_type: 'Member',
+      target_id: 'mem-uuid-1',
+    });
+    expect(String(audit.detail)).toContain('Duplicate test account');
+  });
+
+  it('maps DB-function errors to the standard envelope', async () => {
+    mocks.script.rpcResult = {
+      data: { error: { code: 'NOT_FOUND', message: 'Member not found.', status: 404 } },
+      error: null,
+    };
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'cleanup' }), res);
+    expect(seen.status).toBe(404);
+    expect(seen.body).toMatchObject({ error: { code: 'NOT_FOUND' } });
+    expect(mocks.calls.some((c) => c.table === 'auth.users')).toBe(false);
+  });
+
+  it('still audits when the auth user is already absent', async () => {
+    mocks.script.authDeleteError = { message: 'user not found' };
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'cleanup' }), res);
+    expect(seen.status).toBe(200);
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(String(audit.detail)).toContain('auth user removal failed');
   });
 });
