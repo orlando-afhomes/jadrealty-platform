@@ -178,6 +178,62 @@ describe('CmsPropertiesPage — Phase 3 Properties CMS', () => {
     expect(screen.getByText('250 SQM Farm Lot with Hotspring')).toBeInTheDocument();
   }, 15000);
 
+  it('links a category to the catalog and shows live data', async () => {
+    const user = userEvent.setup();
+    renderCms();
+    await screen.findByRole('heading', { name: 'Page Header' });
+    await user.click(screen.getByRole('button', { name: /Categories/ }));
+    await user.click(
+      within(getCategoryRow('Tenanted Condo Resales')).getByRole('button', { name: 'Edit' }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    const linkSelect = within(dialog).getByLabelText(
+      'Linked catalog category',
+    ) as HTMLSelectElement;
+    const target = Array.from(linkSelect.options).find((o) => o.value !== '');
+    expect(target).toBeDefined();
+    await user.selectOptions(linkSelect, target!.value);
+    // Live catalog data resolves in the dialog with a deep link.
+    expect(await within(dialog).findByText(/Linked:/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Open catalog')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save & close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(getCategoryRow('Tenanted Condo Resales').textContent).toMatch(/Linked:/);
+  }, 15000);
+
+  it('links a property to a catalog listing and shows live price and status', async () => {
+    const user = userEvent.setup();
+    renderCms();
+    await screen.findByRole('heading', { name: 'Page Header' });
+    await user.click(screen.getByRole('button', { name: /Properties/ }));
+    await user.click(
+      within(getPropertyRow('250 SQM Farm Lot with Hotspring')).getByRole('button', {
+        name: 'Edit',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    const linkSelect = within(dialog).getByLabelText('Linked catalog listing') as HTMLSelectElement;
+    const target = Array.from(linkSelect.options).find((o) => o.value !== '');
+    expect(target).toBeDefined();
+    await user.selectOptions(linkSelect, target!.value);
+    expect(await within(dialog).findByText(/Linked:/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Open listing')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save & close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(getPropertyRow('250 SQM Farm Lot with Hotspring').textContent).toMatch(/Linked:/);
+  }, 15000);
+
+  it('auto-matches entries to catalog rows by id without manual links', async () => {
+    // Seed ids coincide with mock catalog ids, so rows resolve automatically.
+    const user = userEvent.setup();
+    renderCms();
+    await screen.findByRole('heading', { name: 'Page Header' });
+    await user.click(screen.getByRole('button', { name: /Categories/ }));
+    expect(getCategoryRow('Tenanted Condo Resales').textContent).toMatch(/Auto-linked:/);
+    await user.click(screen.getByRole('button', { name: /Properties/ }));
+    expect(getPropertyRow('250 SQM Farm Lot with Hotspring').textContent).toMatch(/Auto-linked:/);
+  }, 15000);
+
   it('allows text editing categories and properties', async () => {
     const user = userEvent.setup();
     renderCms();

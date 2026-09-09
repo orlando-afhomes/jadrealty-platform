@@ -1,10 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MOCK_ADMIN } from '@jad/mock';
+import { CMS_PROPERTIES_SEED } from '@jad/contracts';
 
 import { installMockApi, renderWithProviders } from '../../../test/utils';
 import { CatalogPage } from './CatalogPage';
+
+const { mockUsePropertiesCms } = vi.hoisted(() => ({ mockUsePropertiesCms: vi.fn() }));
+
+vi.mock('../../cms/hooks/usePropertiesCms', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../cms/hooks/usePropertiesCms')>();
+  return { ...actual, usePropertiesCms: (...args: unknown[]) => mockUsePropertiesCms(...args) };
+});
 
 describe('CatalogPage', () => {
   let server: ReturnType<typeof installMockApi>;
@@ -12,6 +20,8 @@ describe('CatalogPage', () => {
   beforeEach(() => {
     server = installMockApi();
     server.install();
+    // No CMS links by default (existing tests); link tests override per case.
+    mockUsePropertiesCms.mockReturnValue({ data: undefined, isPending: false, isError: false });
   });
 
   afterEach(() => {
@@ -38,7 +48,9 @@ describe('CatalogPage', () => {
   it('defaults to listings tab with property data', async () => {
     renderWithProviders(<CatalogPage />, { user: MOCK_ADMIN });
     expect(await screen.findByText('250 SQM Farm Lot with Hotspring')).toBeInTheDocument();
-    expect(screen.getAllByText('Prisma Residences – Celeste Building Condo').length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText('Prisma Residences – Celeste Building Condo').length,
+    ).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Mountain View Leisure Community')).toBeInTheDocument();
   });
 
@@ -81,7 +93,9 @@ describe('CatalogPage', () => {
     await user.selectOptions(categorySelect, 'tenanted-condo-resales');
 
     expect(screen.queryByText('250 SQM Farm Lot with Hotspring')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Prisma Residences – Celeste Building Condo').length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText('Prisma Residences – Celeste Building Condo').length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('filters by status when status select changes', async () => {
@@ -175,5 +189,60 @@ describe('CatalogPage', () => {
     expect(editButtons.length).toBeGreaterThanOrEqual(3);
     const deleteButtons = screen.getAllByText('Delete');
     expect(deleteButtons.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('shows In CMS links for listings referenced by CMS entries', async () => {
+    const [firstProperty] = CMS_PROPERTIES_SEED.properties;
+    mockUsePropertiesCms.mockReturnValue({
+      data: {
+        ...CMS_PROPERTIES_SEED,
+        properties: [{ ...firstProperty!, catalogId: firstProperty!.id }],
+      },
+      isPending: false,
+      isError: false,
+    });
+    renderWithProviders(<CatalogPage />, { user: MOCK_ADMIN });
+    await screen.findByText(firstProperty!.name);
+
+    const links = screen.getAllByText('In CMS');
+    expect(links.length).toBeGreaterThanOrEqual(1);
+    expect(links[0]!.closest('a')).toHaveAttribute('href', '/admin/cms/properties#properties');
+  });
+
+  it('shows In CMS links for categories referenced by CMS entries', async () => {
+    const user = userEvent.setup();
+    const [firstCategory] = CMS_PROPERTIES_SEED.categories;
+    mockUsePropertiesCms.mockReturnValue({
+      data: {
+        ...CMS_PROPERTIES_SEED,
+        categories: [{ ...firstCategory!, catalogSlug: firstCategory!.slug }],
+      },
+      isPending: false,
+      isError: false,
+    });
+    renderWithProviders(<CatalogPage />, { user: MOCK_ADMIN });
+    await screen.findByText('Property Categories');
+
+    await user.click(screen.getByText('Property Categories'));
+
+    await screen.findByText(firstCategory!.title);
+    const links = screen.getAllByText('In CMS');
+    expect(links.length).toBeGreaterThanOrEqual(1);
+    expect(links[0]!.closest('a')).toHaveAttribute('href', '/admin/cms/properties#categories');
+  });
+
+  it('auto-matches CMS entries to catalog rows by id without manual links', async () => {
+    // Seed ids coincide with mock catalog ids — no explicit links needed.
+    mockUsePropertiesCms.mockReturnValue({
+      data: CMS_PROPERTIES_SEED,
+      isPending: false,
+      isError: false,
+    });
+    renderWithProviders(<CatalogPage />, { user: MOCK_ADMIN });
+    await screen.findByText('250 SQM Farm Lot with Hotspring');
+
+    const links = screen.getAllByText('In CMS');
+    expect(links.length).toBeGreaterThanOrEqual(1);
+    expect(links[0]!.closest('a')).toHaveAttribute('href', '/admin/cms/properties#properties');
   });
 });

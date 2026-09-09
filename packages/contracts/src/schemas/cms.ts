@@ -267,6 +267,17 @@ export const cmsPropertyCategorySchema = z.object({
     .max(600, 'Description must be 600 characters or less'),
   image: cmsPhotoSchema,
   isFeatured: z.boolean().optional().default(false),
+  /**
+   * Optional link to a catalog category (`PropertyCategory.slug`). The
+   * catalog owns identity/counts; CMS owns presentation. Dangling links
+   * (catalog item deleted) render as a warning and never block saving.
+   */
+  catalogSlug: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be lowercase alphanumeric with hyphens')
+    .optional(),
 });
 
 export type CmsPropertyCategory = z.infer<typeof cmsPropertyCategorySchema>;
@@ -302,6 +313,17 @@ export const cmsPropertySchema = z.object({
     .min(1, 'At least one gallery image is required')
     .max(10, 'At most 10 gallery images'),
   isFeatured: z.boolean().optional().default(false),
+  /**
+   * Optional link to a catalog listing (`Property.id`). The catalog owns
+   * identity/price/status; CMS owns presentation. Dangling links (catalog
+   * item deleted) render as a warning and never block saving.
+   */
+  catalogId: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'ID must be lowercase alphanumeric with hyphens')
+    .optional(),
 });
 
 export type CmsProperty = z.infer<typeof cmsPropertySchema>;

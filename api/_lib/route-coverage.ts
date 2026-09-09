@@ -1,0 +1,77 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+/**
+ * Dev-server route coverage — prevents silent 404s for new handler files.
+ *
+ * `api/dev-server.ts` routes by a hand-maintained if/else chain, so a newly
+ * added `api/v1/**` handler 404s (`No handler for ...`) until both an import
+ * and a branch are added — exactly how `DELETE/PATCH /admin/content/:id`
+ * broke after `content/[id].ts` landed without a route. This module scans
+ * the handler tree and reports files that are not imported or whose import
+ * binding is never used in a branch; dev-server logs them loudly at startup
+ * and the spec below fails CI the moment a route is forgotten. Pure
+ * functions — no server boot, no network.
+ */
+
+const HANDLER_IMPORT_RE = /^import\s+([A-Za-z_$][\w$]*)\s+from\s+'(\.\/v1\/[^']+)'/gm;
+
+export type RouteCoverageGapReason = 'not-imported' | 'imported-but-unused';
+
+export interface RouteCoverageGap {
+  /** Handler path relative to `api/`, e.g. `v1/admin/content/[id].ts`. */
+  file: string;
+  reason: RouteCoverageGapReason;
+}
+
+/** Handler files under a `v1/` dir: `.ts` except `*.spec.ts` and `_`-prefixed shared modules. */
+export function listHandlerFiles(v1Dir: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+      } else if (
+        entry.isFile() &&
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.spec.ts') &&
+        !entry.name.startsWith('_')
+      ) {
+        out.push(`${prefix}${entry.name}`);
+      }
+    }
+  };
+  walk(v1Dir, '');
+  return out.sort();
+}
+
+function escapeRegExp(raw: string): string {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Files in `v1Dir` missing from `devServerSource`: not imported at all, or
+ * imported but never referenced in a routing branch (declaration alone does
+ * not serve traffic). Empty = fully covered.
+ */
+export function findRouteCoverageGaps(v1Dir: string, devServerSource: string): RouteCoverageGap[] {
+  const imports = new Map<string, string>();
+  for (const match of devServerSource.matchAll(HANDLER_IMPORT_RE)) {
+    imports.set(match[2]!, match[1]!);
+  }
+  const gaps: RouteCoverageGap[] = [];
+  for (const file of listHandlerFiles(v1Dir)) {
+    const noExt = file.replace(/\.ts$/, '');
+    const hit = [`./v1/${noExt}.js`, `./v1/${noExt}`].find((spec) => imports.has(spec));
+    if (!hit) {
+      gaps.push({ file: `v1/${file}`, reason: 'not-imported' });
+      continue;
+    }
+    const binding = imports.get(hit)!;
+    const uses = devServerSource.match(new RegExp(`\\b${escapeRegExp(binding)}\\b`, 'g')) ?? [];
+    if (uses.length < 2) {
+      gaps.push({ file: `v1/${file}`, reason: 'imported-but-unused' });
+    }
+  }
+  return gaps;
+}

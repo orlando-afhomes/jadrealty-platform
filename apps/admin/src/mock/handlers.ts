@@ -297,7 +297,10 @@ export const adminMockHandlers: MockRoute[] = [
       if (typeof patch.kind === 'string' && patch.kind) {
         item.kind = patch.kind as ContentKind;
       }
-      if (typeof patch.downloadUrl === 'string' && patch.downloadUrl) {
+      if (patch.downloadUrl === null) {
+        delete item.downloadUrl;
+        delete item.share;
+      } else if (typeof patch.downloadUrl === 'string' && patch.downloadUrl) {
         item.downloadUrl = patch.downloadUrl;
         item.share = {
           messengerUrl: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(patch.downloadUrl)}`,

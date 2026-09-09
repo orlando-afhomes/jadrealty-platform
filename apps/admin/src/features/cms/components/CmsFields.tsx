@@ -91,12 +91,15 @@ export function CmsSelectField({
 }) {
   const baseId = useId();
   const fieldId = `${baseId}-field`;
+  const labelId = `${baseId}-label`;
   const hintId = hint ? `${baseId}-hint` : undefined;
   const errorId = error ? `${baseId}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined;
   return (
     <label className={styles.field}>
-      <span className={styles.label}>{label}</span>
+      <span id={labelId} className={styles.label}>
+        {label}
+      </span>
       {hint ? (
         <span id={hintId} className={styles.hint}>
           {hint}
@@ -107,6 +110,7 @@ export function CmsSelectField({
         className={styles.input}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-labelledby={labelId}
         aria-invalid={Boolean(error)}
         aria-describedby={describedBy}
       >

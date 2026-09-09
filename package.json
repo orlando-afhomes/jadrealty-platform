@@ -19,6 +19,7 @@
     "purge:core": "tsx supabase/purge-seed-keep-core.ts",
     "provision:superadmin": "tsx supabase/provision-superadmin.ts",
     "reseed:programs": "tsx supabase/reseed-programs.ts",
+    "import:cms-catalog": "tsx supabase/import-cms-catalog.ts",
     "backfill:staff": "tsx supabase/backfill-staff-domain.ts"
   },
   "devDependencies": {

@@ -67,11 +67,19 @@ export type CreateContentItemRequest = z.infer<typeof createContentItemRequestSc
  * kind, downloadUrl. Empty patch is rejected by the handler ("Nothing to
  * update."). A new downloadUrl swaps the file: the server rebuilds
  * server-provided share targets and best-effort removes the superseded
- * bucket object. `share`/`published` stay server-managed.
+ * bucket object. Explicit null detaches the file entirely (URL + share
+ * cleared, old object removed best-effort). `share`/`published` stay
+ * server-managed.
  */
 export const updateContentItemRequestSchema = createContentItemRequestSchema
-  .pick({ title: true, description: true, kind: true, downloadUrl: true })
-  .partial();
+  .pick({ title: true, description: true, kind: true })
+  .partial()
+  .extend({
+    // New file URL to swap in, or explicit null to detach the current file
+    // (clears download_url + derived share targets; the old bucket object is
+    // removed best-effort). Undefined = leave the file untouched.
+    downloadUrl: z.string().min(1).nullable().optional(),
+  });
 
 export type UpdateContentItemRequest = z.infer<typeof updateContentItemRequestSchema>;
 

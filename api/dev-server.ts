@@ -13,7 +13,10 @@
 
 import fs from 'node:fs';
 import http from 'node:http';
-import { URL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath, URL } from 'node:url';
+
+import { findRouteCoverageGaps } from './_lib/route-coverage.js';
 
 // ---------------------------------------------------------------------------
 // Load root .env (Node-compatible, no Vite). Mirrors supabase/seed.ts.
@@ -53,6 +56,7 @@ import handlerAdminConfigKey from './v1/admin/config/[key].js';
 import handlerBroadcasts from './v1/me/broadcasts.js';
 import handlerForwardable from './v1/content/forwardable.js';
 import handlerAdminContent from './v1/admin/content.js';
+import handlerAdminContentById from './v1/admin/content/[id].js';
 import handlerAdminSession from './v1/admin/session.js';
 import handlerAdminRegistrations from './v1/admin/registrations.js';
 import handlerAdminRegistrationById from './v1/admin/registrations/[id].js';
@@ -207,6 +211,16 @@ const server = http.createServer(async (req, res) => {
   } else if (pathname === '/api/v1/admin/content' || pathname === '/api/admin/content') {
     handler = handlerAdminContent as unknown as HandlerFn;
     routeKey = 'admin/content';
+  } else if (
+    pathname.startsWith('/api/v1/admin/content/') ||
+    pathname.startsWith('/api/admin/content/')
+  ) {
+    const m = pathname.match(/\/content\/([^/]+)$/);
+    if (m) {
+      query.id = decodeURIComponent(m[1] ?? '');
+      handler = handlerAdminContentById as unknown as HandlerFn;
+      routeKey = 'admin/content/[id]';
+    }
   } else if (pathname === '/api/v1/admin/session' || pathname === '/api/admin/session') {
     handler = handlerAdminSession as unknown as HandlerFn;
     routeKey = 'admin/session';
@@ -657,6 +671,21 @@ server.on('error', (err) => {
   console.error('[dev-server] listen error:', err);
   process.exit(1);
 });
+
+// Route-coverage self-check: every api/v1 handler file must be imported AND
+// referenced in a routing branch, otherwise its requests 404 with
+// "No handler for ...". Warn loudly instead of failing — an intentionally
+// unrouted file should be deleted or underscore-prefixed, not silent.
+const thisFile = fileURLToPath(import.meta.url);
+for (const gap of findRouteCoverageGaps(
+  path.join(path.dirname(thisFile), 'v1'),
+  fs.readFileSync(thisFile, 'utf8'),
+)) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[dev-server] WARNING: ${gap.file} is ${gap.reason === 'not-imported' ? 'not imported' : 'imported but never routed'} — requests to it will 404. Add it to the route table.`,
+  );
+}
 
 server.listen(port, () => {
   // eslint-disable-next-line no-console

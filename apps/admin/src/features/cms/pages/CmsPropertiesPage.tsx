@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
 
 import { Button, ConfirmDialog, Dialog, ErrorState, PageHeader, Skeleton } from '@jad/ui';
+import { formatMoney } from '@jad/shared';
 import {
   propertiesContentSchema,
   type CmsPropertyCategory,
@@ -21,6 +23,13 @@ import { CmsImageField } from '../components/CmsImageField';
 import { CmsSectionCard } from '../components/CmsSectionCard';
 import { useCmsAccordion } from '../hooks/useCmsAccordion';
 import { usePropertiesCms, useUpdatePropertiesCms } from '../hooks/usePropertiesCms';
+// Catalog system-of-record for link-by-reference: CMS owns presentation,
+// the catalog owns identity/price/status/counts. Reads only — CMS never
+// writes catalog rows. Explicit links win; otherwise entries auto-match on
+// id/slug equality (see services/catalogLinks).
+import { useCategories as useCatalogCategories } from '../../catalog/hooks/useCategories';
+import { useProperties as useCatalogListings } from '../../catalog/hooks/useProperties';
+import { resolveCategoryLink, resolveListingLink } from '../services/catalogLinks';
 
 import styles from './CmsHomepagePage.module.css';
 
@@ -42,6 +51,8 @@ const SECTION_DEFS = [
 export function CmsPropertiesPage() {
   const { data, isPending, isError, error, refetch } = usePropertiesCms();
   const update = useUpdatePropertiesCms();
+  const { data: catalogListings } = useCatalogListings();
+  const { data: catalogCategories } = useCatalogCategories();
   const [draft, setDraft] = useState<PropertiesContent | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -132,6 +143,25 @@ export function CmsPropertiesPage() {
     }
     return { success: false as const, errors };
   }, [draft]);
+
+  // Link-by-reference resolution against the catalog system-of-record:
+  // explicit links win, otherwise entries auto-match on id/slug equality.
+  // Dangling links (catalog item deleted) render as warnings — they never
+  // block saving.
+  const categoryLinkText = (cat: Pick<CmsPropertyCategory, 'slug' | 'catalogSlug'>): string => {
+    const resolved = resolveCategoryLink(cat, catalogCategories);
+    if (resolved.kind === 'explicit') return ` · Linked: ${resolved.target.title}`;
+    if (resolved.kind === 'auto') return ` · Auto-linked: ${resolved.target.title}`;
+    if (resolved.kind === 'dangling') return ` · Link missing: ${resolved.missing}`;
+    return '';
+  };
+  const listingLinkText = (prop: Pick<CmsProperty, 'id' | 'catalogId'>): string => {
+    const resolved = resolveListingLink(prop, catalogListings);
+    if (resolved.kind === 'explicit') return ` · Linked: ${resolved.target.name}`;
+    if (resolved.kind === 'auto') return ` · Auto-linked: ${resolved.target.name}`;
+    if (resolved.kind === 'dangling') return ` · Link missing: ${resolved.missing}`;
+    return '';
+  };
 
   if (isPending) {
     return (
@@ -272,12 +302,16 @@ export function CmsPropertiesPage() {
                     if (el && typeof el.scrollIntoView === 'function') {
                       try {
                         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      } catch { /* ignore scroll or history failure */ }
+                      } catch {
+                        /* ignore scroll or history failure */
+                      }
                     }
                     toggleSection(s.id);
                     try {
                       history.pushState(null, '', `#${s.id}`);
-                    } catch { /* ignore scroll or history failure */ }
+                    } catch {
+                      /* ignore scroll or history failure */
+                    }
                   }}
                 >
                   <span className={styles.stepBadge} aria-hidden="true">
@@ -835,6 +869,7 @@ export function CmsPropertiesPage() {
                   <span className={styles.listRowMeta}>
                     {cat.slug}
                     {cat.isFeatured ? ' · Featured' : ''}
+                    {categoryLinkText(cat)}
                   </span>
                 </div>
                 <div className={styles.listRowActions}>
@@ -938,6 +973,7 @@ export function CmsPropertiesPage() {
                       {catTitle ?? prop.categoryId} · {prop.location}
                       {prop.price ? ` · ₱${prop.price}` : ''}
                       {prop.isFeatured ? ' · Featured' : ''}
+                      {listingLinkText(prop)}
                     </span>
                   </div>
                   <div className={styles.listRowActions}>
@@ -1079,6 +1115,53 @@ export function CmsPropertiesPage() {
               maxLength={60}
               error={validation.errors[`categories.${editingCategory}.slug`]}
             />
+            <CmsSelectField
+              label="Linked catalog category"
+              hint="Reads live title and listing count from the catalog. CMS keeps its own copy."
+              value={draft.categories[editingCategory]!.catalogSlug ?? ''}
+              onChange={(v) => {
+                const next = [...draft.categories];
+                next[editingCategory] = { ...next[editingCategory]!, catalogSlug: v || undefined };
+                setDraft({ ...draft, categories: next });
+              }}
+              options={[
+                { value: '', label: 'Not linked' },
+                ...(catalogCategories ?? []).map((c) => ({
+                  value: c.slug,
+                  label: `${c.title} (${c.listingCount} listings)`,
+                })),
+              ]}
+              error={validation.errors[`categories.${editingCategory}.catalogSlug`]}
+            />
+            {(() => {
+              const resolved = resolveCategoryLink(
+                draft.categories[editingCategory]!,
+                catalogCategories,
+              );
+              if (resolved.kind === 'explicit' || resolved.kind === 'auto') {
+                const linked = resolved.target;
+                return (
+                  <span
+                    style={{
+                      fontSize: 'var(--text-caption)',
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    {resolved.kind === 'explicit' ? 'Linked' : 'Auto-linked'}: {linked.title} ·{' '}
+                    {linked.listingCount} listings ·{' '}
+                    <Link to="/admin/properties">Open catalog</Link>
+                  </span>
+                );
+              }
+              if (resolved.kind === 'dangling') {
+                return (
+                  <span style={{ fontSize: 'var(--text-caption)', color: 'var(--color-danger)' }}>
+                    Linked category “{resolved.missing}” no longer exists in the catalog.
+                  </span>
+                );
+              }
+              return null;
+            })()}
             <CmsTextField
               label="Title"
               value={draft.categories[editingCategory]!.title}
@@ -1198,6 +1281,52 @@ export function CmsPropertiesPage() {
                   maxLength={60}
                   error={validation.errors[`properties.${idx}.id`]}
                 />
+                <CmsSelectField
+                  label="Linked catalog listing"
+                  hint="Reads live name, price, and status from the catalog. CMS keeps its own copy."
+                  value={prop!.catalogId ?? ''}
+                  onChange={(v) => {
+                    const next = [...draft.properties];
+                    next[idx] = { ...next[idx]!, catalogId: v || undefined };
+                    setDraft({ ...draft, properties: next });
+                  }}
+                  options={[
+                    { value: '', label: 'Not linked' },
+                    ...(catalogListings ?? []).map((p) => ({
+                      value: p.id,
+                      label: `${p.name} (${p.status})`,
+                    })),
+                  ]}
+                  error={validation.errors[`properties.${idx}.catalogId`]}
+                />
+                {(() => {
+                  const resolved = resolveListingLink(prop!, catalogListings);
+                  if (resolved.kind === 'explicit' || resolved.kind === 'auto') {
+                    const linked = resolved.target;
+                    return (
+                      <span
+                        style={{
+                          fontSize: 'var(--text-caption)',
+                          color: 'var(--color-text-muted)',
+                        }}
+                      >
+                        {resolved.kind === 'explicit' ? 'Linked' : 'Auto-linked'}: {linked.name} ·{' '}
+                        {linked.price ? formatMoney(linked.price) : 'no price'} · {linked.status} ·{' '}
+                        <Link to={`/admin/properties/${linked.id}`}>Open listing</Link>
+                      </span>
+                    );
+                  }
+                  if (resolved.kind === 'dangling') {
+                    return (
+                      <span
+                        style={{ fontSize: 'var(--text-caption)', color: 'var(--color-danger)' }}
+                      >
+                        Linked listing “{resolved.missing}” no longer exists in the catalog.
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
                 <CmsTextField
                   label="Name"
                   value={prop!.name}

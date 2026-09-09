@@ -1,6 +1,6 @@
 import { Route, Routes } from 'react-router';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MOCK_ADMIN } from '@jad/mock';
 
@@ -28,7 +28,24 @@ describe('MarketingToolDetailPage', () => {
 
   afterEach(() => {
     server.restore();
+    vi.unstubAllGlobals();
   });
+
+  /**
+   * Layer the signed-upload flow over the mock API (same as ContentPage.spec):
+   * sign returns a fresh public URL, the PUT succeeds.
+   */
+  function stubReplacementUpload(publicUrl: string) {
+    const mockFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/cms/upload/sign')) {
+        return Response.json({ signedUrl: 'https://cdn.test/replace-put', publicUrl });
+      }
+      if (url === 'https://cdn.test/replace-put') return new Response(null, { status: 200 });
+      return (mockFetch as typeof fetch)(input, init);
+    }) as typeof fetch;
+  }
 
   it('renders page header with back link', async () => {
     renderDetail('ctn-001');
@@ -98,5 +115,101 @@ describe('MarketingToolDetailPage', () => {
 
     expect(await screen.findByText('Detail Edited Title')).toBeInTheDocument();
     expect(await screen.findByText('Marketing tool updated')).toBeInTheDocument();
+  });
+
+  it('removes the attached file after marking and saving', async () => {
+    const user = userEvent.setup();
+    renderDetail('ctn-001');
+    await screen.findByText('JA&D Membership Overview');
+    expect(screen.getByText('Download')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Remove file' }));
+    expect(within(dialog).getByText(/marked for removal/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByText('Download')).not.toBeInTheDocument());
+    expect(await screen.findByText('Marketing tool updated')).toBeInTheDocument();
+  });
+
+  it('undoes a marked removal before saving', async () => {
+    const user = userEvent.setup();
+    renderDetail('ctn-002');
+    await screen.findByText('How Qualifying Sales Work');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Remove file' }));
+    expect(within(dialog).getByText(/marked for removal/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Undo remove' }));
+    expect(within(dialog).queryByText(/marked for removal/)).not.toBeInTheDocument();
+    // Nothing changed → Save stays disabled.
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('previews the newly selected replacement instead of the old image', async () => {
+    // Regression: picking a replacement kept showing the previous image.
+    const RealURL = globalThis.URL;
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal(
+      'URL',
+      class extends RealURL {
+        static override createObjectURL = () => 'blob:mock-new-image';
+        static override revokeObjectURL = revokeObjectURL;
+      },
+    );
+    const user = userEvent.setup();
+    renderDetail('ctn-003');
+    await screen.findByText('JA&D Project Showcase');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('img', { name: 'JA&D Project Showcase' })).toBeInTheDocument();
+
+    const fileInput = within(dialog).getByLabelText('Replacement file') as HTMLInputElement;
+    await user.upload(fileInput, new File(['new-bytes'], 'new-photo.jpg', { type: 'image/jpeg' }));
+
+    expect(await within(dialog).findByAltText('Preview of new-photo.jpg')).toHaveAttribute(
+      'src',
+      'blob:mock-new-image',
+    );
+    expect(
+      within(dialog).queryByRole('img', { name: 'JA&D Project Showcase' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('exposes a clickable upload dropzone in the edit dialog', async () => {
+    // Regression: the file input uses the visually-hidden .fileInput style,
+    // so it must sit inside a dropzone <label> to be clickable by mouse.
+    const user = userEvent.setup();
+    renderDetail('ctn-001');
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(screen.getByText(/drag a replacement file here/)).toBeInTheDocument();
+    const fileInput = within(dialog).getByLabelText('Replacement file');
+    expect(fileInput.closest('label')).not.toBeNull();
+  });
+
+  it('replaces the file via upload then PATCH', async () => {
+    stubReplacementUpload('https://cdn.test/replaced.pdf');
+    const user = userEvent.setup();
+    renderDetail('ctn-001');
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    const fileInput = within(dialog).getByLabelText('Replacement file') as HTMLInputElement;
+    await user.upload(
+      fileInput,
+      new File(['replacement-bytes'], 'replacement.pdf', { type: 'application/pdf' }),
+    );
+    expect(await within(dialog).findByText(/replacement\.pdf/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('Marketing tool updated')).toBeInTheDocument();
+    expect(screen.getByText('Download')).toHaveAttribute('href', 'https://cdn.test/replaced.pdf');
   });
 });

@@ -302,4 +302,18 @@ describe('PATCH /admin/content/:id', () => {
     expect(seen.status).toBe(200);
     expect(mocks.calls.some((c) => c.table === 'storage:marketing-tools')).toBe(false);
   });
+
+  it('detaches the file on explicit null: clears URL/share and removes the old object', async () => {
+    const { res, seen } = capture();
+    await handler(patchReq('cnt-001', { downloadUrl: null }), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ id: 'cnt-001', title: 'Showcase Flyer' });
+    expect((seen.body as Record<string, unknown>).downloadUrl).toBeUndefined();
+    const update = mocks.calls.find((c) => c.table === 'ContentItem' && c.op === 'update');
+    expect(update?.arg).toMatchObject({ download_url: null, share: null });
+    const removal = mocks.calls.find((c) => c.table === 'storage:marketing-tools');
+    expect(removal?.arg).toEqual(['cms/1756000000-ab12cd-showcase.pdf']);
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(String(audit.detail)).toContain('file removed');
+  });
 });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import {
   Button,
@@ -27,6 +27,14 @@ import { useDeleteProperty } from '../hooks/useDeleteProperty';
 import { useCategories } from '../hooks/useCategories';
 import { useDeleteCategory } from '../hooks/useDeleteCategory';
 import type { PropertyCategory } from '../services/catalog';
+// Linked CMS entries (read-only): shows which catalog rows back public-site
+// content and deep-links to the CMS sections. Explicit links win, otherwise
+// entries auto-match on id/slug equality. CMS never writes catalog rows.
+import { usePropertiesCms } from '../../cms/hooks/usePropertiesCms';
+import {
+  cmsLinkedCategorySlugs as buildLinkedCategorySlugs,
+  cmsLinkedListingIds as buildLinkedListingIds,
+} from '../../cms/services/catalogLinks';
 import { PropertyFormDialog } from '../components/PropertyFormDialog';
 import { CategoryFormDialog } from '../components/CategoryFormDialog';
 
@@ -69,6 +77,18 @@ export function CatalogPage() {
   const deletePropertyMutation = useDeleteProperty();
   const { data: categories } = useCategories();
   const deleteCategoryMutation = useDeleteCategory();
+  const { data: cmsContent } = usePropertiesCms();
+
+  // Catalog ids/slugs referenced by CMS entries (explicit links win,
+  // otherwise auto-matched on id/slug equality).
+  const cmsLinkedListingIds = useMemo(
+    () => buildLinkedListingIds(cmsContent?.properties, data),
+    [cmsContent, data],
+  );
+  const cmsLinkedCategorySlugs = useMemo(
+    () => buildLinkedCategorySlugs(cmsContent?.categories, categories),
+    [cmsContent, categories],
+  );
 
   const [tab, setTab] = useState<Tab>('listings');
   const [page, setPage] = useState(1);
@@ -206,7 +226,16 @@ export function CatalogPage() {
                   {categories.map((cat) => (
                     <TableRow key={cat.slug}>
                       <TableCell label="Title">
-                        <span style={{ fontWeight: 600 }}>{cat.title}</span>
+                        <span style={{ fontWeight: 600 }}>{cat.title}</span>{' '}
+                        {cmsLinkedCategorySlugs.has(cat.slug) ? (
+                          <Link
+                            to="/admin/cms/properties#categories"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ fontSize: 'var(--text-caption)' }}
+                          >
+                            In CMS
+                          </Link>
+                        ) : null}
                       </TableCell>
                       <TableCell label="Slug">
                         <span
@@ -327,7 +356,16 @@ export function CatalogPage() {
                           style={{ cursor: 'pointer' }}
                         >
                           <TableCell label="Property">
-                            <span style={{ fontWeight: 600 }}>{row.name}</span>
+                            <span style={{ fontWeight: 600 }}>{row.name}</span>{' '}
+                            {cmsLinkedListingIds.has(row.id) ? (
+                              <Link
+                                to="/admin/cms/properties#properties"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ fontSize: 'var(--text-caption)' }}
+                              >
+                                In CMS
+                              </Link>
+                            ) : null}
                           </TableCell>
                           <TableCell label="Category">
                             <StatusChip label={catLabel} tone="info" />

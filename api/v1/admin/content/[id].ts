@@ -112,18 +112,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // A new file swaps the download target: rebuild server-provided share
-  // targets and best-effort remove the superseded bucket object.
+  // File transitions: a new URL swaps the download target (share targets
+  // rebuilt); explicit null detaches the file (URL + share cleared). Either
+  // way the superseded bucket object is best-effort removed.
   let replacedFile = false;
+  let clearedFile = false;
   if (nextDownloadUrl !== undefined && nextDownloadUrl !== current.download_url) {
-    const nextTitle = typeof patch.title === 'string' ? patch.title : String(current.title ?? '');
-    patch.share = buildContentShare(nextTitle, nextDownloadUrl);
+    if (nextDownloadUrl === null) {
+      patch.share = null;
+      clearedFile = true;
+    } else {
+      const nextTitle = typeof patch.title === 'string' ? patch.title : String(current.title ?? '');
+      patch.share = buildContentShare(nextTitle, nextDownloadUrl);
+    }
     const oldKey = marketingToolsObjectKey(current.download_url);
-    const nextKey = marketingToolsObjectKey(nextDownloadUrl);
+    const nextKey =
+      typeof nextDownloadUrl === 'string' ? marketingToolsObjectKey(nextDownloadUrl) : null;
     if (oldKey && oldKey !== nextKey) {
       try {
-        await supabase.storage.from('marketing-tools').remove([oldKey]);
-        replacedFile = true;
+        const { error: removalError } = await supabase.storage
+          .from('marketing-tools')
+          .remove([oldKey]);
+        if (!removalError) replacedFile = true;
       } catch {
         replacedFile = false;
       }
@@ -165,11 +175,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     targetName: String((updated as Record<string, unknown>).title ?? id),
     detail:
       `Updated marketing tool ${id} (${Object.keys(patch).join(', ')})` +
-      (nextDownloadUrl !== undefined && nextDownloadUrl !== current.download_url
+      (clearedFile
         ? replacedFile
-          ? ' — file replaced (old object removed)'
-          : ' — file replaced'
-        : ''),
+          ? ' — file removed (old object removed)'
+          : ' — file removed'
+        : nextDownloadUrl !== undefined && nextDownloadUrl !== current.download_url
+          ? replacedFile
+            ? ' — file replaced (old object removed)'
+            : ' — file replaced'
+          : ''),
   });
   res.status(200).json(validated.data);
 }
