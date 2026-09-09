@@ -283,6 +283,32 @@ export const adminMockHandlers: MockRoute[] = [
     },
   },
   {
+    path: '/admin/content/',
+    method: 'PATCH',
+    match: 'prefix',
+    handler: (ctx: MockRequestContext) => {
+      const id = idFromPath(ctx.url, /\/admin\/content\/([^/?#]+)/);
+      const patch = (ctx.body ?? {}) as Record<string, unknown>;
+      const item = contentStore.items.find((i) => i.id === id);
+      if (!item) return notFound('Marketing tool');
+      if (typeof patch.title === 'string' && patch.title.trim()) item.title = patch.title.trim();
+      if (typeof patch.description === 'string')
+        item.description = patch.description.trim() || undefined;
+      if (typeof patch.kind === 'string' && patch.kind) {
+        item.kind = patch.kind as ContentKind;
+      }
+      if (typeof patch.downloadUrl === 'string' && patch.downloadUrl) {
+        item.downloadUrl = patch.downloadUrl;
+        item.share = {
+          messengerUrl: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(patch.downloadUrl)}`,
+          viberUrl: `https://www.viber.com/forward?text=${encodeURIComponent(item.title)}`,
+          copyUrl: patch.downloadUrl,
+        };
+      }
+      return { body: item, status: 200 };
+    },
+  },
+  {
     path: '/admin/adjustments',
     response: {
       data: MOCK_ADJUSTMENTS,

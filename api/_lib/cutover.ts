@@ -2,6 +2,7 @@ import {
   cmsPropertyCategorySchema,
   createPropertyRequestSchema,
   createVoucherTemplateRequestSchema,
+  updateContentItemRequestSchema,
   updatePropertyRequestSchema,
   updateVoucherTemplateRequestSchema,
 } from '@jad/contracts';
@@ -27,6 +28,10 @@ export function validateCreateProperty(body: unknown) {
 
 export function validateUpdateProperty(body: unknown) {
   return updatePropertyRequestSchema.safeParse(body ?? {});
+}
+
+export function validateUpdateContentItem(body: unknown) {
+  return updateContentItemRequestSchema.safeParse(body ?? {});
 }
 
 /** Category presentation schema (CMS-owned fields). */

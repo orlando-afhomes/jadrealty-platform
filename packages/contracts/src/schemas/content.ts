@@ -62,6 +62,20 @@ export const createContentItemRequestSchema = z.object({
 export type CreateContentItemRequest = z.infer<typeof createContentItemRequestSchema>;
 
 /**
+ * Update marketing content — `PATCH /admin/content/:id` (FR-ADM-003).
+ * All-optional (partial) over the editable surface: title, description,
+ * kind, downloadUrl. Empty patch is rejected by the handler ("Nothing to
+ * update."). A new downloadUrl swaps the file: the server rebuilds
+ * server-provided share targets and best-effort removes the superseded
+ * bucket object. `share`/`published` stay server-managed.
+ */
+export const updateContentItemRequestSchema = createContentItemRequestSchema
+  .pick({ title: true, description: true, kind: true, downloadUrl: true })
+  .partial();
+
+export type UpdateContentItemRequest = z.infer<typeof updateContentItemRequestSchema>;
+
+/**
  * Delete marketing content — `DELETE /admin/content/:id` (FR-ADM-003).
  * Removes the `ContentItem` row and, when the download URL points inside
  * the `marketing-tools` Storage bucket, the uploaded object as well.

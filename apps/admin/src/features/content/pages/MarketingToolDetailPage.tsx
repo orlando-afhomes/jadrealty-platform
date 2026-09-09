@@ -15,6 +15,7 @@ import type { ContentKind } from '@jad/contracts';
 
 import { useContent } from '../hooks/useContent';
 import { useDeleteContent } from '../hooks/useDeleteContent';
+import { ContentEditDialog } from '../components/ContentEditDialog';
 import { CONTENT_KIND_LABEL, CONTENT_KIND_TONE } from '../status';
 import { formatDate } from '../../../lib/format';
 import styles from './MarketingToolDetailPage.module.css';
@@ -45,6 +46,7 @@ export function MarketingToolDetailPage() {
   const { data, isPending, isError, error } = useContent();
   const deleteContent = useDeleteContent();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
 
   const item = data?.find((c) => c.id === id);
 
@@ -197,16 +199,27 @@ export function MarketingToolDetailPage() {
 
           <div className={styles.linksSection}>
             <h3 className={styles.sectionTitle}>Danger zone</h3>
-            <Button
-              variant="danger"
-              onClick={() => setShowDeleteConfirm(true)}
-              aria-label={`Delete ${item.title}`}
-            >
-              Delete Permanently
-            </Button>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <Button variant="secondary" onClick={() => setShowEditDialog(true)}>
+                Edit
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => setShowDeleteConfirm(true)}
+                aria-label={`Delete ${item.title}`}
+              >
+                Delete Permanently
+              </Button>
+            </div>
           </div>
         </div>
       )}
+
+      <ContentEditDialog
+        open={showEditDialog}
+        item={item ?? null}
+        onClose={() => setShowEditDialog(false)}
+      />
 
       <ConfirmDialog
         open={showDeleteConfirm}

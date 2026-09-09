@@ -1,9 +1,14 @@
+import { forwardableContentSchema } from '@jad/contracts';
+
 import { ADMIN_STAFF } from '../../../_lib/access.js';
 import { appendAudit } from '../../../_lib/audit.js';
 import { verifyStaff } from '../../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
-import { methodNotAllowed, requireService } from '../../../_lib/rest.js';
+import { isValidContentItemRow, mapContentItemRow } from '../../../_lib/mappers.js';
+import { validateUpdateContentItem } from '../../../_lib/cutover.js';
+import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
+import { buildContentShare } from '../content.js';
 
 /** Bucket markers inside public download URLs (see `cms/upload/sign.ts`). */
 const MARKETING_TOOLS_OBJECT_MARKERS = [
@@ -39,13 +44,13 @@ export function marketingToolsObjectKey(downloadUrl: unknown): string | null {
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
-  if (req.method !== 'DELETE') {
+  if (req.method !== 'PATCH' && req.method !== 'DELETE') {
     methodNotAllowed(res, req.method);
     return;
   }
@@ -76,6 +81,109 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const current = found as Record<string, unknown>;
 
+  if (req.method === 'DELETE') {
+    return deleteContentItem(res, supabase, auth, id, current);
+  }
+
+  // PATCH — title / description / kind / downloadUrl (file replacement).
+  const parsedBody = readJsonBody(req);
+  if (!parsedBody.ok) {
+    const { error, status } = parsedBody.error;
+    res.status(status).json({ error });
+    return;
+  }
+  const parsed = validateUpdateContentItem(parsedBody.body);
+  if (!parsed.success) {
+    const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Invalid content update.', 400);
+    res.status(status).json({ error });
+    return;
+  }
+  const patch: Record<string, unknown> = {};
+  if (parsed.data.title !== undefined) patch.title = parsed.data.title.trim();
+  if (parsed.data.description !== undefined)
+    patch.description = parsed.data.description.trim() || null;
+  if (parsed.data.kind !== undefined) patch.kind = parsed.data.kind;
+  const nextDownloadUrl =
+    parsed.data.downloadUrl !== undefined ? parsed.data.downloadUrl : undefined;
+  if (nextDownloadUrl !== undefined) patch.download_url = nextDownloadUrl;
+  if (Object.keys(patch).length === 0) {
+    const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Nothing to update.', 400);
+    res.status(status).json({ error });
+    return;
+  }
+
+  // A new file swaps the download target: rebuild server-provided share
+  // targets and best-effort remove the superseded bucket object.
+  let replacedFile = false;
+  if (nextDownloadUrl !== undefined && nextDownloadUrl !== current.download_url) {
+    const nextTitle = typeof patch.title === 'string' ? patch.title : String(current.title ?? '');
+    patch.share = buildContentShare(nextTitle, nextDownloadUrl);
+    const oldKey = marketingToolsObjectKey(current.download_url);
+    const nextKey = marketingToolsObjectKey(nextDownloadUrl);
+    if (oldKey && oldKey !== nextKey) {
+      try {
+        await supabase.storage.from('marketing-tools').remove([oldKey]);
+        replacedFile = true;
+      } catch {
+        replacedFile = false;
+      }
+    }
+  }
+  const { data: updated, error: updateError } = await supabase
+    .from('ContentItem')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (updateError || !updated) {
+    const { error, status } = toErrorEnvelope(
+      'INTERNAL',
+      updateError?.message ?? 'Update failed',
+      500,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  const mapped = mapContentItemRow(updated as Record<string, unknown>);
+  if (!isValidContentItemRow(mapped)) {
+    const { error, status } = toErrorEnvelope('INTERNAL', 'Stored content failed validation', 500);
+    res.status(status).json({ error });
+    return;
+  }
+  const validated = forwardableContentSchema.safeParse(mapped);
+  if (!validated.success) {
+    const { error, status } = toErrorEnvelope('INTERNAL', 'Stored content failed validation', 500);
+    res.status(status).json({ error });
+    return;
+  }
+  await appendAudit(supabase, {
+    action: 'CONTENT_UPDATED',
+    actorId: auth.userId,
+    actorRole: auth.slugs[0] ?? 'admin',
+    targetType: 'ContentItem',
+    targetId: id,
+    targetName: String((updated as Record<string, unknown>).title ?? id),
+    detail:
+      `Updated marketing tool ${id} (${Object.keys(patch).join(', ')})` +
+      (nextDownloadUrl !== undefined && nextDownloadUrl !== current.download_url
+        ? replacedFile
+          ? ' — file replaced (old object removed)'
+          : ' — file replaced'
+        : ''),
+  });
+  res.status(200).json(validated.data);
+}
+
+type ServiceClient = NonNullable<ReturnType<typeof requireService>>;
+type StaffAuth = { userId: string; slugs: string[] };
+
+async function deleteContentItem(
+  res: VercelResponse,
+  supabase: ServiceClient,
+  auth: StaffAuth,
+  id: string,
+  current: Record<string, unknown>,
+) {
   // Best-effort bucket cleanup — never blocks the row delete.
   let fileRemoved = false;
   const objectKey = marketingToolsObjectKey(current.download_url);

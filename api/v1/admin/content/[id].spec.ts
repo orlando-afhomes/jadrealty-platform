@@ -38,6 +38,17 @@ const mocks = vi.hoisted(() => {
         calls.push({ table, op: 'insert', arg: row });
         return { error: null };
       },
+      update: (patch: unknown) => {
+        calls.push({ table, op: 'update', arg: patch });
+        const merged = { ...(script.item ?? {}), ...((patch ?? {}) as Record<string, unknown>) };
+        return {
+          eq: () => ({
+            select: () => ({
+              single: async () => ({ data: merged, error: null }),
+            }),
+          }),
+        };
+      },
       delete: () => ({
         eq: async (column: string, value: unknown) => {
           calls.push({ table, op: 'delete', arg: { [column]: value } });
@@ -97,12 +108,16 @@ function capture() {
 const authed = { authorization: 'Bearer good' };
 const deleteReq = (id: string): VercelRequest =>
   ({ method: 'DELETE', query: { id }, headers: authed }) as VercelRequest;
+const patchReq = (id: string, body: unknown): VercelRequest =>
+  ({ method: 'PATCH', query: { id }, headers: authed, body }) as VercelRequest;
 
 const BUCKET_ITEM = {
   id: 'cnt-001',
   title: 'Showcase Flyer',
+  kind: 'DOCUMENT',
   download_url:
     'https://ref.supabase.co/storage/v1/object/public/marketing-tools/cms/1756000000-ab12cd-showcase.pdf',
+  created_at: '2026-09-01T00:00:00.000Z',
 };
 
 describe('marketingToolsObjectKey', () => {
@@ -204,5 +219,87 @@ describe('DELETE /admin/content/:id', () => {
     expect(mocks.calls.some((c) => c.table === 'ContentItem' && c.op === 'delete')).toBe(true);
     const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
     expect(String(audit.detail)).toContain('uploaded file removal failed');
+  });
+});
+
+describe('PATCH /admin/content/:id', () => {
+  beforeEach(() => {
+    vi.stubEnv('SUPABASE_URL', 'https://content.test.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
+    mocks.calls.length = 0;
+    mocks.script.roleSlug = 'super_admin';
+    mocks.script.item = { ...BUCKET_ITEM };
+    mocks.script.storageError = null;
+  });
+
+  it('403s non-staff roles before any mutation', async () => {
+    mocks.script.roleSlug = 'finance';
+    const { res, seen } = capture();
+    await handler(patchReq('cnt-001', { title: 'New Title' }), res);
+    expect(seen.status).toBe(403);
+    expect(mocks.calls.some((c) => c.op === 'update')).toBe(false);
+  });
+
+  it('404s when the tool does not exist', async () => {
+    mocks.script.item = null;
+    const { res, seen } = capture();
+    await handler(patchReq('cnt-missing', { title: 'New Title' }), res);
+    expect(seen.status).toBe(404);
+    expect(mocks.calls.some((c) => c.op === 'update')).toBe(false);
+  });
+
+  it('400s invalid and empty patches', async () => {
+    const { res: res1, seen: seen1 } = capture();
+    await handler(patchReq('cnt-001', { kind: 'NOPE' }), res1);
+    expect(seen1.status).toBe(400);
+
+    const { res: res2, seen: seen2 } = capture();
+    await handler(patchReq('cnt-001', {}), res2);
+    expect(seen2.status).toBe(400);
+    expect(seen2.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(mocks.calls.some((c) => c.op === 'update')).toBe(false);
+  });
+
+  it('updates metadata fields and audits', async () => {
+    const { res, seen } = capture();
+    await handler(patchReq('cnt-001', { title: 'New Title', kind: 'IMAGE' }), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ id: 'cnt-001', title: 'New Title', kind: 'IMAGE' });
+    const update = mocks.calls.find((c) => c.table === 'ContentItem' && c.op === 'update');
+    expect(update?.arg).toMatchObject({ title: 'New Title', kind: 'IMAGE' });
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(audit).toMatchObject({
+      action: 'CONTENT_UPDATED',
+      target_type: 'ContentItem',
+      target_id: 'cnt-001',
+    });
+  });
+
+  it('swaps the file: rebuilds share targets and removes the old object', async () => {
+    const nextUrl =
+      'https://ref.supabase.co/storage/v1/object/public/marketing-tools/cms/1756111111-zz99-new.pdf';
+    const { res, seen } = capture();
+    await handler(patchReq('cnt-001', { downloadUrl: nextUrl }), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ id: 'cnt-001', downloadUrl: nextUrl });
+    const update = mocks.calls.find((c) => c.table === 'ContentItem' && c.op === 'update');
+    const share = (update?.arg as Record<string, unknown>)?.share as Record<string, string>;
+    expect(share.copyUrl).toBe(nextUrl);
+    expect(share.messengerUrl).toContain(encodeURIComponent(nextUrl));
+    const removal = mocks.calls.find((c) => c.table === 'storage:marketing-tools');
+    expect(removal?.arg).toEqual(['cms/1756000000-ab12cd-showcase.pdf']);
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(String(audit.detail)).toContain('file replaced');
+  });
+
+  it('skips old-object removal for external previous URLs', async () => {
+    mocks.script.item = { ...BUCKET_ITEM, download_url: 'https://example.com/files/old.pdf' };
+    const nextUrl =
+      'https://ref.supabase.co/storage/v1/object/public/marketing-tools/cms/1756111111-zz99-new.pdf';
+    const { res, seen } = capture();
+    await handler(patchReq('cnt-001', { downloadUrl: nextUrl }), res);
+    expect(seen.status).toBe(200);
+    expect(mocks.calls.some((c) => c.table === 'storage:marketing-tools')).toBe(false);
   });
 });

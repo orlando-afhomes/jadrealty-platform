@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MOCK_ADMIN } from '@jad/mock';
 
 import { installMockApi, renderWithProviders } from '../../../test/utils';
+import { resetContentStore } from '../../../mock/contentMockStore';
 import { MarketingToolDetailPage } from './MarketingToolDetailPage';
 
 function renderDetail(id: string) {
@@ -20,6 +21,7 @@ describe('MarketingToolDetailPage', () => {
   let server: ReturnType<typeof installMockApi>;
 
   beforeEach(() => {
+    resetContentStore();
     server = installMockApi();
     server.install();
   });
@@ -80,5 +82,21 @@ describe('MarketingToolDetailPage', () => {
 
     expect(await screen.findByText('list-marker')).toBeInTheDocument();
     expect(await screen.findByText('Marketing tool deleted')).toBeInTheDocument();
+  });
+
+  it('edits the tool title from the detail page', async () => {
+    const user = userEvent.setup();
+    renderDetail('ctn-001');
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = await screen.findByRole('dialog');
+    const titleInput = within(dialog).getByLabelText('Title');
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Detail Edited Title');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('Detail Edited Title')).toBeInTheDocument();
+    expect(await screen.findByText('Marketing tool updated')).toBeInTheDocument();
   });
 });

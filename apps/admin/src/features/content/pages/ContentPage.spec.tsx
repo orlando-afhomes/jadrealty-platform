@@ -327,4 +327,22 @@ describe('ContentPage', () => {
 
     expect(screen.getByText('JA&D Membership Overview')).toBeInTheDocument();
   });
+
+  it('edits a marketing tool title from the list', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    const [editButton] = screen.getAllByRole('button', { name: 'Edit' });
+    await user.click(editButton!);
+    const dialog = await screen.findByRole('dialog');
+    const titleInput = within(dialog).getByLabelText('Title');
+    expect(titleInput).toHaveValue('JA&D Membership Overview');
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Updated Overview');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('Updated Overview')).toBeInTheDocument();
+    expect(await screen.findByText('Marketing tool updated')).toBeInTheDocument();
+  });
 });

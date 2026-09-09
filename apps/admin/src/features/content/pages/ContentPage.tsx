@@ -22,12 +22,18 @@ import {
 } from '@jad/ui';
 import type { ContentKind, ForwardableContent } from '@jad/contracts';
 
-import { env } from '../../../lib/env';
 import { formatDate } from '../../../lib/format';
-import { getSupabaseClient } from '../../../lib/supabase';
 import { useContent } from '../hooks/useContent';
 import { useCreateContent } from '../hooks/useCreateContent';
 import { useDeleteContent } from '../hooks/useDeleteContent';
+import { ContentEditDialog } from '../components/ContentEditDialog';
+import {
+  formatBytes,
+  KIND_ACCEPT,
+  KIND_MAX_SIZE,
+  matchesAccept,
+  uploadContentFile,
+} from '../services/uploads';
 import { CONTENT_KIND_LABEL, CONTENT_KIND_TONE } from '../status';
 import styles from './ContentPage.module.css';
 
@@ -49,69 +55,6 @@ const KIND_ICON: Record<ContentKind, 'file-text' | 'image' | 'video' | 'grid'> =
   VIDEO: 'video',
   PROMO: 'grid',
 };
-
-const KIND_ACCEPT: Record<ContentKind, string> = {
-  DOCUMENT: '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx',
-  IMAGE: 'image/jpeg,image/png,image/webp',
-  VIDEO: 'video/mp4,video/webm,video/quicktime',
-  PROMO: '*/*',
-};
-
-const KIND_MAX_SIZE: Record<ContentKind, number> = {
-  DOCUMENT: 20 * 1024 * 1024,
-  IMAGE: 20 * 1024 * 1024,
-  VIDEO: 100 * 1024 * 1024,
-  PROMO: 50 * 1024 * 1024,
-};
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Build a specific message for a failed direct-to-Storage PUT. Supabase
- * answers with a JSON `{message}` (e.g. bucket MIME/size rejections) — pass
- * it through so a bucket misconfiguration is diagnosable instead of a dead
- * end; fall back to raw text, then the generic message.
- */
-async function putErrorMessage(fileName: string, putRes: Response): Promise<string> {
-  const fallback = `"${fileName}" failed to upload. Remove and try again.`;
-  try {
-    const text = await putRes.text();
-    if (!text) return fallback;
-    try {
-      const parsed = JSON.parse(text) as { message?: unknown; error?: unknown };
-      const detail =
-        (typeof parsed.message === 'string' && parsed.message) ||
-        (typeof parsed.error === 'string' && parsed.error) ||
-        '';
-      return detail
-        ? `"${fileName}": storage rejected the upload (${detail.slice(0, 200)})`
-        : fallback;
-    } catch {
-      return text ? `"${fileName}": storage rejected the upload (${text.slice(0, 200)})` : fallback;
-    }
-  } catch {
-    return fallback;
-  }
-}
-
-/** Mirror the input `accept` filter so mismatched drops get an explicit error. */
-function matchesAccept(file: File, accept: string): boolean {
-  const tokens = accept
-    .split(',')
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
-  const mime = file.type.toLowerCase();
-  const ext = file.name.toLowerCase().split('.').pop() ?? '';
-  return tokens.some((token) => {
-    if (token.startsWith('.')) return `.${ext}` === token;
-    if (token.endsWith('/*')) return mime.startsWith(token.slice(0, -1));
-    return mime === token;
-  });
-}
 
 function TableSkeleton() {
   return (
@@ -166,6 +109,7 @@ export function ContentPage() {
   const [saving, setSaving] = useState(false);
   const [activeFile, setActiveFile] = useState<{ name: string; phase: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ForwardableContent | null>(null);
+  const [editTarget, setEditTarget] = useState<ForwardableContent | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const allItems = useMemo(() => [...(data ?? [])], [data]);
@@ -226,70 +170,6 @@ export function ContentPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const uploadFile = async (
-    selectedFile: File,
-    kind: ContentKind,
-  ): Promise<{ downloadUrl: string } | { error: string }> => {
-    const supabase = getSupabaseClient();
-    if (!supabase) return { error: 'Upload unavailable — please reload and try again.' };
-
-    let token: string | undefined;
-    try {
-      const sess = await supabase.auth.getSession();
-      token = sess?.data?.session?.access_token ?? undefined;
-    } catch {
-      /* proceed without token — sign endpoint handles missing auth */
-    }
-
-    let signRes: Response;
-    try {
-      signRes = await fetch(`${env.VITE_API_BASE_URL}/cms/upload/sign`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          name: selectedFile.name,
-          type: selectedFile.type,
-          size: selectedFile.size,
-          kind,
-        }),
-      });
-    } catch {
-      return { error: `"${selectedFile.name}" could not reach the upload service.` };
-    }
-
-    if (!signRes.ok) {
-      let message = `"${selectedFile.name}" was rejected for upload.`;
-      try {
-        const errJson = (await signRes.json()) as { error?: { message?: string } };
-        if (errJson?.error?.message) message = `"${selectedFile.name}": ${errJson.error.message}`;
-      } catch {
-        // keep the generic message when the body is not JSON
-      }
-      return { error: message };
-    }
-
-    const signJson = (await signRes.json()) as { signedUrl: string; publicUrl: string };
-    if (!signJson.signedUrl || !signJson.publicUrl) {
-      return { error: `"${selectedFile.name}" failed to upload. Remove and try again.` };
-    }
-
-    try {
-      const putRes = await fetch(signJson.signedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': selectedFile.type },
-        body: selectedFile,
-      });
-      if (!putRes.ok) return { error: await putErrorMessage(selectedFile.name, putRes) };
-    } catch {
-      return { error: `"${selectedFile.name}" failed to upload. Remove and try again.` };
-    }
-
-    return { downloadUrl: signJson.publicUrl };
-  };
-
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -318,7 +198,7 @@ export function ContentPage() {
 
     for (const file of files) {
       setActiveFile({ name: file.name, phase: 'Uploading' });
-      const uploaded = await uploadFile(file, form.kind);
+      const uploaded = await uploadContentFile(file, form.kind);
       if ('error' in uploaded) {
         failed.push(uploaded.error);
         continue;
@@ -457,6 +337,9 @@ export function ContentPage() {
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => e.stopPropagation()}
                       >
+                        <Button variant="secondary" onClick={() => setEditTarget(row)}>
+                          Edit
+                        </Button>
                         <Button
                           variant="danger"
                           onClick={() => setDeleteTarget(row)}
@@ -594,6 +477,12 @@ export function ContentPage() {
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger
+      />
+
+      <ContentEditDialog
+        open={editTarget !== null}
+        item={editTarget}
+        onClose={() => setEditTarget(null)}
       />
     </section>
   );

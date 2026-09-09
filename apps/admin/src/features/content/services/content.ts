@@ -4,6 +4,7 @@ import {
   type ContentKind,
   type CreateContentItemRequest,
   type ForwardableContent,
+  type UpdateContentItemRequest,
 } from '@jad/contracts';
 
 import { request, requestList } from '../../../lib/api/client';
@@ -44,4 +45,16 @@ export function deleteContentItem(
   id: string,
 ): Promise<{ id: string; deleted: true; fileRemoved: boolean }> {
   return request(`/admin/content/${id}`, deleteContentItemResponseSchema, { method: 'DELETE' });
+}
+
+/** PATCH /admin/content/:id — update title/description/kind and/or swap the file. */
+export function updateContentItem(
+  id: string,
+  patch: UpdateContentItemRequest,
+): Promise<ForwardableContent> {
+  return request(`/admin/content/${id}`, forwardableContentSchema, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
 }

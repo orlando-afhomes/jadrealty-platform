@@ -204,6 +204,7 @@ export {
   contentKindSchema,
   forwardableContentSchema,
   createContentItemRequestSchema,
+  updateContentItemRequestSchema,
   deleteContentItemResponseSchema,
   contentUploadSignRequestSchema,
 } from './schemas/content.js';
@@ -211,6 +212,7 @@ export type {
   ContentKind,
   ForwardableContent,
   CreateContentItemRequest,
+  UpdateContentItemRequest,
   DeleteContentItemResponse,
   ContentUploadSignRequest,
 } from './schemas/content.js';
