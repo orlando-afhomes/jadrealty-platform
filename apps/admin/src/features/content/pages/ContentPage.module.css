@@ -27,9 +27,30 @@
   cursor: pointer;
 }
 
+.row:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: -2px;
+}
+
 .title {
   font-weight: 600;
   color: var(--color-text-primary);
+}
+
+.titleLink {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.titleLink:hover {
+  color: var(--color-brand-primary);
+  text-decoration: underline;
+}
+
+.titleLink:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
 }
 
 .description {
@@ -195,6 +216,7 @@
 
 .fileItemName {
   flex: 1;
+  min-width: 0;
   font-size: var(--text-body-s);
   font-weight: 600;
   color: var(--color-text-primary);
@@ -207,6 +229,13 @@
   flex: 0 0 auto;
   font-size: var(--text-caption);
   color: var(--color-text-muted);
+}
+
+.fileItemStatus {
+  flex: 0 0 auto;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-brand-primary);
 }
 
 .fileItemRemove {
@@ -242,11 +271,46 @@
 
 @media (max-width: 639px) {
   .tableFooter {
+    flex-wrap: wrap;
     padding: var(--space-3);
   }
 
   .captionText {
-    white-space: nowrap;
+    flex: 1 1 100%;
     font-size: var(--text-caption);
+  }
+
+  .tableFooter > nav {
+    flex: 1 1 100%;
+  }
+
+  /* Card-mode cells are flex rows: value spans must shrink instead of
+     forcing their min-content width past the viewport. */
+  .title,
+  .titleLink,
+  .description,
+  .meta {
+    min-width: 0;
+  }
+
+  .title,
+  .titleLink {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .description {
+    max-width: none;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .description {
+    max-width: 28ch;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 }

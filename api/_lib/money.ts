@@ -81,16 +81,33 @@ export function isValidLedgerRow(row: Record<string, unknown>): boolean {
 }
 
 function withdrawalPayoutSnapshot(row: Record<string, unknown>) {
+  // Idempotent: an already-mapped row carries the snapshot object instead of
+  // flat join fields — reuse it so validate-after-map never drops valid rows.
+  const snapshot =
+    row.payoutAccount && typeof row.payoutAccount === 'object'
+      ? (row.payoutAccount as Record<string, unknown>)
+      : undefined;
   const raw =
     typeof row.accountIdentifier === 'string' && row.accountIdentifier
       ? row.accountIdentifier
-      : undefined;
+      : typeof snapshot?.accountIdentifier === 'string' && snapshot.accountIdentifier
+        ? (snapshot.accountIdentifier as string)
+        : undefined;
   return {
-    id: typeof row.payoutAccountId === 'string' ? row.payoutAccountId : '',
-    method: row.accountMethod ?? 'OTHER',
-    accountName: row.accountName ?? 'Payout account',
+    id:
+      typeof row.payoutAccountId === 'string'
+        ? row.payoutAccountId
+        : typeof snapshot?.id === 'string'
+          ? snapshot.id
+          : '',
+    method: row.accountMethod ?? snapshot?.method ?? 'OTHER',
+    accountName: row.accountName ?? snapshot?.accountName ?? 'Payout account',
     accountIdentifierMasked:
-      typeof row.accountIdentifierMasked === 'string' ? row.accountIdentifierMasked : '••••',
+      typeof row.accountIdentifierMasked === 'string'
+        ? row.accountIdentifierMasked
+        : typeof snapshot?.accountIdentifierMasked === 'string'
+          ? snapshot.accountIdentifierMasked
+          : '••••',
     ...(raw ? { accountIdentifier: raw } : {}),
   };
 }

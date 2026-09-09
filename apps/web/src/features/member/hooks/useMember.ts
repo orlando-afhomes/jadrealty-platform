@@ -175,36 +175,11 @@ export function useVoucher(voucherId: string) {
   });
 }
 
-/** `GET /content/forwardable` — content library (SCR-MEM-022). Supabase Storage `marketing-tools` when configured. */
+/** `GET /content/forwardable` — content library (SCR-MEM-022, FR-ADM-003). */
 export function useContentLibrary() {
   return useQuery({
     queryKey: ['member', 'content-library'],
-    queryFn: async () => {
-      if (
-        (import.meta.env as Record<string, string | undefined>).MODE !== 'test' &&
-        isSupabaseConfigured()
-      ) {
-        const client = getSupabaseClient() as unknown as {
-          from: (t: string) => {
-            select: (c: string) => {
-              eq: (k: string, v: boolean) => Promise<{ data: unknown[] | null; error: unknown }>;
-            };
-          };
-        } | null;
-        if (client) {
-          try {
-            const { data, error } = await client
-              .from('content_items')
-              .select('*')
-              .eq('published', true);
-            if (!error && Array.isArray(data)) return data as never;
-          } catch {
-            // fallback
-          }
-        }
-      }
-      return getContentLibrary();
-    },
+    queryFn: () => getContentLibrary(),
   });
 }
 

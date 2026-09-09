@@ -27,5 +27,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.spec.{ts,tsx}'],
+    // Mirror apps/web: heavy shell/page suites exceed the 5s default under
+    // parallel load and flake without headroom.
+    testTimeout: 30000,
   },
 });

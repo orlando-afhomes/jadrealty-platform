@@ -9,11 +9,7 @@ const mockGetSession = vi.fn();
 const mockOnAuthStateChange = vi.fn();
 const mockSignOut = vi.fn();
 const mockMembersSingle = vi.fn();
-const mockMemberRolesEq = vi.fn();
-const mockRolesIn = vi.fn();
-
-// For per-id fallback
-const mockRolesEq = vi.fn();
+const mockStaffUserEq = vi.fn();
 
 vi.mock('./supabase', async () => {
   const actual = await vi.importActual<typeof import('./supabase')>('./supabase');
@@ -28,14 +24,11 @@ vi.mock('./supabase', async () => {
       },
       from: (table: string) => {
         const lower = table.toLowerCase();
+        if (lower === 'staffuser') {
+          return { select: () => ({ eq: mockStaffUserEq }) };
+        }
         if (lower === 'members' || table === 'members') {
           return { select: () => ({ eq: () => ({ single: mockMembersSingle }) }) };
-        }
-        if (lower === 'member_roles' || lower === 'memberrole') {
-          return { select: () => ({ eq: mockMemberRolesEq, in: mockRolesIn }) };
-        }
-        if (lower === 'roles' || lower === 'role') {
-          return { select: () => ({ eq: mockRolesEq, in: mockRolesIn }) };
         }
         return { select: () => ({ eq: vi.fn(), in: vi.fn() }) };
       },
@@ -55,35 +48,32 @@ function Probe() {
   );
 }
 
-describe('SupabaseSessionProvider – authoritative role via member_roles (regression)', () => {
+describe('SupabaseSessionProvider – authoritative role via StaffUser (regression)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({ data: { session: null } });
     mockOnAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
     mockSignOut.mockResolvedValue(undefined);
     mockMembersSingle.mockResolvedValue({ data: null });
-    mockMemberRolesEq.mockResolvedValue({ data: [], error: null });
-    mockRolesIn.mockResolvedValue({ data: [], error: null });
-    mockRolesEq.mockResolvedValue({ data: [], error: null });
+    mockStaffUserEq.mockResolvedValue({ data: [], error: null });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it('Admin via DB roles → admin', async () => {
+  it('StaffUser row → admin (no Role reads)', async () => {
     mockGetSession.mockResolvedValue({
       data: {
         session: {
-          user: { id: 'adm-001', email: 'admin@jad.local', user_metadata: { full_name: 'Admin', role: 'admin' } },
+          user: { id: 'adm-001', email: 'admin@jad.local', user_metadata: { full_name: 'Admin' } },
         },
       },
     });
     mockMembersSingle.mockResolvedValue({
       data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' },
     });
-    mockMemberRolesEq.mockResolvedValue({ data: [{ roleId: 'role-admin' }], error: null });
-    mockRolesIn.mockResolvedValue({ data: [{ slug: 'admin', name: 'Admin' }], error: null });
+    mockStaffUserEq.mockResolvedValue({ data: [{ id: 'adm-001' }], error: null });
 
     render(
       <SupabaseSessionProvider>
@@ -94,23 +84,20 @@ describe('SupabaseSessionProvider – authoritative role via member_roles (regre
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('role')).toHaveTextContent('admin');
     expect(screen.getByTestId('user')).toHaveTextContent('adm-001');
-    // ensure role came from DB, not metadata: even if metadata says admin, DB is source — here DB has it
   });
 
-  it('User via DB → user (no privilege escalation)', async () => {
+  it('No StaffUser row → member role (admin comes from staff identity only)', async () => {
     mockGetSession.mockResolvedValue({
       data: {
         session: {
-          user: { id: 'mem-001', email: 'juan@example.com', user_metadata: { full_name: 'Juan', role: 'admin' } },
+          user: { id: 'mem-001', email: 'juan@example.com', user_metadata: { full_name: 'Juan' } },
         },
       },
     });
     mockMembersSingle.mockResolvedValue({
       data: { firstName: 'Juan', lastName: 'Dela Cruz', isQualified: true, status: 'APPROVED_ACTIVE' },
     });
-    // DB says user only, even though metadata says admin
-    mockMemberRolesEq.mockResolvedValue({ data: [{ roleId: 'role-user' }], error: null });
-    mockRolesIn.mockResolvedValue({ data: [{ slug: 'user', name: 'User' }], error: null });
+    mockStaffUserEq.mockResolvedValue({ data: [], error: null });
 
     render(
       <SupabaseSessionProvider>
@@ -119,7 +106,6 @@ describe('SupabaseSessionProvider – authoritative role via member_roles (regre
     );
 
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
-    // Must be user, not admin, proving DB is authoritative and metadata not used for privilege
     expect(screen.getByTestId('role')).toHaveTextContent('user');
   });
 
@@ -140,7 +126,6 @@ describe('SupabaseSessionProvider – authoritative role via member_roles (regre
       data: { session: { user: { id: 'unknown-1', email: 'a@b.com', user_metadata: { full_name: 'Ghost' } } } },
     });
     mockMembersSingle.mockResolvedValue({ data: null, error: { message: 'not found' } });
-    mockMemberRolesEq.mockResolvedValue({ data: [], error: null });
 
     render(
       <SupabaseSessionProvider>
@@ -153,15 +138,14 @@ describe('SupabaseSessionProvider – authoritative role via member_roles (regre
     expect(screen.getByTestId('name')).toHaveTextContent('Ghost');
   });
 
-  it('Role lookup failure → safe user, no accidental admin', async () => {
+  it('StaffUser lookup failure → safe user, no accidental admin', async () => {
     mockGetSession.mockResolvedValue({
       data: { session: { user: { id: 'mem-002', email: 'maria@example.com', user_metadata: {} } } },
     });
     mockMembersSingle.mockResolvedValue({
       data: { firstName: 'Maria', lastName: 'Santos', isQualified: true, status: 'APPROVED_ACTIVE' },
     });
-    mockMemberRolesEq.mockRejectedValue(new Error('network failure'));
-    // mockRolesIn not called
+    mockStaffUserEq.mockRejectedValue(new Error('network failure'));
 
     render(
       <SupabaseSessionProvider>
@@ -183,7 +167,6 @@ describe('SupabaseSessionProvider – authoritative role via member_roles (regre
       data: { session: { user: { id: 'mem-001', email: 'a@b.com', user_metadata: { full_name: 'Juan' } } } },
     });
     mockMembersSingle.mockResolvedValue({ data: { firstName: 'Juan', lastName: 'Dela Cruz', isQualified: true, status: 'APPROVED_ACTIVE' } });
-    mockMemberRolesEq.mockResolvedValue({ data: [], error: null });
 
     render(
       <SupabaseSessionProvider>
@@ -197,13 +180,29 @@ describe('SupabaseSessionProvider – authoritative role via member_roles (regre
     expect(screen.getByTestId('role')).toHaveTextContent('null');
   });
 
-  it('Reload (getSession) restores admin via DB', async () => {
+  it('StaffUser row resolves admin without Role reads (Phase 1 staff domain)', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: 'adm-9', email: 'admin@jad.local', user_metadata: {} } } },
+    });
+    mockMembersSingle.mockResolvedValue({ data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' } });
+    mockStaffUserEq.mockResolvedValue({ data: [{ id: 'adm-9' }], error: null });
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(screen.getByTestId('role')).toHaveTextContent('admin');
+  });
+
+  it('Reload (getSession) restores admin via StaffUser', async () => {
     mockGetSession.mockResolvedValue({
       data: { session: { user: { id: 'adm-001', email: 'admin@jad.local', user_metadata: {} } } },
     });
     mockMembersSingle.mockResolvedValue({ data: { firstName: 'Admin', lastName: 'User', isQualified: true, status: 'APPROVED_ACTIVE' } });
-    mockMemberRolesEq.mockResolvedValue({ data: [{ roleId: 'r1' }], error: null });
-    mockRolesIn.mockResolvedValue({ data: [{ slug: 'admin' }], error: null });
+    mockStaffUserEq.mockResolvedValue({ data: [{ id: 'adm-001' }], error: null });
 
     render(
       <SupabaseSessionProvider>

@@ -30,6 +30,17 @@ describe('mapNotificationRow', () => {
     expect(isValidNotificationRow({ id: 'a', title: 'T', created_at: '2026-08-18T09:00:00.000Z' })).toBe(true);
     expect(isValidNotificationRow({ id: 'a', created_at: '2026-08-18T09:00:00.000Z' })).toBe(false);
   });
+
+  it('keeps valid rows through map-then-validate (list handlers filter mapped rows)', () => {
+    const mapped = mapNotificationRow({
+      id: 'ntf-001',
+      title: 'Welcome',
+      body: 'Hello',
+      read_at: null,
+      created_at: '2026-08-18T09:00:00.000Z',
+    });
+    expect(isValidNotificationRow(mapped)).toBe(true);
+  });
 });
 
 describe('mapContentItemRow', () => {
@@ -62,5 +73,18 @@ describe('mapContentItemRow', () => {
     expect(
       isValidContentItemRow({ id: 'a', title: 'T', kind: 'NOPE', created_at: '2026-08-10T09:00:00.000Z' }),
     ).toBe(false);
+  });
+
+  it('keeps valid rows through map-then-validate (list handlers filter mapped rows)', () => {
+    const mapped = mapContentItemRow({
+      id: 'cnt-001',
+      title: 'Showcase',
+      description: null,
+      kind: 'IMAGE',
+      download_url: 'https://cdn.test/showcase.jpg',
+      share: { copyUrl: 'https://cdn.test/showcase.jpg' },
+      created_at: '2026-09-08T04:14:34.260445+00:00',
+    });
+    expect(isValidContentItemRow(mapped)).toBe(true);
   });
 });

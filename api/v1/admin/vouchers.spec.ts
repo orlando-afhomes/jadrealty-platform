@@ -35,7 +35,9 @@ const mocks = vi.hoisted(() => {
     // Bare awaited chains: link rows for auth, counts for delete guards,
     // full lists for code generation.
     b.then = (resolve: (v: unknown) => void) => {
-      if (table === 'MemberRole') resolve({ data: [{ roleId: 'r-1' }], error: null });
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        resolve({ data: [{ roleId: 'r-1' }], error: null });
+      }
       else if (table === 'Property')
         resolve({ data: [], error: null, count: script.propertyCount });
       else resolve({ data: script.list[table] ?? null, error: null });

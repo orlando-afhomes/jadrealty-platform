@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import type { MemberStatus, Role } from '@jad/contracts';
-import { normalizeRole } from '@jad/contracts';
 import { MockSessionProvider, setMockSessionUser, useMockSession } from '@jad/mock';
 
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
@@ -96,45 +95,22 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Authoritative role resolution: member_roles → roles → normalizeRole (no metadata fallback for privilege).
-    // Phase 1: admin / user only; maps legacy SUPER_ADMIN → admin for compat.
+    // Authoritative role resolution: own StaffUser row → admin (Phase 5 staff
+    // separation — no Role/MemberRole table reads on the member path).
     const resolveRole = async (c: unknown, memberId: string): Promise<Role | null> => {
       try {
         const supa = c as {
           from: (t: string) => {
             select: (c: string) => {
               eq: (k: string, v: string) => Promise<{ data: unknown[] | null; error: unknown }>;
-              in: (k: string, v: string[]) => Promise<{ data: unknown[] | null; error: unknown }>;
             };
           };
         };
-        const tryResolve = async (tableRoles: string, tableLinks: string) => {
-          const { data: links, error: linkErr } = await supa.from(tableLinks).select('roleId').eq('memberId', memberId);
-          if (linkErr || !Array.isArray(links) || links.length === 0) return null as Role | null;
-          const ids = (links as { roleId: string }[]).map((l) => l.roleId);
-          const { data: roles, error: roleErr } = await supa.from(tableRoles).select('slug,name').in('id', ids);
-          if (!roleErr && Array.isArray(roles) && roles.length > 0) {
-            const slugs = (roles as { slug: string }[]).map((r) => r.slug);
-            if (slugs.some((s) => normalizeRole(s) === 'admin')) return 'admin' as Role;
-            return 'user' as Role;
-          }
-          const collected: string[] = [];
-          for (const rid of ids) {
-            const { data: one } = await supa.from(tableRoles).select('slug,name').eq('id', rid);
-            if (Array.isArray(one)) for (const row of one as { slug: string }[]) collected.push(row.slug);
-          }
-          if (collected.some((s) => normalizeRole(s) === 'admin')) return 'admin' as Role;
-          if (collected.length > 0) return 'user' as Role;
-          return null;
-        };
-        // Try new quoted "MemberRole"/"Role" first (Phase 1), then legacy lowercase
-        const r1 = await tryResolve('Role', 'MemberRole');
-        if (r1) return r1;
-        const r2 = await tryResolve('roles', 'member_roles');
-        if (r2) return r2;
-        // Also try lowercase variants for Supabase case handling
-        const r3 = await tryResolve('role', 'memberrole');
-        if (r3) return r3;
+        const { data: staff, error: staffErr } = await supa
+          .from('StaffUser')
+          .select('id')
+          .eq('id', memberId);
+        if (!staffErr && Array.isArray(staff) && staff.length > 0) return 'admin' as Role;
         return null;
       } catch {
         return null;
@@ -174,11 +150,10 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         member = null;
       }
       let role = await resolveRole(client, supaUser.id);
-      // Fallback to user_metadata only if DB has no entry (null) — covers fresh DB with no tables yet
+      // No staff identity: member-tier session. user_metadata is
+      // client-writable and must never confer privilege.
       if (role === null) {
-        const meta = supaUser.user_metadata['role'];
-        if (typeof meta === 'string' && normalizeRole(meta) === 'admin') role = 'admin';
-        else role = 'user';
+        role = 'user';
       }
       return {
         id: supaUser.id,

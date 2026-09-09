@@ -137,6 +137,19 @@ describe('sale/customer row mapping', () => {
     expect(mapCustomerRow({ id: 'c', name: 'C' }).phone).toBe('—');
     expect(isValidCustomerRow({ id: 'c' })).toBe(false);
   });
+
+  it('keeps valid rows through map-then-validate (list handlers filter mapped rows)', () => {
+    const customer = mapCustomerRow({ id: 'c', memberId: 'm', name: 'C', phone: '123' });
+    expect(isValidCustomerRow(customer)).toBe(true);
+    const property = mapPropertyRow({
+      id: 'p',
+      name: 'Lot',
+      categorySlug: 'cat',
+      price: '100.00',
+      status: 'ACTIVE',
+    });
+    expect(isValidPropertyRow(property)).toBe(true);
+  });
 });
 
 describe('B5 money-list row mapping', () => {

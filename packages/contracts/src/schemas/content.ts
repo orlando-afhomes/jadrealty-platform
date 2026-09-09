@@ -36,3 +36,41 @@ export const forwardableContentSchema = z.object({
 });
 
 export type ForwardableContent = z.infer<typeof forwardableContentSchema>;
+
+/**
+ * Create marketing content — `POST /admin/content` (FR-ADM-003).
+ * The id/createdAt are server-generated; `published` defaults to true so
+ * newly created content is immediately visible to members via
+ * `GET /content/forwardable`. `share` may be omitted — the server fills
+ * server-provided share targets from the download URL.
+ */
+export const createContentItemRequestSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1).optional().or(z.literal('')),
+  kind: contentKindSchema,
+  downloadUrl: z.string().min(1),
+  share: z
+    .object({
+      messengerUrl: z.string().optional(),
+      viberUrl: z.string().optional(),
+      copyUrl: z.string().optional(),
+    })
+    .optional(),
+  published: z.boolean().optional(),
+});
+
+export type CreateContentItemRequest = z.infer<typeof createContentItemRequestSchema>;
+
+/**
+ * Signed-upload request — `POST /cms/upload/sign` (FR-ADM-003 upload step).
+ * `kind` selects the allowlist + size cap; legacy CMS image callers omit it
+ * and get the IMAGE rules (backward compatible).
+ */
+export const contentUploadSignRequestSchema = z.object({
+  name: z.string().trim().min(1),
+  type: z.string().trim().min(1),
+  size: z.number().int().nonnegative().optional(),
+  kind: contentKindSchema.optional(),
+});
+
+export type ContentUploadSignRequest = z.infer<typeof contentUploadSignRequestSchema>;

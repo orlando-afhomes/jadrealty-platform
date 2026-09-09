@@ -129,22 +129,25 @@ async function seed() {
     return error;
   };
   const roles = [
-    { slug: 'admin', name: 'Admin', description: 'Admin dashboard — Phase 1' },
-    { slug: 'user', name: 'User', description: 'User dashboard — Phase 1' },
+    { slug: 'admin', name: 'Admin', description: 'Admin dashboard — Phase 1', domain: 'staff' },
+    { slug: 'user', name: 'User', description: 'User dashboard — Phase 1', domain: 'member' },
     {
       slug: 'super_admin',
       name: 'Super Admin',
       description: 'Platform super user — full governance (BUSINESS-RULES #3)',
+      domain: 'staff',
     },
     {
       slug: 'finance',
       name: 'Finance',
       description: 'Payment verification scope (BUSINESS-RULES #3)',
+      domain: 'staff',
     },
     {
       slug: 'merchant',
       name: 'Merchant',
       description: 'Voucher redemption scope (BUSINESS-RULES #3)',
+      domain: 'staff',
     },
   ];
   let roleFailed = false;
@@ -176,7 +179,10 @@ async function seed() {
     (roleRows as unknown) = [];
   }
 
-  // Seed members — target existing quoted "Member" first (auth foundation: id, email, name, status, "isQualified")
+  // Seed members — Phase 5 staff separation: ONLY user@jad.local gets a
+  // Member row. admin@jad.local is staff-only (StaffUser, created below) and
+  // must never hold a Member row, referral code, or financial identity.
+  // Target existing quoted "Member" first (auth foundation: id, email, name, status, "isQualified")
   const memberPayloadQuoted = (id: string, email: string, firstName: string, lastName: string) => ({
     id,
     email,
@@ -195,8 +201,8 @@ async function seed() {
     gender: 'MALE',
     countryCode: 'PH',
     countryName: 'Philippines',
-    phone: email === 'admin@jad.local' ? '+639000000001' : '+639000000002',
-    referralCode: email === 'admin@jad.local' ? 'ADMIN001' : 'USER001',
+    phone: '+639000000002',
+    referralCode: 'USER001',
     status: 'APPROVED_ACTIVE',
     isQualified: true,
     isEmailVerified: true,
@@ -206,14 +212,8 @@ async function seed() {
     programId: 'prog-001',
     name: `${firstName} ${lastName}`,
   });
-  const membersQuoted = [
-    memberPayloadQuoted(adminId, 'admin@jad.local', 'Admin', 'User'),
-    memberPayloadQuoted(userId, 'user@jad.local', 'Regular', 'User'),
-  ];
-  const membersLegacy = [
-    memberPayloadLegacy(adminId, 'admin@jad.local', 'Admin', 'User'),
-    memberPayloadLegacy(userId, 'user@jad.local', 'Regular', 'User'),
-  ];
+  const membersQuoted = [memberPayloadQuoted(userId, 'user@jad.local', 'Regular', 'User')];
+  const membersLegacy = [memberPayloadLegacy(userId, 'user@jad.local', 'Regular', 'User')];
   let memberFailed = false;
   for (let i = 0; i < membersQuoted.length; i++) {
     const mQuoted = membersQuoted[i]!;
@@ -231,32 +231,50 @@ async function seed() {
     } else console.log(`Member ready: ${mQuoted.email}`);
   }
 
-  // Assign roles — prefer quoted "MemberRole" ("memberId","roleId") per migration.
-  // admin@jad.local is the platform super admin. A stale `admin` assignment
-  // from earlier seeds is intentionally left in place — the session bridge
-  // prioritizes super_admin over admin when a member holds both.
-  const assignments: { email: string; slug: string }[] = [
-    { email: 'admin@jad.local', slug: 'super_admin' },
-    { email: 'user@jad.local', slug: 'user' },
-  ];
+  // Assign roles — split by domain (Phase 5 staff separation).
+  // admin@jad.local is staff-only: StaffUser row + StaffAssignment to the
+  // super_admin role. user@jad.local stays a pure Member with the member-tier
+  // `user` link. A stale `admin` MemberRole from earlier seeds is
+  // intentionally left in place pre-retirement — resolvers prioritize
+  // super_admin, and Phase 5 removes staffer Member rows entirely.
   let memberRoleFailed = false;
-  for (const a of assignments) {
-    const mid = createdIds[a.email];
-    const rid = roleIdBySlug[a.slug];
-    if (!mid || !rid) {
-      console.error(`MemberRole ${a.email}->${a.slug} failed: missing member or role id`);
-      memberRoleFailed = true;
-      continue;
-    }
-    const payloadQuoted = { memberId: mid, roleId: rid };
-    const payloadSnake = { member_id: mid, role_id: rid };
+  const userRid = roleIdBySlug['user'];
+  if (!userId || !userRid) {
+    console.error('MemberRole user@jad.local->user failed: missing member or role id');
+    memberRoleFailed = true;
+  } else {
+    const payloadQuoted = { memberId: userId, roleId: userRid };
+    const payloadSnake = { member_id: userId, role_id: userRid };
     let err = await tryUpsert('MemberRole', payloadQuoted, '"memberId","roleId"');
     if (err) err = await tryUpsert('member_roles', payloadSnake, 'member_id,role_id');
     if (err) err = await tryUpsert('memberrole', payloadQuoted, 'memberId,roleId');
     if (err) {
-      console.error(`MemberRole ${a.email}->${a.slug} failed:`, err.message);
+      console.error('MemberRole user@jad.local->user failed:', err.message);
       memberRoleFailed = true;
-    } else console.log(`Role assigned: ${a.email} -> ${a.slug}`);
+    } else console.log('Role assigned: user@jad.local -> user');
+  }
+  const superRid = roleIdBySlug['super_admin'];
+  if (!adminId || !superRid) {
+    console.error('StaffAssignment admin@jad.local->super_admin failed: missing auth or role id');
+    memberRoleFailed = true;
+  } else {
+    const { error: staffErr } = await supabase.from('StaffUser').upsert(
+      { id: adminId, email: 'admin@jad.local', name: 'Admin User', status: 'ACTIVE' },
+      { onConflict: 'id' },
+    );
+    if (staffErr) {
+      console.error('StaffUser admin@jad.local failed:', staffErr.message);
+      memberRoleFailed = true;
+    } else {
+      console.log('Staff user ready: admin@jad.local');
+      const { error: assignErr } = await supabase
+        .from('StaffAssignment')
+        .upsert({ staffUserId: adminId, roleId: superRid }, { onConflict: 'staffUserId,roleId' });
+      if (assignErr) {
+        console.error('StaffAssignment admin@jad.local->super_admin failed:', assignErr.message);
+        memberRoleFailed = true;
+      } else console.log('Role assigned: admin@jad.local -> super_admin (staff domain)');
+    }
   }
 
   // Reference data — Phase B1 (programs, questions, config, policies).

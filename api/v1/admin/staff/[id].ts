@@ -6,7 +6,7 @@ import { appendAudit } from '../../../_lib/audit.js';
 import { getSupabaseEnv } from '../../../_lib/env.js';
 import { isLastGovernor } from '../../../_lib/governance.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
-import { listRoleRecords, listStaffEntries, memberRoleSlugs, MEMBER_SLUGS } from '../../../_lib/rbac.js';
+import { listRoleRecords, listStaffEntries } from '../../../_lib/rbac.js';
 import { methodNotAllowed, readJsonBody } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 import { staffMemberSchema } from '@jad/contracts';
@@ -81,16 +81,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error });
       return;
     }
-    const { error: memberError } = await supabase.from('Member').delete().eq('id', id);
-    if (memberError) {
-      const { error, status } = toErrorEnvelope('INTERNAL', memberError.message, 500);
+    // Safe hard delete (Phase 1 staff domain): StaffUser owns no financial
+    // history, so unlike the old Member-row delete this cannot trip ledger
+    // RESTRICTs. Assignments cascade; audit keeps its text snapshot.
+    const { error: assignmentError } = await supabase.from('StaffAssignment').delete().eq('staffUserId', id);
+    if (assignmentError) {
+      const { error, status } = toErrorEnvelope('INTERNAL', assignmentError.message, 500);
+      res.status(status).json({ error });
+      return;
+    }
+    const { error: staffError } = await supabase.from('StaffUser').delete().eq('id', id);
+    if (staffError) {
+      const { error, status } = toErrorEnvelope('INTERNAL', staffError.message, 500);
       res.status(status).json({ error });
       return;
     }
     try {
       await supabase.auth.admin.deleteUser(id);
     } catch {
-      // Auth cleanup is best-effort; the roster row is already gone.
+      // Auth cleanup is best-effort; the roster rows are already gone.
     }
     await appendAudit(supabase, {
       action: 'STAFF_DELETED',
@@ -140,17 +149,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error });
       return;
     }
-    const slugs = await memberRoleSlugs(supabase, id);
-    const { data: allRoles } = await supabase.from('Role').select('id,slug');
-    const uuidBySlug = new Map(
-      (((allRoles as { id: string; slug: string }[] | null) ?? []).map((r) => [r.slug, r.id])),
-    );
-    for (const slug of slugs) {
-      if (MEMBER_SLUGS.includes(slug)) continue;
-      const uuid = uuidBySlug.get(slug);
-      if (!uuid) continue;
-      await supabase.from('MemberRole').delete().eq('memberId', id).eq('roleId', uuid);
-    }
     const { data: newRole } = await supabase.from('Role').select('id').or(`key.eq.${input.roleId},slug.eq.${input.roleId}`).limit(1);
     const newUuid = ((newRole as { id: string }[] | null) ?? [])[0]?.id;
     if (!newUuid) {
@@ -158,9 +156,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error });
       return;
     }
+    // Exactly one staff assignment: replace, never merge (one staff role per user).
+    const { error: clearError } = await supabase.from('StaffAssignment').delete().eq('staffUserId', id);
+    if (clearError) {
+      const { error, status } = toErrorEnvelope('INTERNAL', clearError.message, 500);
+      res.status(status).json({ error });
+      return;
+    }
     const { error: linkError } = await supabase
-      .from('MemberRole')
-      .upsert({ memberId: id, roleId: newUuid }, { onConflict: '"memberId","roleId"' });
+      .from('StaffAssignment')
+      .upsert({ staffUserId: id, roleId: newUuid }, { onConflict: '"staffUserId","roleId"' });
     if (linkError) {
       const { error, status } = toErrorEnvelope('INTERNAL', linkError.message, 500);
       res.status(status).json({ error });
@@ -201,8 +206,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     const { error: statusError } = await supabase
-      .from('Member')
-      .update({ accountStatus: input.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' })
+      .from('StaffUser')
+      .update({ status: input.status })
       .eq('id', id);
     if (statusError) {
       const { error, status } = toErrorEnvelope('INTERNAL', statusError.message, 500);

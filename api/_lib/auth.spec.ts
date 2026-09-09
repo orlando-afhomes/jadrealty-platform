@@ -200,7 +200,89 @@ describe('verifyStaff', () => {
     expect('error' in result && result.error.status).toBe(403);
   });
 
-  it('preserves the metadata fallback when the DB yields no links', async () => {
+  it('resolves staff slugs from StaffAssignment links', async () => {
+    setEnv({
+      SUPABASE_URL: 'https://x.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    });
+    const seen: string[] = [];
+    const result = await verifyStaff(
+      req({ authorization: 'Bearer good' }),
+      ['super_admin', 'admin', 'finance'],
+      {
+        anonClient: {
+          auth: {
+            getUser: async () => ({
+              data: { user: { id: 'u-5', user_metadata: {} } },
+              error: null,
+            }),
+          },
+        },
+        serviceClient: {
+          from: (table: string) => ({
+            select: () => ({
+              eq: async () => {
+                seen.push(`${table}:eq`);
+                if (table === 'StaffAssignment') return { data: [{ roleId: 'r-new' }], error: null };
+                return { data: [], error: null };
+              },
+              in: async () => {
+                seen.push(`${table}:in`);
+                if (table === 'Role') return { data: [{ slug: 'finance' }], error: null };
+                return { data: [], error: null };
+              },
+            }),
+          }),
+        },
+      },
+    );
+    expect(seen[0]).toBe('StaffAssignment:eq');
+    expect(result).toEqual({ userId: 'u-5', slugs: ['finance'] });
+  });
+
+  it('ignores legacy MemberRole links (staff domain only)', async () => {
+    setEnv({
+      SUPABASE_URL: 'https://x.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    });
+    const seen: string[] = [];
+    const result = await verifyStaff(
+      req({ authorization: 'Bearer good' }),
+      ['super_admin', 'admin'],
+      {
+        anonClient: {
+          auth: {
+            getUser: async () => ({
+              data: { user: { id: 'u-6', user_metadata: {} } },
+              error: null,
+            }),
+          },
+        },
+        serviceClient: {
+          from: (table: string) => ({
+            select: () => ({
+              eq: async () => {
+                seen.push(`${table}:eq`);
+                if (table === 'StaffAssignment') return { data: [], error: null };
+                if (table === 'MemberRole') return { data: [{ roleId: 'r-old' }], error: null };
+                return { data: [], error: null };
+              },
+              in: async () => {
+                if (table === 'Role') return { data: [{ slug: 'admin' }], error: null };
+                return { data: [], error: null };
+              },
+            }),
+          }),
+        },
+      },
+    );
+    expect(seen.some((s) => s.startsWith('MemberRole'))).toBe(false);
+    expect('error' in result && result.error.status).toBe(403);
+  });
+
+  it('denies unlinked callers even when metadata claims admin (no metadata fallback)', async () => {
     setEnv({
       SUPABASE_URL: 'https://x.supabase.co',
       VITE_SUPABASE_ANON_KEY: 'anon',
@@ -222,11 +304,11 @@ describe('verifyStaff', () => {
         }),
       },
     };
-    const allowed = await verifyStaff(req({ authorization: 'Bearer good' }), ['admin'], {
+    const spoofed = await verifyStaff(req({ authorization: 'Bearer good' }), ['admin'], {
       anonClient: meta,
       serviceClient: empty,
     });
-    expect(allowed).toEqual({ userId: 'u-3', slugs: ['admin'] });
+    expect('error' in spoofed && spoofed.error.status).toBe(403);
 
     const denied = await verifyStaff(req({ authorization: 'Bearer good' }), ['admin'], {
       anonClient: {

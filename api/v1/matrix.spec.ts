@@ -24,6 +24,7 @@ import getAdminConfig from './admin/config.js';
 import patchAdminConfig from './admin/config/[key].js';
 import putPolicy from './policies/[id].js';
 import getAdminContent from './admin/content.js';
+import getAdminSession from './admin/session.js';
 import listRoles from './admin/roles.js';
 import roleById from './admin/roles/[id].js';
 import listStaff from './admin/staff.js';
@@ -193,6 +194,16 @@ const CASES: { name: string; handler: Handler; req: VercelRequest }[] = [
   {
     name: 'GET /admin/content',
     handler: getAdminContent,
+    req: { method: 'GET', query: {}, headers: {} },
+  },
+  {
+    name: 'POST /admin/content',
+    handler: getAdminContent,
+    req: { method: 'POST', query: {}, headers: {}, body: {} },
+  },
+  {
+    name: 'GET /admin/session',
+    handler: getAdminSession,
     req: { method: 'GET', query: {}, headers: {} },
   },
   { name: 'GET /admin/roles', handler: listRoles, req: { method: 'GET', query: {}, headers: {} } },

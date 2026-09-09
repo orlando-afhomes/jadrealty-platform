@@ -18,6 +18,7 @@ function mapRow(row: Record<string, unknown>) {
     name: row.name,
     permissions: Array.isArray(row.permissions) ? row.permissions : [],
     isSystem: row.is_system === true,
+    domain: row.domain === 'member' ? 'member' : 'staff',
   };
 }
 
@@ -44,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!supabase) return;
 
   if (req.method === 'GET') {
-    const { data, error } = await supabase.from('Role').select('key,slug,name,permissions,is_system').order('name');
+    const { data, error } = await supabase.from('Role').select('key,slug,name,permissions,is_system,domain').order('name');
     if (error) {
       const { error: env, status } = toErrorEnvelope('INTERNAL', error.message, 500);
       res.status(status).json({ error: env });
@@ -97,8 +98,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const { data: created, error } = await supabase
     .from('Role')
-    .insert({ key, slug: key, name, permissions, is_system: false })
-    .select('key,slug,name,permissions,is_system')
+    .insert({ key, slug: key, name, permissions, is_system: false, domain: 'staff' })
+    .select('key,slug,name,permissions,is_system,domain')
     .single();
   if (error || !created) {
     const { error: env, status } = toErrorEnvelope('INTERNAL', error?.message ?? 'Create failed', 500);

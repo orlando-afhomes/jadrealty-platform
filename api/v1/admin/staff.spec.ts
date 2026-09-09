@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => {
   const calls: { table: string; op: string; arg?: unknown }[] = [];
   const script = {
     roleSlug: 'super_admin',
-    dupeMembers: [] as unknown[],
+    dupeStaff: [] as unknown[],
+    dupeMemberRows: [] as unknown[],
     createError: null as { message: string; code?: string } | null,
     listedUsers: [] as { id: string; email?: string }[],
   };
@@ -23,7 +24,8 @@ const mocks = vi.hoisted(() => {
     b.eq = () => b;
     b.or = () => b;
     b.limit = async () => {
-      if (table === 'Member') return { data: script.dupeMembers, error: null };
+      if (table === 'StaffUser') return { data: script.dupeStaff, error: null };
+      if (table === 'Member') return { data: script.dupeMemberRows, error: null };
       if (table === 'Role') return { data: [{ id: 'role-uuid-admin' }], error: null };
       return { data: [], error: null };
     };
@@ -32,11 +34,15 @@ const mocks = vi.hoisted(() => {
       return { data: [], error: null };
     };
     b.maybeSingle = async () => {
-      if (table === 'MemberRole') return { data: [{ roleId: 'r-1' }], error: null };
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        return { data: [{ roleId: 'r-1' }], error: null };
+      }
       return { data: null, error: null };
     };
     b.then = (resolve: (v: unknown) => void) => {
-      if (table === 'MemberRole') resolve({ data: [{ roleId: 'r-1' }], error: null });
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        resolve({ data: [{ roleId: 'r-1' }], error: null });
+      }
       else if (table === 'Role')
         resolve({
           data: [
@@ -129,7 +135,8 @@ describe('POST /admin/staff', () => {
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
     mocks.calls.length = 0;
-    mocks.script.dupeMembers = [];
+    mocks.script.dupeStaff = [];
+    mocks.script.dupeMemberRows = [];
     mocks.script.createError = null;
     mocks.script.listedUsers = [];
   });
@@ -146,9 +153,26 @@ describe('POST /admin/staff', () => {
     );
     expect(seen.status).toBe(201);
     expect(seen.body).toMatchObject({ id: 'orphan-uuid', email: 'ada@example.com' });
-    const upsert = mocks.calls.find((c) => c.table === 'Member' && c.op === 'upsert')
+    const upsert = mocks.calls.find((c) => c.table === 'StaffUser' && c.op === 'upsert')
       ?.arg as Record<string, unknown>;
     expect(upsert.id).toBe('orphan-uuid');
+    const link = mocks.calls.find((c) => c.table === 'StaffAssignment' && c.op === 'upsert')
+      ?.arg as Record<string, unknown>;
+    expect(link).toMatchObject({ staffUserId: 'orphan-uuid', roleId: 'role-uuid-admin' });
+    expect(mocks.calls.some((c) => c.table === 'Member')).toBe(false);
+  });
+
+  it('rejects a staff email that belongs to a member account', async () => {
+    mocks.script.dupeMemberRows = [{ id: 'mem-1' }];
+    const { res, seen } = capture();
+    await createStaff(
+      { method: 'POST', query: {}, headers: authed, body: BODY } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(409);
+    expect(seen.body).toMatchObject({
+      error: { code: 'CONFLICT' },
+    });
   });
 
   it('still surfaces non-conflict auth errors as INTERNAL', async () => {

@@ -33,6 +33,7 @@ export type { Role } from './schemas/role.js';
 export {
   staffRoleSchema,
   staffModuleSchema,
+  staffDomainSchema,
   STAFF_ROLE_LABEL,
   STAFF_MODULE_LABEL,
   STAFF_PERMISSIONS,
@@ -44,14 +45,21 @@ export {
   resolveRoleModules,
   roleNameFor,
   staffStatusSchema,
+  staffUserSchema,
+  staffAssignmentSchema,
+  staffSessionSchema,
   staffMemberSchema,
   auditLogEntrySchema,
 } from './schemas/staff-role.js';
 export type {
   StaffRole,
   StaffModule,
+  StaffDomain,
   RoleRecord,
   StaffStatus,
+  StaffUser,
+  StaffAssignment,
+  StaffSession,
   StaffMember,
   AuditLogEntry,
 } from './schemas/staff-role.js';
@@ -188,8 +196,18 @@ export type {
 } from './schemas/voucher.js';
 export { adjustmentEntryTypeSchema, adjustmentSchema } from './schemas/adjustment.js';
 export type { AdjustmentEntryType, Adjustment } from './schemas/adjustment.js';
-export { contentKindSchema, forwardableContentSchema } from './schemas/content.js';
-export type { ContentKind, ForwardableContent } from './schemas/content.js';
+export {
+  contentKindSchema,
+  forwardableContentSchema,
+  createContentItemRequestSchema,
+  contentUploadSignRequestSchema,
+} from './schemas/content.js';
+export type {
+  ContentKind,
+  ForwardableContent,
+  CreateContentItemRequest,
+  ContentUploadSignRequest,
+} from './schemas/content.js';
 export {
   cmsCtaLinkSchema,
   cmsPhotoSchema,

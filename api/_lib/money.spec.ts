@@ -128,6 +128,20 @@ describe('money row mapping', () => {
     expect(isValidWithdrawalRow(row)).toBe(true);
   });
 
+  it('keeps valid rows through map-then-validate (list handlers filter mapped rows)', () => {
+    const mapped = mapWithdrawalRow({
+      id: 'wdr-001',
+      payoutAccountId: 'pa-001',
+      accountMethod: 'TRADITIONAL_BANK',
+      accountName: 'Juan Dela Cruz',
+      accountIdentifierMasked: '•••• 7890',
+      amount: '50000.00',
+      status: 'COMPLETED',
+      createdAt: '2026-08-01T00:00:00.000Z',
+    });
+    expect(isValidWithdrawalRow(mapped)).toBe(true);
+  });
+
   it('injects live identifiers and degrades to masked when missing', () => {
     const rows = [
       { id: 'wdr-001', payoutAccountId: 'pa-001', accountIdentifierMasked: '•••• 0199' },

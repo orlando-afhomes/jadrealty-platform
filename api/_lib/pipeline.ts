@@ -208,8 +208,10 @@ export function isValidRegistrationRow(row: Record<string, unknown>): boolean {
 export function mapCustomerRow(row: Record<string, unknown>) {
   return {
     id: row.id,
-    sellerId: row.memberId,
-    fullName: row.name,
+    // Idempotent: accept already-mapped keys so validate-after-map in list
+    // handlers never drops valid rows on the second pass.
+    sellerId: row.memberId ?? row.sellerId,
+    fullName: row.name ?? row.fullName,
     // Phone is contract-required: fall back to an explicit placeholder so a
     // missing number never drops the row from admin lists.
     phone: row.phone ?? '—',
@@ -256,7 +258,8 @@ export function mapPropertyRow(row: Record<string, unknown>) {
   return {
     id: row.id,
     name: row.name,
-    categoryId: row.categorySlug,
+    // Idempotent: accept the already-mapped key (see mapCustomerRow).
+    categoryId: row.categorySlug ?? row.categoryId,
     price: row.price ?? undefined,
     status: row.status,
   };

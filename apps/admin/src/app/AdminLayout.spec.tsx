@@ -40,6 +40,30 @@ describe('AdminLayout', () => {
     expect(screen.queryByRole('button', { name: 'Members' })).not.toBeInTheDocument();
   });
 
+  it('shows an unresolved-role notice instead of a silently empty sidebar', async () => {
+    // Staff role present but roleId unresolvable (missing MemberRole link or
+    // failed role lookup): deny by default, but fail loud.
+    renderWithProviders(<AdminLayout />, {
+      user: { ...MOCK_SUPER_ADMIN, roleId: null },
+    });
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText('Navigation unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Reload' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no notice when navigation resolves or the user is not staff', async () => {
+    const healthy = renderWithProviders(<AdminLayout />, { user: MOCK_SUPER_ADMIN });
+    expect(await screen.findByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    healthy.unmount();
+
+    renderWithProviders(<AdminLayout />, { user: MOCK_MEMBER });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('keeps drawer open when toggling a category and closes on child link', async () => {
     mockMatchMedia(false);
     const user = userEvent.setup();

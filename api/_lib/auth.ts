@@ -148,55 +148,49 @@ export async function verifyUser(
   return { userId: authedUser.id };
 }
 
-const LINK_TABLES = ['MemberRole', 'member_roles', 'memberrole'] as const;
-const ROLE_TABLES = ['Role', 'roles', 'role'] as const;
-
-async function queryRoleSlugs(
-  svc: { from: (table: string) => unknown },
-  userId: string,
-): Promise<string[]> {
-  const from = svc.from.bind(svc) as (table: string) => {
+type SlugQueryClient = {
+  from: (table: string) => {
     select: (cols: string) => {
       eq: (k: string, v: string) => Promise<{ data: unknown[] | null; error: unknown }>;
       in: (k: string, v: string[]) => Promise<{ data: unknown[] | null; error: unknown }>;
     };
   };
-  for (const linkTable of LINK_TABLES) {
-    let roleIds: string[] = [];
-    try {
-      const { data: rows, error } = await from(linkTable).select('roleId').eq('memberId', userId);
-      if (!error && Array.isArray(rows)) {
-        roleIds = (rows as Record<string, string>[])
-          .map((r) => r.roleId ?? r.role_id ?? '')
-          .filter(Boolean);
-      }
-    } catch {
-      continue;
-    }
-    if (roleIds.length === 0) continue;
-    for (const roleTable of ROLE_TABLES) {
-      try {
-        const { data: roles, error } = await from(roleTable).select('slug').in('id', roleIds);
-        if (!error && Array.isArray(roles) && roles.length > 0) {
-          return (roles as { slug: string }[]).map((r) => r.slug);
-        }
-      } catch {
-        continue;
-      }
-    }
-    // Links exist but slugs unreadable — fall through to next link table.
+};
+
+/**
+ * Staff-domain role slugs: StaffAssignment (keyed by auth user id) → Role.
+ * Preferred source (Phase 1 staff separation); empty when the caller holds
+ * no staff assignment. Never throws — callers fall back to legacy links.
+ */
+export async function queryStaffSlugs(
+  svc: { from: (table: string) => unknown },
+  userId: string,
+): Promise<string[]> {
+  try {
+    const from = (svc.from.bind(svc) as SlugQueryClient['from']);
+    const { data: rows, error } = await from('StaffAssignment').select('roleId').eq('staffUserId', userId);
+    if (error || !Array.isArray(rows)) return [];
+    const roleIds = (rows as Record<string, string>[])
+      .map((r) => r.roleId ?? r.role_id ?? '')
+      .filter(Boolean);
+    if (roleIds.length === 0) return [];
+    const { data: roles, error: roleErr } = await from('Role').select('slug').in('id', roleIds);
+    if (roleErr || !Array.isArray(roles)) return [];
+    return (roles as { slug?: unknown }[])
+      .map((r) => r.slug)
+      .filter((s): s is string => typeof s === 'string' && s.length > 0);
+  } catch {
+    return [];
   }
-  return [];
 }
 
 /**
  * Staff gate for admin Functions: validates the caller JWT, resolves
- * MemberRole → Role slugs via service_role, and requires a slug match
- * against `allowed` (e.g. `['super_admin', 'admin']`).
- *
- * Legacy compat, preserved from the CMS handlers: when the DB yields no
- * links at all, an explicit `user_metadata.role = admin` still passes.
- * Returns the resolved slugs so callers can audit with the actor role.
+ * StaffAssignment → Role slugs via service_role, and requires a slug match
+ * against `allowed` (e.g. `['super_admin', 'admin']`). Member tables are
+ * never consulted (Phase 5 staff separation). No metadata fallback:
+ * `user_metadata` is client-writable, so an unlinked caller is always
+ * denied. Returns the resolved slugs so callers can audit with the actor role.
  */
 export async function verifyStaff(
   req: VercelRequest,
@@ -223,14 +217,10 @@ export async function verifyStaff(
   }
   const svc =
     deps?.serviceClient ?? createClient(url, serviceKey, { auth: { autoRefreshToken: false } });
-  const slugs = await queryRoleSlugs(svc, authedUser.id);
+  const slugs = await queryStaffSlugs(svc, authedUser.id);
   if (slugs.length > 0) {
     if (slugsAllowed(slugs, allowed)) return { userId: authedUser.id, slugs };
     return { error: toErrorEnvelope('FORBIDDEN', 'Insufficient role', 403) };
-  }
-  const metaRole = authedUser.user_metadata?.role;
-  if (typeof metaRole === 'string' && slugsAllowed([metaRole], allowed)) {
-    return { userId: authedUser.id, slugs: [metaRole] };
   }
   return { error: toErrorEnvelope('FORBIDDEN', 'Admin access required', 403) };
 }

@@ -1,6 +1,7 @@
-import type { AdminQueues } from '@jad/contracts';
+import type { AdminQueues, ContentKind } from '@jad/contracts';
 import { CMS_PROPERTIES_SEED, STAFF_MODULE_LABEL, roleNameFor } from '@jad/contracts';
 import type { MockRequestContext, MockRoute } from '@jad/mock';
+import { contentStore, createStoreContent } from './contentMockStore';
 
 import {
   MOCK_SALES,
@@ -9,7 +10,6 @@ import {
   MOCK_VOUCHERS,
   MOCK_VOUCHER_ASSIGNMENTS,
   MOCK_PROPERTIES,
-  MOCK_CONTENT,
   MOCK_ADJUSTMENTS,
   MOCK_CONFIG,
   MOCK_AUDIT,
@@ -242,13 +242,34 @@ export const adminMockHandlers: MockRoute[] = [
   },
   {
     path: '/admin/content',
-    response: {
-      data: MOCK_CONTENT,
-      meta: {
-        page: 1,
-        pageSize: 10,
-        total: MOCK_CONTENT.length,
-      },
+    method: 'POST',
+    handler: (ctx: MockRequestContext) => {
+      const input = (ctx.body ?? {}) as Record<string, unknown>;
+      try {
+        const item = createStoreContent({
+          title: String(input.title ?? ''),
+          description: typeof input.description === 'string' ? input.description : undefined,
+          kind: (input.kind ?? 'DOCUMENT') as ContentKind,
+          downloadUrl: String(input.downloadUrl ?? ''),
+        });
+        return { body: item, status: 201 };
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  },
+  {
+    path: '/admin/content',
+    response: () => {
+      const data = contentStore.items;
+      return {
+        data,
+        meta: {
+          page: 1,
+          pageSize: 10,
+          total: data.length,
+        },
+      };
     },
   },
   {

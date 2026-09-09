@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import {
   Button,
@@ -18,11 +18,13 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@jad/ui';
-import type { ContentKind, ForwardableContent } from '@jad/contracts';
+import type { ContentKind } from '@jad/contracts';
 
+import { env } from '../../../lib/env';
 import { formatDate } from '../../../lib/format';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { useContent } from '../hooks/useContent';
+import { useCreateContent } from '../hooks/useCreateContent';
 import { CONTENT_KIND_LABEL, CONTENT_KIND_TONE } from '../status';
 import styles from './ContentPage.module.css';
 
@@ -65,6 +67,47 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Build a specific message for a failed direct-to-Storage PUT. Supabase
+ * answers with a JSON `{message}` (e.g. bucket MIME/size rejections) — pass
+ * it through so a bucket misconfiguration is diagnosable instead of a dead
+ * end; fall back to raw text, then the generic message.
+ */
+async function putErrorMessage(fileName: string, putRes: Response): Promise<string> {
+  const fallback = `"${fileName}" failed to upload. Remove and try again.`;
+  try {
+    const text = await putRes.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text) as { message?: unknown; error?: unknown };
+      const detail =
+        (typeof parsed.message === 'string' && parsed.message) ||
+        (typeof parsed.error === 'string' && parsed.error) ||
+        '';
+      return detail ? `"${fileName}": storage rejected the upload (${detail.slice(0, 200)})` : fallback;
+    } catch {
+      return text ? `"${fileName}": storage rejected the upload (${text.slice(0, 200)})` : fallback;
+    }
+  } catch {
+    return fallback;
+  }
+}
+
+/** Mirror the input `accept` filter so mismatched drops get an explicit error. */
+function matchesAccept(file: File, accept: string): boolean {
+  const tokens = accept
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  const mime = file.type.toLowerCase();
+  const ext = file.name.toLowerCase().split('.').pop() ?? '';
+  return tokens.some((token) => {
+    if (token.startsWith('.')) return `.${ext}` === token;
+    if (token.endsWith('/*')) return mime.startsWith(token.slice(0, -1));
+    return mime === token;
+  });
+}
+
 function TableSkeleton() {
   return (
     <Table>
@@ -93,11 +136,11 @@ function TableSkeleton() {
 /** Admin Marketing Tools — CRUD list for forwardable content (FR-ADM-003, BR-MKT-002). */
 export function ContentPage() {
   const { data, isPending, isError, error, refetch } = useContent();
+  const createContent = useCreateContent();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<ContentFilter>('ALL');
   const [showCreate, setShowCreate] = useState(false);
-  const [localItems, setLocalItems] = useState<ForwardableContent[]>([]);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -106,12 +149,10 @@ export function ContentPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [fileErrors, setFileErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [activeFile, setActiveFile] = useState<{ name: string; phase: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const allItems = useMemo(
-    () => [...(data ?? []), ...localItems],
-    [data, localItems],
-  );
+  const allItems = useMemo(() => [...(data ?? [])], [data]);
 
   const filtered = useMemo(() => {
     if (filter === 'ALL') return allItems;
@@ -136,11 +177,17 @@ export function ContentPage() {
     if (selected.length === 0) return;
 
     const maxSize = KIND_MAX_SIZE[form.kind];
+    const accept = KIND_ACCEPT[form.kind];
     const valid: File[] = [];
     const errors: string[] = [];
 
     for (const f of selected) {
-      if (f.size > maxSize) {
+      // The file picker enforces `accept`, but drag-drop and mobile galleries
+      // can still deliver mismatched files — reject them with a clear message
+      // instead of silently ignoring the selection.
+      if (accept !== '*/*' && !matchesAccept(f, accept)) {
+        errors.push(`"${f.name}" is not a supported ${form.kind.toLowerCase()} file.`);
+      } else if (f.size > maxSize) {
         errors.push(`"${f.name}" must be ${formatBytes(maxSize)} or less.`);
       } else {
         valid.push(f);
@@ -163,9 +210,12 @@ export function ContentPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const uploadFile = async (selectedFile: File): Promise<string | null> => {
+  const uploadFile = async (
+    selectedFile: File,
+    kind: ContentKind,
+  ): Promise<{ downloadUrl: string } | { error: string }> => {
     const supabase = getSupabaseClient();
-    if (!supabase) return null;
+    if (!supabase) return { error: 'Upload unavailable — please reload and try again.' };
 
     let token: string | undefined;
     try {
@@ -175,27 +225,53 @@ export function ContentPage() {
       /* proceed without token — sign endpoint handles missing auth */
     }
 
-    const signRes = await fetch('/api/v1/cms/upload/sign', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ name: selectedFile.name, type: selectedFile.type, size: selectedFile.size }),
-    });
+    let signRes: Response;
+    try {
+      signRes = await fetch(`${env.VITE_API_BASE_URL}/cms/upload/sign`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: selectedFile.name,
+          type: selectedFile.type,
+          size: selectedFile.size,
+          kind,
+        }),
+      });
+    } catch {
+      return { error: `"${selectedFile.name}" could not reach the upload service.` };
+    }
 
-    if (!signRes.ok) return null;
+    if (!signRes.ok) {
+      let message = `"${selectedFile.name}" was rejected for upload.`;
+      try {
+        const errJson = (await signRes.json()) as { error?: { message?: string } };
+        if (errJson?.error?.message) message = `"${selectedFile.name}": ${errJson.error.message}`;
+      } catch {
+        // keep the generic message when the body is not JSON
+      }
+      return { error: message };
+    }
 
     const signJson = (await signRes.json()) as { signedUrl: string; publicUrl: string };
-    if (!signJson.signedUrl) return null;
+    if (!signJson.signedUrl || !signJson.publicUrl) {
+      return { error: `"${selectedFile.name}" failed to upload. Remove and try again.` };
+    }
 
-    const putRes = await fetch(signJson.signedUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': selectedFile.type },
-      body: selectedFile,
-    });
+    try {
+      const putRes = await fetch(signJson.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': selectedFile.type },
+        body: selectedFile,
+      });
+      if (!putRes.ok) return { error: await putErrorMessage(selectedFile.name, putRes) };
+    } catch {
+      return { error: `"${selectedFile.name}" failed to upload. Remove and try again.` };
+    }
 
-    return putRes.ok ? signJson.publicUrl : null;
+    return { downloadUrl: signJson.publicUrl };
   };
 
   const handleCreate = async () => {
@@ -203,37 +279,46 @@ export function ContentPage() {
     setSaving(true);
     setFileErrors([]);
 
-    const newItems: ForwardableContent[] = [];
     const failed: string[] = [];
+    let created = 0;
 
     for (const file of files) {
-      const downloadUrl = await uploadFile(file);
-      if (!downloadUrl) {
-        failed.push(file.name);
+      setActiveFile({ name: file.name, phase: 'Uploading' });
+      const uploaded = await uploadFile(file, form.kind);
+      if ('error' in uploaded) {
+        failed.push(uploaded.error);
         continue;
       }
-      newItems.push({
-        id: `cnt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: form.title,
-        description: form.description || undefined,
-        kind: form.kind,
-        downloadUrl,
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    if (failed.length > 0) {
-      setFileErrors(failed.map((n) => `"${n}" failed to upload. Remove and try again.`));
-      if (newItems.length === 0) {
-        setSaving(false);
-        return;
+      setActiveFile({ name: file.name, phase: 'Publishing' });
+      try {
+        await createContent.mutateAsync({
+          title: form.title.trim(),
+          ...(form.description.trim() && { description: form.description.trim() }),
+          kind: form.kind,
+          downloadUrl: uploaded.downloadUrl,
+        });
+        created += 1;
+      } catch {
+        failed.push(`"${file.name}" failed to publish. Remove and try again.`);
       }
     }
 
-    setLocalItems((prev) => [...newItems, ...prev]);
+    setActiveFile(null);
+    if (failed.length > 0) {
+      setFileErrors(failed);
+    }
+    if (created === 0) {
+      setSaving(false);
+      return;
+    }
+
     setForm({ title: '', description: '', kind: 'DOCUMENT' });
     setFiles([]);
-    setFileErrors([]);
+    if (failed.length === 0) setFileErrors([]);
+    // New items sort newest-first, so return to page 1 with no kind filter —
+    // otherwise a stale page/filter keeps the just-published item out of view.
+    setPage(1);
+    setFilter('ALL');
     setSaving(false);
     setShowCreate(false);
   };
@@ -296,10 +381,23 @@ export function ContentPage() {
                   <TableRow
                     key={row.id}
                     className={styles.row}
+                    tabIndex={0}
                     onClick={() => navigate(`/admin/marketing-tools/${row.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      if ((e.target as HTMLElement).closest('a')) return;
+                      e.preventDefault();
+                      navigate(`/admin/marketing-tools/${row.id}`);
+                    }}
                   >
                     <TableCell label="Title">
-                      <span className={styles.title}>{row.title}</span>
+                      <Link
+                        to={`/admin/marketing-tools/${row.id}`}
+                        className={styles.titleLink}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {row.title}
+                      </Link>
                     </TableCell>
                     <TableCell label="Kind">
                       <StatusChip
@@ -337,6 +435,7 @@ export function ContentPage() {
           setForm({ title: '', description: '', kind: 'DOCUMENT' });
           setFiles([]);
           setFileErrors([]);
+          setActiveFile(null);
         }}
         title="New Marketing Tool"
         footer={
@@ -403,11 +502,14 @@ export function ContentPage() {
               />
             </label>
             {files.length > 0 && (
-              <ul className={styles.fileList}>
+              <ul className={styles.fileList} aria-live="polite">
                 {files.map((f, i) => (
                   <li key={`${f.name}-${i}`} className={styles.fileItem}>
                     <span className={styles.fileItemName}>{f.name}</span>
                     <span className={styles.fileItemSize}>{formatBytes(f.size)}</span>
+                    {saving && activeFile?.name === f.name && (
+                      <span className={styles.fileItemStatus}>{activeFile.phase}…</span>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleRemoveFile(i)}

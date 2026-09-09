@@ -14,7 +14,7 @@ pnpm + Turborepo monorepo for the JAD realty platform. Stack per **Q1 2026-08-30
 
 ## Database invariants (post Phase 1–4 remediation)
 
-- **No hard member deletion.** Members own financial history (`Wallet`, `LedgerEntry`, `Commission`, `Sale`, `Customer`) held by `ON DELETE RESTRICT` FKs; the sanctioned lifecycle is Archive (`POST /admin/members/:id/archive`). Never add a hard-delete path.
+- **No hard member deletion.** Members own financial history (`Wallet`, `LedgerEntry`, `Commission`, `Sale`, `Customer`) held by `ON DELETE RESTRICT` FKs; the sanctioned lifecycle is Archive (`POST /admin/members/:id/archive`). Never add a hard-delete path for members. `StaffUser` is the exception: it owns no financial history, so `DELETE /admin/staff/:id` (self-delete and last-governor guarded) is the sanctioned staff lifecycle. Staff and member identities are strictly separate (`StaffUser` + `StaffAssignment` vs `Member` + `MemberRole`); no human holds both profiles.
 - **Authenticated users have SELECT-only RLS on `Member`/`MemberRole` and NO table privileges to write them** — all member writes go through service-role API handlers or SECURITY DEFINER functions. `Role` reads are restricted to `slug`/`name`. Before adding any anon/authenticated policy, confirm it is SELECT-only.
 - **Money transitions are atomic DB functions** (`withdraw_reserve`, `withdrawal_complete`, `withdrawal_reject`) — single transaction, wallet row-locked, ledger + wallet + audit in one unit; EXECUTE restricted to `service_role`. Never re-implement money state changes as sequential API writes.
 - **Money is exact-decimal text** (`CHECK` format regex on every money/rate column); statuses are DB-enforced `CHECK`s mirroring `@jad/contracts`. Keep wire formats unchanged.

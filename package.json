@@ -14,7 +14,9 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "format": "prettier --write .",
-    "seed": "tsx supabase/seed.ts"
+    "seed": "tsx supabase/seed.ts",
+    "reset:dev": "tsx supabase/reset-dev.ts",
+    "backfill:staff": "tsx supabase/backfill-staff-domain.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.112.4",

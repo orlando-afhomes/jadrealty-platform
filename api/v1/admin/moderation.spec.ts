@@ -53,7 +53,9 @@ const mocks = vi.hoisted(() => {
       return { data: [], error: null };
     };
     b.maybeSingle = async () => {
-      if (table === 'MemberRole') return { data: [{ roleId: 'r-1' }], error: null };
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        return { data: [{ roleId: 'r-1' }], error: null };
+      }
       // First Registration read sees the current row; later reads (after the
       // status update) see the updated row — mirrors read-your-write.
       if (table === 'Registration') {
@@ -71,8 +73,9 @@ const mocks = vi.hoisted(() => {
     // Bare awaited chains resolve link rows for auth, sponsor scans for
     // approval linkage, and null otherwise.
     b.then = (resolve: (v: unknown) => void) => {
-      if (table === 'MemberRole') resolve({ data: [{ roleId: 'r-1' }], error: null });
-      else if (table === 'Member') resolve({ data: script.memberList ?? null, error: null });
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        resolve({ data: [{ roleId: 'r-1' }], error: null });
+      } else if (table === 'Member') resolve({ data: script.memberList ?? null, error: null });
       else resolve({ data: null, error: null });
     };
     return {

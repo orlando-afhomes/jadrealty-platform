@@ -30,7 +30,9 @@ const mocks = vi.hoisted(() => {
       return { data: [], error: null };
     };
     b.maybeSingle = async () => {
-      if (table === 'MemberRole') return { data: [{ roleId: 'r-1' }], error: null };
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        return { data: [{ roleId: 'r-1' }], error: null };
+      }
       if (table === 'Role')
         return script.qualifiedRoleId
           ? { data: { id: script.qualifiedRoleId, slug: 'member_qualified' }, error: null }
@@ -40,8 +42,9 @@ const mocks = vi.hoisted(() => {
     };
     b.single = async () => ({ data: script.updatedMember, error: null });
     b.then = (resolve: (v: unknown) => void) => {
-      if (table === 'MemberRole') resolve({ data: [{ roleId: 'r-1' }], error: null });
-      else resolve({ data: null, error: null });
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        resolve({ data: [{ roleId: 'r-1' }], error: null });
+      } else resolve({ data: null, error: null });
     };
     return {
       ...b,

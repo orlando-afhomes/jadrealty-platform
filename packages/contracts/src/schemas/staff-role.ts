@@ -111,19 +111,67 @@ export function canStaffAccess(staffRole: StaffRole | null, module: StaffModule)
  * from `STAFF_PERMISSIONS` and carry the SSOT guarantees; custom roles
  * (`role-<slug>` ids) are administrator-defined and always audited.
  */
+/**
+ * Role catalog domain (Phase 1 staff separation): staff slugs
+ * (`super_admin/admin/finance/merchant`) vs member-tier slugs. Optional so
+ * pre-split fixtures still validate; writers always set it.
+ */
+export const staffDomainSchema = z.enum(['member', 'staff']);
+
+export type StaffDomain = z.infer<typeof staffDomainSchema>;
+
 export const roleRecordSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(60),
   permissions: z.array(staffModuleSchema).min(1),
   isSystem: z.boolean(),
+  domain: staffDomainSchema.optional(),
 });
 
 export type RoleRecord = z.infer<typeof roleRecordSchema>;
 
-/** Staff access standing — mirrors the mock roster; stored on Member.accountStatus. */
+/** Staff access standing — stored on StaffUser.status (Phase 1 staff domain). */
 export const staffStatusSchema = z.enum(['ACTIVE', 'DISABLED']);
 
 export type StaffStatus = z.infer<typeof staffStatusSchema>;
+
+/**
+ * Staff identity — internal user profile, separate from Member (Phase 1
+ * staff separation). Keyed by the auth user id; owns no financial,
+ * genealogy, or member data by construction.
+ */
+export const staffUserSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email(),
+  name: z.string().min(1),
+  status: staffStatusSchema,
+  createdAt: z.string(),
+});
+
+export type StaffUser = z.infer<typeof staffUserSchema>;
+
+/** Staff role assignment — replaces MemberRole for staff users. */
+export const staffAssignmentSchema = z.object({
+  staffUserId: z.string().min(1),
+  roleId: z.string().min(1),
+  assignedAt: z.string(),
+});
+
+export type StaffAssignment = z.infer<typeof staffAssignmentSchema>;
+
+/**
+ * Staff session — `GET /admin/session` (Phase 6). Server-resolved via
+ * service_role so admin clients never read Role tables with the anon key.
+ */
+export const staffSessionSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email(),
+  name: z.string().min(1),
+  status: staffStatusSchema,
+  slugs: z.array(z.string().min(1)),
+});
+
+export type StaffSession = z.infer<typeof staffSessionSchema>;
 
 /**
  * Staff directory entry — a Member holding exactly one role.
@@ -167,6 +215,7 @@ export function systemRoleRecords(): RoleRecord[] {
     name: STAFF_ROLE_LABEL[id],
     permissions: [...STAFF_PERMISSIONS[id]],
     isSystem: true,
+    domain: 'staff' as const,
   }));
 }
 

@@ -95,11 +95,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  const { data: dupe } = await supabase.from('Member').select('id').eq('email', email).limit(1);
-  if (Array.isArray(dupe) && dupe.length > 0) {
+  const { data: dupeStaff } = await supabase.from('StaffUser').select('id').eq('email', email).limit(1);
+  if (Array.isArray(dupeStaff) && dupeStaff.length > 0) {
     const { error, status } = toErrorEnvelope(
       'CONFLICT',
       'A staff member with this email already exists.',
+      409,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  // Strict separation: a staff email must not collide with a member account.
+  const { data: dupeMember } = await supabase.from('Member').select('id').eq('email', email).limit(1);
+  if (Array.isArray(dupeMember) && dupeMember.length > 0) {
+    const { error, status } = toErrorEnvelope(
+      'CONFLICT',
+      'This email belongs to a member account and cannot be used for staff.',
       409,
     );
     res.status(status).json({ error });
@@ -126,24 +137,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  const [firstName, ...rest] = name.split(' ');
   const now = new Date().toISOString();
-  const { error: memberError } = await supabase.from('Member').upsert(
+  const { error: staffError } = await supabase.from('StaffUser').upsert(
     {
       id: authId,
       email,
       name,
-      status: 'APPROVED_ACTIVE',
-      isQualified: false,
-      firstName,
-      lastName: rest.join(' ') || firstName,
-      accountStatus: 'ACTIVE',
-      createdAt: now,
+      status: 'ACTIVE',
     },
     { onConflict: 'id' },
   );
-  if (memberError) {
-    const { error, status } = toErrorEnvelope('INTERNAL', memberError.message, 500);
+  if (staffError) {
+    const { error, status } = toErrorEnvelope('INTERNAL', staffError.message, 500);
     res.status(status).json({ error });
     return;
   }
@@ -159,8 +164,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
   const { error: linkError } = await supabase
-    .from('MemberRole')
-    .upsert({ memberId: authId, roleId: roleUuid }, { onConflict: '"memberId","roleId"' });
+    .from('StaffAssignment')
+    .upsert({ staffUserId: authId, roleId: roleUuid }, { onConflict: '"staffUserId","roleId"' });
   if (linkError) {
     const { error, status } = toErrorEnvelope('INTERNAL', linkError.message, 500);
     res.status(status).json({ error });

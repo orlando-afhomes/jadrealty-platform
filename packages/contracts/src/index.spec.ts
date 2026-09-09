@@ -8,11 +8,14 @@ import {
   policySchema,
   staffRoleSchema,
   staffModuleSchema,
+  staffDomainSchema,
   STAFF_ROLE_LABEL,
   STAFF_PERMISSIONS,
   canStaffAccess,
   roleRecordSchema,
   systemRoleRecords,
+  staffUserSchema,
+  staffAssignmentSchema,
   slugifyRoleName,
   isRoleNameUnique,
   resolveRoleModules,
@@ -209,6 +212,53 @@ describe('roleRecordSchema', () => {
   });
 });
 
+describe('staffUserSchema', () => {
+  it('accepts a staff identity keyed by auth id', () => {
+    expect(
+      staffUserSchema.safeParse({
+        id: 'd800d2e2-203b-4c42-aa9f-89419ba60e91',
+        email: 'admin@jad.local',
+        name: 'Admin User',
+        status: 'ACTIVE',
+        createdAt: '2026-09-08T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects bad emails and statuses', () => {
+    expect(
+      staffUserSchema.safeParse({
+        id: 'x',
+        email: 'nope',
+        name: 'X',
+        status: 'ACTIVE',
+        createdAt: '2026-09-08T00:00:00.000Z',
+      }).success,
+    ).toBe(false);
+    expect(
+      staffUserSchema.safeParse({
+        id: 'x',
+        email: 'a@b.com',
+        name: 'X',
+        status: 'SUSPENDED',
+        createdAt: '2026-09-08T00:00:00.000Z',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('staffAssignmentSchema', () => {
+  it('accepts a staff assignment link', () => {
+    expect(
+      staffAssignmentSchema.safeParse({
+        staffUserId: 'd800d2e2-203b-4c42-aa9f-89419ba60e91',
+        roleId: 'role-uuid-admin',
+        assignedAt: '2026-09-08T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
+  });
+});
+
 describe('staffMemberSchema', () => {
   it('accepts a roster-shaped staff member', () => {
     expect(
@@ -284,7 +334,37 @@ describe('systemRoleRecords seed parity', () => {
       expect(seed.isSystem).toBe(true);
       expect(seed.name).toBe(STAFF_ROLE_LABEL[seed.id as StaffRole]);
       expect([...seed.permissions].sort()).toEqual([...STAFF_PERMISSIONS[seed.id as StaffRole]].sort());
+      expect(seed.domain).toBe('staff');
     }
+  });
+});
+
+describe('staffDomainSchema', () => {
+  it('accepts member and staff only', () => {
+    expect(staffDomainSchema.safeParse('staff').success).toBe(true);
+    expect(staffDomainSchema.safeParse('member').success).toBe(true);
+    expect(staffDomainSchema.safeParse('other').success).toBe(false);
+  });
+
+  it('role records carry an optional domain', () => {
+    expect(
+      roleRecordSchema.safeParse({
+        id: 'admin',
+        name: 'Admin',
+        permissions: ['dashboard'],
+        isSystem: true,
+        domain: 'staff',
+      }).success,
+    ).toBe(true);
+    expect(
+      roleRecordSchema.safeParse({
+        id: 'admin',
+        name: 'Admin',
+        permissions: ['dashboard'],
+        isSystem: true,
+        domain: 'other',
+      }).success,
+    ).toBe(false);
   });
 });
 

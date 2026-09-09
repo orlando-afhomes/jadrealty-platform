@@ -26,7 +26,9 @@ const mocks = vi.hoisted(() => {
     chain.eq = () => chain;
     chain.in = async () => ({ data: [{ slug: script.roleSlug }], error: null });
     chain.maybeSingle = async () => {
-      if (table === 'MemberRole') return { data: [{ roleId: 'r-1' }], error: null };
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        return { data: [{ roleId: 'r-1' }], error: null };
+      }
       if (table === 'Sale') return { data: script.saleRow, error: null };
       return { data: null, error: null };
     };
@@ -35,8 +37,9 @@ const mocks = vi.hoisted(() => {
       return { data: null, error: null };
     };
     chain.then = (resolve: (v: unknown) => void) => {
-      if (table === 'MemberRole') resolve({ data: [{ roleId: 'r-1' }], error: null });
-      else resolve({ data: null, error: null });
+      if (table === 'MemberRole' || table === 'StaffAssignment') {
+        resolve({ data: [{ roleId: 'r-1' }], error: null });
+      } else resolve({ data: null, error: null });
     };
     return {
       ...chain,

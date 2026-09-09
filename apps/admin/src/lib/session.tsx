@@ -4,6 +4,9 @@ import type { MemberStatus, Role } from '@jad/contracts';
 import { normalizeRole } from '@jad/contracts';
 import { MockSessionProvider, setMockSessionUser, useMockSession } from '@jad/mock';
 
+import { staffSessionSchema } from '@jad/contracts';
+
+import { env } from './env';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 export type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -82,7 +85,14 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const client = getSupabaseClient() as unknown as {
       auth: {
-        getSession: () => Promise<{ data: { session: { user: { id: string; email: string; user_metadata: Record<string, unknown> } } | null } }>;
+        getSession: () => Promise<{
+          data: {
+            session: {
+              access_token?: string;
+              user: { id: string; email: string; user_metadata: Record<string, unknown> };
+            } | null;
+          };
+        }>;
         onAuthStateChange: (
           cb: (e: string, s: { user: { id: string; email: string; user_metadata: Record<string, unknown> } | null }) => void,
         ) => { data: { subscription: { unsubscribe: () => void } } };
@@ -98,43 +108,21 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     }
 
     /**
-     * Raw role slugs for a member. First table variant that yields links
-     * wins (same precedence as before: Role/MemberRole, then legacy names).
+     * Own staff session via the service-role endpoint (Phase 6 — the admin
+     * client never reads Role tables with the anon key). Returns the role
+     * slugs, or an empty array when the caller holds no staff identity.
+     * Explicit Bearer (not cookies) so it works in every storage mode.
      */
-    const resolveRoleSlugs = async (c: unknown, memberId: string): Promise<string[]> => {
+    const resolveRoleSlugs = async (accessToken: string | undefined): Promise<string[]> => {
+      if (!accessToken) return [];
       try {
-        const supa = c as {
-          from: (t: string) => {
-            select: (c: string) => {
-              eq: (k: string, v: string) => Promise<{ data: unknown[] | null; error: unknown }>;
-              in: (k: string, v: string[]) => Promise<{ data: unknown[] | null; error: unknown }>;
-            };
-          };
-        };
-        const trySlugs = async (tableRoles: string, tableLinks: string): Promise<string[] | null> => {
-          const { data: links, error: linkErr } = await supa.from(tableLinks).select('roleId').eq('memberId', memberId);
-          if (linkErr || !Array.isArray(links) || links.length === 0) return null;
-          const ids = (links as { roleId: string }[]).map((l) => l.roleId);
-          const { data: roles, error: roleErr } = await supa.from(tableRoles).select('slug,name').in('id', ids);
-          if (!roleErr && Array.isArray(roles) && roles.length > 0) {
-            return (roles as { slug: string }[]).map((r) => r.slug);
-          }
-          const collected: string[] = [];
-          for (const rid of ids) {
-            const { data: one } = await supa.from(tableRoles).select('slug,name').eq('id', rid);
-            if (Array.isArray(one)) for (const row of one as { slug: string }[]) collected.push(row.slug);
-          }
-          return collected.length > 0 ? collected : null;
-        };
-        for (const [tableRoles, tableLinks] of [
-          ['Role', 'MemberRole'],
-          ['roles', 'member_roles'],
-          ['role', 'memberrole'],
-        ] as const) {
-          const slugs = await trySlugs(tableRoles, tableLinks);
-          if (slugs !== null) return slugs;
-        }
-        return [];
+        const res = await fetch(`${env.VITE_API_BASE_URL}/admin/session`, {
+          headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+          credentials: 'same-origin',
+        });
+        if (!res.ok) return [];
+        const parsed = staffSessionSchema.safeParse(await res.json().catch(() => null));
+        return parsed.success ? [...parsed.data.slugs] : [];
       } catch {
         return [];
       }
@@ -163,7 +151,10 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       return custom ?? null;
     };
 
-    const buildSessionUser = async (supaUser: { id: string; email: string; user_metadata: Record<string, unknown> }): Promise<SessionUser> => {
+    const buildSessionUser = async (
+      supaUser: { id: string; email: string; user_metadata: Record<string, unknown> },
+      accessToken?: string,
+    ): Promise<SessionUser> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supaAny = client as any;
       let member: { firstName: string; lastName: string; isQualified: boolean; status: string } | null = null;
@@ -198,7 +189,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       } catch {
         member = null;
       }
-      const slugs = await resolveRoleSlugs(client, supaUser.id);
+      const slugs = await resolveRoleSlugs(accessToken);
       let role: Role | null =
         slugs.length === 0
           ? null
@@ -206,9 +197,9 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
             ? 'admin'
             : 'user';
       if (role === null) {
-        const meta = supaUser.user_metadata['role'];
-        if (typeof meta === 'string' && normalizeRole(meta) === 'admin') role = 'admin';
-        else role = 'user';
+        // No staff assignment: member-tier session. user_metadata is
+        // client-writable and must never confer privilege.
+        role = 'user';
       }
       return {
         id: supaUser.id,
@@ -228,20 +219,24 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         setMockSessionUser(null);
         return;
       }
-      const next = await buildSessionUser(supaUser);
+      const next = await buildSessionUser(supaUser, data.session?.access_token);
       setUser(next);
       setStatus('authenticated');
       setMockSessionUser(next as unknown as import('@jad/mock').MockUser);
     });
     const { data: sub } = client.auth.onAuthStateChange(async (_event, session) => {
-      const supaUser = (session as { user: { id: string; email: string; user_metadata: Record<string, unknown> } | null } | null)?.user ?? null;
+      const typed = session as {
+        access_token?: string;
+        user: { id: string; email: string; user_metadata: Record<string, unknown> } | null;
+      } | null;
+      const supaUser = typed?.user ?? null;
       if (!supaUser) {
         setUser(null);
         setStatus('unauthenticated');
         setMockSessionUser(null);
         return;
       }
-      const next = await buildSessionUser(supaUser);
+      const next = await buildSessionUser(supaUser, typed?.access_token);
       setUser(next);
       setStatus('authenticated');
       setMockSessionUser(next as unknown as import('@jad/mock').MockUser);
@@ -299,7 +294,9 @@ function TestSessionProvider({
         status: 'authenticated' as const,
         user: initialUser,
         role: initialUser.role,
-        roleId: initialUser.roleId ?? undefined,
+        // Preserve null (resolved: no staff access) distinctly from undefined
+        // (unresolved) — navItemsForRole treats them differently.
+        roleId: initialUser.roleId,
         isQualified: initialUser.isQualified ?? false,
         loginAs: () => {},
         logout: () => {},

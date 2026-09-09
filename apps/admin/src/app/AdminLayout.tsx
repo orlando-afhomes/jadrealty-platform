@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router';
 
 import { useSession } from '../lib/session';
@@ -17,7 +17,7 @@ import styles from './AdminLayout.module.css';
  * role id (resolved against role records, matrix seed as fallback).
  */
 export function AdminLayout() {
-  const { user, role, roleId, logout } = useSession();
+  const { user, role, roleId, logout, status } = useSession();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const location = useLocation();
   const { data: roles } = useRoles();
@@ -53,6 +53,23 @@ export function AdminLayout() {
     return [{ label: 'Dashboard', to: '/admin' }, { label: current.label }];
   }, [current, location.pathname]);
 
+  // Fail loud (not silent): a staff session with zero navigation modules
+  // means role resolution failed (missing MemberRole link or role lookup
+  // error). Links stay hidden (deny by default); the notice tells the user
+  // what happened instead of rendering a mysteriously empty sidebar.
+  const roleUnresolved =
+    status === 'authenticated' && role === 'admin' && items.length === 0;
+
+  useEffect(() => {
+    if (roleUnresolved) {
+      console.warn(
+        '[AdminLayout] staff role unresolved — sidebar hidden (roleId=%s, roleRecords=%s)',
+        String(roleId ?? null),
+        roles === undefined ? 'loading' : String(roles.length),
+      );
+    }
+  }, [roleUnresolved, roleId, roles]);
+
   return (
     <>
       <AppShell
@@ -87,6 +104,23 @@ export function AdminLayout() {
         menuPosition="right"
       >
         <div className={styles.content}>
+          {roleUnresolved && (
+            <div className={styles.roleNotice} role="alert">
+              <p className={styles.roleNoticeTitle}>Navigation unavailable</p>
+              <p className={styles.roleNoticeText}>
+                Your staff role could not be resolved, so navigation links are hidden.
+                Try reloading — if this persists, an administrator needs to check
+                your role assignment.
+              </p>
+              <button
+                type="button"
+                className={styles.roleNoticeAction}
+                onClick={() => window.location.reload()}
+              >
+                Reload
+              </button>
+            </div>
+          )}
           <Breadcrumbs items={crumbs} />
           <Outlet />
         </div>

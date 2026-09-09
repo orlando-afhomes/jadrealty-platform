@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => {
     from: (table: string) => ({
       select: (..._args: unknown[]) => ({
         eq: async () =>
-          table === 'MemberRole'
+          table === 'MemberRole' || table === 'StaffAssignment'
             ? { data: [{ roleId: 'r-1' }], error: null }
             : { data: null, error: new Error(`unexpected eq on ${table}`) },
         in: async () =>
