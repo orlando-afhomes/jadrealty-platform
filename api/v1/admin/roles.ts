@@ -2,6 +2,7 @@ import { roleRecordSchema, staffModuleSchema } from '@jad/contracts';
 
 import { SUPER_ADMIN_ONLY } from '../../_lib/access.js';
 import { verifyStaff } from '../../_lib/auth.js';
+import { effectivePermissions } from '../../_lib/rbac.js';
 import { appendAudit } from '../../_lib/audit.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { methodNotAllowed, okList, readJsonBody, requireService } from '../../_lib/rest.js';
@@ -13,10 +14,12 @@ function slugify(name: string): string {
 }
 
 function mapRow(row: Record<string, unknown>) {
+  const key = typeof row.key === 'string' && row.key ? row.key : undefined;
+  const slug = typeof row.slug === 'string' ? row.slug : undefined;
   return {
-    id: typeof row.key === 'string' && row.key ? row.key : row.slug,
+    id: key ?? slug,
     name: row.name,
-    permissions: Array.isArray(row.permissions) ? row.permissions : [],
+    permissions: effectivePermissions(slug ?? key ?? '', row.permissions),
     isSystem: row.is_system === true,
     domain: row.domain === 'member' ? 'member' : 'staff',
   };

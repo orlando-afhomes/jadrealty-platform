@@ -13,14 +13,18 @@ vi.mock('../hooks/useCreateStaff', () => ({
   useCreateStaff: () => ({ mutateAsync, isPending: false }),
 }));
 
+const rolesData = vi.hoisted(() => ({
+  current: [
+    { id: 'super_admin', name: 'Super Admin', permissions: ['staff'], isSystem: true },
+    { id: 'admin', name: 'Admin', permissions: ['sales'], isSystem: true },
+    { id: 'finance', name: 'Finance', permissions: ['sales'], isSystem: true },
+  ],
+}));
+
+const DEFAULT_ROLES = rolesData.current.map((r) => ({ ...r, permissions: [...r.permissions] }));
+
 vi.mock('../../roles/hooks/useRoles', () => ({
-  useRoles: () => ({
-    data: [
-      { id: 'super_admin', name: 'Super Admin', permissions: ['staff'], isSystem: true },
-      { id: 'admin', name: 'Admin', permissions: ['sales'], isSystem: true },
-      { id: 'finance', name: 'Finance', permissions: ['sales'], isSystem: true },
-    ],
-  }),
+  useRoles: () => ({ data: rolesData.current }),
 }));
 
 function renderDialog(onClose = vi.fn()) {
@@ -31,6 +35,7 @@ function renderDialog(onClose = vi.fn()) {
 describe('StaffFormDialog', () => {
   beforeEach(() => {
     resetStaffStore();
+    rolesData.current = [...DEFAULT_ROLES];
     mutateAsync.mockReset().mockResolvedValue({ id: 'stf-008', name: 'New Hire' });
   });
 
@@ -57,6 +62,7 @@ describe('StaffFormDialog', () => {
     renderDialog();
     await user.type(screen.getByLabelText('Name'), 'New Hire');
     await user.type(screen.getByLabelText('Email'), 'not-an-email');
+    await user.type(screen.getByLabelText('Temporary password'), 'TempPass1');
     await user.click(screen.getByText('Create Staff'));
     expect(await screen.findByText('Enter a valid email address.')).toBeInTheDocument();
 
@@ -76,6 +82,7 @@ describe('StaffFormDialog', () => {
     const { onClose } = renderDialog();
     await user.type(screen.getByLabelText('Name'), 'New Hire');
     await user.type(screen.getByLabelText('Email'), 'new.hire@jad.example');
+    await user.type(screen.getByLabelText('Temporary password'), 'TempPass1');
     await user.selectOptions(screen.getByLabelText('Role'), 'finance');
     await user.click(screen.getByText('Create Staff'));
 
@@ -84,9 +91,78 @@ describe('StaffFormDialog', () => {
       name: 'New Hire',
       email: 'new.hire@jad.example',
       roleId: 'finance',
+      temporaryPassword: 'TempPass1',
       actor: 'Saul Super',
       actorRole: 'SUPER_ADMIN',
     });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('requires a temporary password and submits it', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(screen.getByLabelText('Name'), 'Temp Hire');
+    await user.type(screen.getByLabelText('Email'), 'temp.hire@jad.example');
+    await user.type(screen.getByLabelText('Temporary password'), 'TempPass1');
+    await user.click(screen.getByText('Create Staff'));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ temporaryPassword: 'TempPass1' }),
+    );
+  });
+
+  it('rejects a missing or weak temporary password', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(screen.getByLabelText('Name'), 'Temp Hire');
+    await user.type(screen.getByLabelText('Email'), 'temp.hire@jad.example');
+    await user.click(screen.getByText('Create Staff'));
+    expect(await screen.findByText(/temporary password.*required|at least 8/i)).toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('falls back to system roles when the roles API returns an empty list', async () => {
+    rolesData.current = [];
+    const user = userEvent.setup();
+    renderDialog();
+    expect(await screen.findByText('Create Staff Member')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Super Admin' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Admin' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Finance' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Merchant' })).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Name'), 'Fallback Hire');
+    await user.type(screen.getByLabelText('Email'), 'fallback.hire@jad.example');
+    await user.type(screen.getByLabelText('Temporary password'), 'TempPass1');
+    await user.selectOptions(screen.getByLabelText('Role'), 'finance');
+    await user.click(screen.getByText('Create Staff'));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Fallback Hire',
+        email: 'fallback.hire@jad.example',
+        roleId: 'finance',
+      }),
+    );
+  });
+
+  it('resolves a valid role when the loaded list excludes the admin default', async () => {
+    rolesData.current = [
+      { id: 'finance', name: 'Finance', permissions: ['sales'], isSystem: true },
+      { id: 'merchant', name: 'Merchant', permissions: ['vouchers'], isSystem: true },
+    ];
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(screen.getByLabelText('Name'), 'Default Hire');
+    await user.type(screen.getByLabelText('Email'), 'default.hire@jad.example');
+    await user.type(screen.getByLabelText('Temporary password'), 'TempPass1');
+    // Leave the role select untouched — the dialog must submit a role that
+    // actually exists in the loaded list, never the stale 'admin' default.
+    await user.click(screen.getByText('Create Staff'));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ roleId: 'finance' }));
+    expect(screen.queryByText('Select a valid role.')).not.toBeInTheDocument();
   });
 });

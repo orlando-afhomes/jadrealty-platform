@@ -25,6 +25,7 @@ describe('staff service', () => {
       name: 'New Hire',
       email: 'new.hire@jad.example',
       roleId: 'finance',
+      temporaryPassword: 'TempPass1',
       ...ACTOR,
     });
     expect(member.status).toBe('ACTIVE');
@@ -42,10 +43,22 @@ describe('staff service', () => {
 
   it('rejects duplicate emails and unknown roles', async () => {
     await expect(
-      createStaff({ name: 'Dup', email: 'ada.admin@jad.example', roleId: 'admin', ...ACTOR }),
+      createStaff({
+        name: 'Dup',
+        email: 'ada.admin@jad.example',
+        roleId: 'admin',
+        temporaryPassword: 'TempPass1',
+        ...ACTOR,
+      }),
     ).rejects.toThrow('A staff member with this email already exists.');
     await expect(
-      createStaff({ name: 'Ghost', email: 'ghost@jad.example', roleId: 'role-ghost', ...ACTOR }),
+      createStaff({
+        name: 'Ghost',
+        email: 'ghost@jad.example',
+        roleId: 'role-ghost',
+        temporaryPassword: 'TempPass1',
+        ...ACTOR,
+      }),
     ).rejects.toThrow('Selected role does not exist.');
   });
 

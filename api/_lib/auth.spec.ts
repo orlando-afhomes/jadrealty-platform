@@ -238,7 +238,7 @@ describe('verifyStaff', () => {
         },
       },
     );
-    expect(seen[0]).toBe('StaffAssignment:eq');
+    expect(seen).toContain('StaffAssignment:eq');
     expect(result).toEqual({ userId: 'u-5', slugs: ['finance'] });
   });
 
@@ -321,6 +321,88 @@ describe('verifyStaff', () => {
     });
     expect('error' in denied && denied.error.status).toBe(403);
   });
+
+  it('returns 403 when the staff account must change its temporary password', async () => {
+    setEnv({
+      SUPABASE_URL: 'https://x.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    });
+    const result = await verifyStaff(req({ authorization: 'Bearer good' }), ['super_admin'], {
+      anonClient: {
+        auth: {
+          getUser: async () => ({
+            data: { user: { id: 'u-7', user_metadata: {} } },
+            error: null,
+          }),
+        },
+      },
+      serviceClient: {
+        from: (table: string) => ({
+          select: () => ({
+            eq: async () => {
+              if (table === 'StaffUser')
+                return {
+                  data: [{ id: 'u-7', status: 'ACTIVE', mustChangePassword: true }],
+                  error: null,
+                };
+              if (table === 'StaffAssignment') return { data: [{ roleId: 'r-1' }], error: null };
+              return { data: [], error: null };
+            },
+            in: async () => {
+              if (table === 'Role') return { data: [{ slug: 'super_admin' }], error: null };
+              return { data: [], error: null };
+            },
+          }),
+        }),
+      },
+    });
+    expect('error' in result && result.error.status).toBe(403);
+    expect('error' in result && (result.error.error as { message?: string }).message).toMatch(
+      /password/i,
+    );
+  });
+
+  it('returns 403 when the staff account is disabled', async () => {
+    setEnv({
+      SUPABASE_URL: 'https://x.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    });
+    const result = await verifyStaff(req({ authorization: 'Bearer good' }), ['super_admin'], {
+      anonClient: {
+        auth: {
+          getUser: async () => ({
+            data: { user: { id: 'u-8', user_metadata: {} } },
+            error: null,
+          }),
+        },
+      },
+      serviceClient: {
+        from: (table: string) => ({
+          select: () => ({
+            eq: async () => {
+              if (table === 'StaffUser')
+                return {
+                  data: [{ id: 'u-8', status: 'DISABLED', mustChangePassword: false }],
+                  error: null,
+                };
+              if (table === 'StaffAssignment') return { data: [{ roleId: 'r-1' }], error: null };
+              return { data: [], error: null };
+            },
+            in: async () => {
+              if (table === 'Role') return { data: [{ slug: 'super_admin' }], error: null };
+              return { data: [], error: null };
+            },
+          }),
+        }),
+      },
+    });
+    expect('error' in result && result.error.status).toBe(403);
+    expect('error' in result && (result.error.error as { message?: string }).message).toMatch(
+      /disabled/i,
+    );
+  });
 });
 
 describe('isAuthConflict', () => {
@@ -366,10 +448,9 @@ describe('findAuthUserId', () => {
   });
 
   it('adopts case-variant emails (GoTrue stores lowercase, approval rows may not)', async () => {
-    const id = await findAuthUserId(
-      svcFor([{ id: 'u-1', email: 'juan.delacruz@example.com' }]),
-      { email: 'Juan.DelaCruz@Example.COM' },
-    );
+    const id = await findAuthUserId(svcFor([{ id: 'u-1', email: 'juan.delacruz@example.com' }]), {
+      email: 'Juan.DelaCruz@Example.COM',
+    });
     expect(id).toBe('u-1');
   });
 
@@ -388,10 +469,9 @@ describe('findAuthUserId', () => {
   });
 
   it('matches phones despite formatting differences', async () => {
-    const id = await findAuthUserId(
-      svcFor([{ id: 'u-3', email: null, phone: '+639171234567' }]),
-      { phone: '0917 123 4567' },
-    );
+    const id = await findAuthUserId(svcFor([{ id: 'u-3', email: null, phone: '+639171234567' }]), {
+      phone: '0917 123 4567',
+    });
     expect(id).toBe('u-3');
   });
 

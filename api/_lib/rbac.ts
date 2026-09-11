@@ -1,4 +1,4 @@
-import { staffModuleSchema } from '@jad/contracts';
+import { STAFF_PERMISSIONS, staffModuleSchema, type StaffRole } from '@jad/contracts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbQuery = any;
@@ -34,6 +34,32 @@ export function pickStaffRoleId(slugs: string[]): string | null {
 
 export type DbRole = { id: string; key: string | null; slug: string; name: string; permissions: unknown; is_system: boolean };
 
+/**
+ * Effective permission modules for a role row. Stored modules win when
+ * present. Canonical system roles (`super_admin/admin/finance/merchant`)
+ * fall back to the `STAFF_PERMISSIONS` matrix when the stored array is
+ * empty — seed/provision scripts can create the row without permissions, and
+ * without this the API (and every role select) would treat the role as
+ * nonexistent. Custom roles keep their stored set (possibly empty).
+ */
+export function effectivePermissions(slugOrKey: string, stored: unknown): string[] {
+  const valid = (Array.isArray(stored) ? stored : []).filter(
+    (p): p is string =>
+      typeof p === 'string' && (staffModuleSchema.options as readonly string[]).includes(p),
+  );
+  if (valid.length > 0) return valid;
+  const canon = String(slugOrKey ?? '')
+    .trim()
+    .toLowerCase();
+  const compact = canon.replace(/_/g, '');
+  for (const sys of Object.keys(STAFF_PERMISSIONS) as StaffRole[]) {
+    if (sys === canon || sys.replace(/_/g, '') === compact) {
+      return [...STAFF_PERMISSIONS[sys]];
+    }
+  }
+  return [];
+}
+
 async function roleRows(svc: Db): Promise<DbRole[]> {
   const { data, error } = await svc.from('Role').select('id,key,slug,name,permissions,is_system');
   if (error || !Array.isArray(data)) return [];
@@ -46,9 +72,7 @@ export async function listRoleRecords(svc: Db) {
   return rows.map((r) => ({
     id: typeof r.key === 'string' && r.key ? r.key : r.slug,
     name: r.name,
-    permissions: (Array.isArray(r.permissions) ? r.permissions : []).filter(
-      (p): p is string => typeof p === 'string' && (staffModuleSchema.options as readonly string[]).includes(p),
-    ),
+    permissions: effectivePermissions(r.slug ?? r.key ?? '', r.permissions),
     isSystem: r.is_system === true,
     _uuid: r.id,
   }));

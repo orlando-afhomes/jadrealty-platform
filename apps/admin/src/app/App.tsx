@@ -18,6 +18,7 @@ import { ContentPage } from '../features/content/pages/ContentPage';
 import { MarketingToolDetailPage } from '../features/content/pages/MarketingToolDetailPage';
 import { PoliciesPage } from '../features/policies/pages/PoliciesPage';
 import { PolicyDetailPage } from '../features/policies/pages/PolicyDetailPage';
+import { MyAccountPage } from '../features/account/pages/MyAccountPage';
 import { ConfigPage } from '../features/config/pages/ConfigPage';
 import { AuditPage } from '../features/audit/pages/AuditPage';
 import { StaffPage } from '../features/staff/pages/StaffPage';
@@ -147,10 +148,7 @@ export default function App() {
               </RequireRole>
             }
           />
-          <Route
-            path="/admin/content"
-            element={<Navigate to="/admin/marketing-tools" replace />}
-          />
+          <Route path="/admin/content" element={<Navigate to="/admin/marketing-tools" replace />} />
           <Route
             path="/admin/marketing-tools"
             element={
@@ -181,6 +179,14 @@ export default function App() {
             element={
               <RequireRole>
                 <PolicyDetailPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/admin/profile"
+            element={
+              <RequireRole>
+                <MyAccountPage />
               </RequireRole>
             }
           />

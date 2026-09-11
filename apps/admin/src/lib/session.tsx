@@ -34,6 +34,8 @@ export interface SessionUser {
   roleId?: string | null;
   isQualified?: boolean;
   status?: MemberStatus;
+  /** True while the account runs on a temporary password (forced change). */
+  mustChangePassword?: boolean;
 }
 
 export interface SessionContextValue {
@@ -49,6 +51,8 @@ export interface SessionContextValue {
    * Forbidden while this is set.
    */
   sessionError: boolean;
+  /** True while the account runs on a temporary password (forced change). */
+  mustChangePassword: boolean;
   /** Re-run session resolution (used by the Retry affordance). */
   revalidate: () => Promise<void>;
   loginAs: (user: SessionUser) => void;
@@ -72,6 +76,7 @@ function UnauthenticatedSessionProvider({ children }: { children: ReactNode }) {
       roleId: undefined,
       isQualified: false,
       sessionError: false,
+      mustChangePassword: false,
       revalidate: async () => {},
       loginAs: () => {},
       logout: () => {},
@@ -91,6 +96,7 @@ function MockSessionBridge({ children }: { children: ReactNode }) {
       roleId: mock.roleId ?? null,
       isQualified: mock.isQualified,
       sessionError: false,
+      mustChangePassword: mock.user?.mustChangePassword ?? false,
       revalidate: async () => {},
       loginAs: (user) => mock.loginAs(user),
       logout: mock.logout,
@@ -150,7 +156,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
      */
     const fetchSlugs = async (
       accessToken: string | undefined,
-    ): Promise<{ status: number; slugs: string[] } | null> => {
+    ): Promise<{ status: number; slugs: string[]; mustChangePassword: boolean } | null> => {
       if (!accessToken) return null;
       try {
         const res = await fetch(`${env.VITE_API_BASE_URL}/admin/session`, {
@@ -159,13 +165,18 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         });
         if (!res.ok) {
           // Verified non-staff identity — safe to demote.
-          if (res.status === 403 || res.status === 404) return { status: res.status, slugs: [] };
+          if (res.status === 403 || res.status === 404)
+            return { status: res.status, slugs: [], mustChangePassword: false };
           // 401/5xx → transient (stale token, backend hiccup).
           return null;
         }
         const parsed = staffSessionSchema.safeParse(await res.json().catch(() => null));
         if (!parsed.success) return null;
-        return { status: 200, slugs: [...parsed.data.slugs] };
+        return {
+          status: 200,
+          slugs: [...parsed.data.slugs],
+          mustChangePassword: parsed.data.mustChangePassword === true,
+        };
       } catch {
         return null;
       }
@@ -173,7 +184,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
 
     const resolveRoleSlugs = async (
       accessToken?: string,
-    ): Promise<{ slugs: string[]; verified: boolean }> => {
+    ): Promise<{ slugs: string[]; verified: boolean; mustChangePassword: boolean }> => {
       // Prefer the caller-supplied token (the auth event's own session);
       // fall back to a fresh getSession read when absent.
       let token = accessToken;
@@ -182,7 +193,12 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         token = data.session?.access_token;
       }
       const first = await fetchSlugs(token);
-      if (first) return { slugs: first.slugs, verified: true };
+      if (first)
+        return {
+          slugs: first.slugs,
+          verified: true,
+          mustChangePassword: first.mustChangePassword,
+        };
       // Transient failure: one token rotation, then a single retry with the
       // fresh token before giving up.
       try {
@@ -190,12 +206,17 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         if (healed) {
           const { data: fresh } = await client.auth.getSession();
           const second = await fetchSlugs(fresh.session?.access_token);
-          if (second) return { slugs: second.slugs, verified: true };
+          if (second)
+            return {
+              slugs: second.slugs,
+              verified: true,
+              mustChangePassword: second.mustChangePassword,
+            };
         }
       } catch {
         // fall through to unverified
       }
-      return { slugs: [], verified: false };
+      return { slugs: [], verified: false, mustChangePassword: false };
     };
 
     /**
@@ -249,7 +270,11 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         // instead of throwing PGRST116 like .single() did. No legacy
         // "members" fallback: that table does not exist in the schema, so
         // probing it can only ever produce PGRST205 noise.
-        const r = (await supaAny.from('Member').select('*').eq('id', supaUser.id).maybeSingle()) as {
+        const r = (await supaAny
+          .from('Member')
+          .select('*')
+          .eq('id', supaUser.id)
+          .maybeSingle()) as {
           data: Record<string, unknown> | null;
           error: unknown;
         };
@@ -267,7 +292,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       } catch {
         member = null;
       }
-      const { slugs, verified } = await resolveRoleSlugs(accessToken);
+      const { slugs, verified, mustChangePassword } = await resolveRoleSlugs(accessToken);
       let role: Role | null =
         slugs.length === 0
           ? null
@@ -291,6 +316,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           roleId: slugToRoleId(slugs),
           isQualified: (member?.isQualified as boolean) ?? false,
           status: (member?.status as MemberStatus) ?? 'PENDING',
+          mustChangePassword,
         },
         verified,
       };
@@ -384,6 +410,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       roleId: user?.roleId ?? null,
       isQualified: user?.isQualified ?? false,
       sessionError,
+      mustChangePassword: user?.mustChangePassword ?? false,
       revalidate,
       loginAs,
       logout,
@@ -426,6 +453,7 @@ function TestSessionProvider({
         roleId: initialUser.roleId,
         isQualified: initialUser.isQualified ?? false,
         sessionError,
+        mustChangePassword: initialUser.mustChangePassword ?? false,
         revalidate: async () => {
           await onRevalidate?.();
         },
@@ -440,6 +468,7 @@ function TestSessionProvider({
       roleId: undefined,
       isQualified: false,
       sessionError: false,
+      mustChangePassword: false,
       revalidate: async () => {},
       loginAs: () => {},
       logout: () => {},

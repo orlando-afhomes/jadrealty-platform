@@ -80,7 +80,7 @@ export function StaffPage() {
   const [showCreate, setShowCreate] = useState(false);
 
   const roleOptions = useMemo(() => {
-    const records = roles ?? systemRoleRecords();
+    const records = roles?.length ? roles : systemRoleRecords();
     return [
       { value: 'ALL', label: 'All roles' },
       ...records.map((r) => ({ value: r.id, label: r.name })),

@@ -610,6 +610,57 @@ export const adminMockHandlers: MockRoute[] = [
     },
   },
   {
+    // PATCH /admin/session — update the signed-in staff display name. The
+    // mock has no session identity, so it applies to the first roster member
+    // (tests render that principal); production resolves the caller server-side.
+    path: '/admin/session',
+    method: 'PATCH',
+    handler: (ctx: MockRequestContext) => {
+      const input = (ctx.body ?? {}) as Record<string, unknown>;
+      const name = typeof input.name === 'string' ? input.name.trim() : '';
+      if (!name) return fail('Enter a display name.');
+      const member = staffStore.members[0];
+      if (!member) return notFound('Staff profile');
+      member.name = name;
+      return {
+        body: {
+          id: member.id,
+          email: member.email,
+          name: member.name,
+          status: member.status,
+          slugs: ['super_admin'],
+          mustChangePassword: false,
+        },
+        status: 200,
+      };
+    },
+  },
+  {
+    // POST /admin/session/password — change own staff password. Use
+    // currentPassword 'wrong-current' to simulate a rejection in tests.
+    path: '/admin/session/password',
+    method: 'POST',
+    handler: (ctx: MockRequestContext) => {
+      const input = (ctx.body ?? {}) as Record<string, unknown>;
+      const current = typeof input.currentPassword === 'string' ? input.currentPassword : '';
+      const next = typeof input.newPassword === 'string' ? input.newPassword : '';
+      if (!current || next.length < 8) return fail('Enter the current and a new password (min 8).');
+      if (current === 'wrong-current') {
+        return {
+          body: {
+            error: {
+              code: 'UNAUTHORIZED',
+              message: 'Current password is incorrect.',
+              timestamp: new Date().toISOString(),
+            },
+          },
+          status: 401,
+        };
+      }
+      return { body: { changed: true }, status: 200 };
+    },
+  },
+  {
     path: '/admin/staff/',
     match: 'prefix',
     method: 'PATCH',

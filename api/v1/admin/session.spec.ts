@@ -6,7 +6,8 @@ import handler from './session.js';
 
 /**
  * GET /admin/session — own staff session resolved server-side (no anon Role
- * reads). Supabase is fully mocked.
+ * reads). PATCH /admin/session — update own display name. Supabase is fully
+ * mocked.
  */
 const mocks = vi.hoisted(() => {
   const script = {
@@ -15,8 +16,10 @@ const mocks = vi.hoisted(() => {
       email: 'admin@jad.local',
       name: 'Admin User',
       status: 'ACTIVE',
+      mustChangePassword: false,
     } as Record<string, unknown> | null,
   };
+  const calls: { table: string; op: string; arg?: unknown }[] = [];
   const builder = (table: string) => {
     const b: Record<string, (...a: never[]) => unknown> = {};
     b.select = () => b;
@@ -33,10 +36,26 @@ const mocks = vi.hoisted(() => {
       if (table === 'StaffUser') return { data: script.staffRow, error: null };
       return { data: null, error: null };
     };
+    b.update = (patch: unknown) => {
+      calls.push({ table, op: 'update', arg: patch });
+      return {
+        eq: async () => {
+          if (table === 'StaffUser' && script.staffRow && typeof patch === 'object' && patch) {
+            Object.assign(script.staffRow, patch);
+          }
+          return { data: null, error: null };
+        },
+      };
+    };
+    b.insert = async (row: unknown) => {
+      calls.push({ table, op: 'insert', arg: row });
+      return { error: null };
+    };
     return b;
   };
   return {
     script,
+    calls,
     service: { from: (table: string) => builder(table) },
     anon: {
       auth: {
@@ -72,17 +91,23 @@ function capture() {
 const authed = { authorization: 'Bearer good' };
 const req = (): VercelRequest => ({ method: 'GET', query: {}, headers: authed }) as VercelRequest;
 
+function resetStaffRow() {
+  mocks.script.staffRow = {
+    id: 'u-1',
+    email: 'admin@jad.local',
+    name: 'Admin User',
+    status: 'ACTIVE',
+    mustChangePassword: false,
+  };
+}
+
 describe('GET /admin/session', () => {
   beforeEach(() => {
     vi.stubEnv('SUPABASE_URL', 'https://sess.test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
-    mocks.script.staffRow = {
-      id: 'u-1',
-      email: 'admin@jad.local',
-      name: 'Admin User',
-      status: 'ACTIVE',
-    };
+    resetStaffRow();
+    mocks.calls.length = 0;
   });
 
   it('returns the staff profile with slugs', async () => {
@@ -108,5 +133,61 @@ describe('GET /admin/session', () => {
     const { res, seen } = capture();
     await handler({ method: 'GET', query: {}, headers: {} } as VercelRequest, res);
     expect(seen.status).toBe(401);
+  });
+
+  it('403s a disabled staff identity instead of returning a session', async () => {
+    mocks.script.staffRow = {
+      id: 'u-1',
+      email: 'admin@jad.local',
+      name: 'Admin User',
+      status: 'DISABLED',
+      mustChangePassword: false,
+    };
+    const { res, seen } = capture();
+    await handler(req(), res);
+    expect(seen.status).toBe(403);
+  });
+});
+
+describe('PATCH /admin/session', () => {
+  beforeEach(() => {
+    vi.stubEnv('SUPABASE_URL', 'https://sess.test.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
+    resetStaffRow();
+    mocks.calls.length = 0;
+  });
+
+  it('updates the signed-in staff display name and audits', async () => {
+    const { res, seen } = capture();
+    await handler(
+      { method: 'PATCH', query: {}, headers: authed, body: { name: 'New Name' } } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ id: 'u-1', name: 'New Name' });
+    const update = mocks.calls.find((c) => c.table === 'StaffUser' && c.op === 'update');
+    expect(update?.arg).toMatchObject({ name: 'New Name' });
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog' && c.op === 'insert');
+    expect(audit?.arg).toMatchObject({ action: 'STAFF_PROFILE_UPDATED', target_id: 'u-1' });
+  });
+
+  it('rejects an empty name', async () => {
+    const { res, seen } = capture();
+    await handler(
+      { method: 'PATCH', query: {}, headers: authed, body: { name: '   ' } } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(400);
+  });
+
+  it('returns 404 when the caller holds no staff profile', async () => {
+    mocks.script.staffRow = null;
+    const { res, seen } = capture();
+    await handler(
+      { method: 'PATCH', query: {}, headers: authed, body: { name: 'New Name' } } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(404);
   });
 });

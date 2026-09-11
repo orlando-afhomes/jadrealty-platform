@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { randomUUID } from 'node:crypto';
 
 import { SUPER_ADMIN_ONLY } from '../../_lib/access.js';
 import { findAuthUserId, isAuthConflict, verifyStaff } from '../../_lib/auth.js';
@@ -9,7 +8,7 @@ import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { listRoleRecords, listStaffEntries, MEMBER_SLUGS } from '../../_lib/rbac.js';
 import { methodNotAllowed, okList, readJsonBody, requireService } from '../../_lib/rest.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
-import { staffMemberSchema } from '@jad/contracts';
+import { staffMemberSchema, staffPasswordSchema } from '@jad/contracts';
 
 function validEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -95,7 +94,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  const { data: dupeStaff } = await supabase.from('StaffUser').select('id').eq('email', email).limit(1);
+  const temporaryPassword =
+    typeof input.temporaryPassword === 'string' ? input.temporaryPassword : '';
+  if (!staffPasswordSchema.safeParse(temporaryPassword).success) {
+    const { error, status } = toErrorEnvelope(
+      'VALIDATION_ERROR',
+      'A temporary password of at least 8 characters is required.',
+      400,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  const { data: dupeStaff } = await supabase
+    .from('StaffUser')
+    .select('id')
+    .eq('email', email)
+    .limit(1);
   if (Array.isArray(dupeStaff) && dupeStaff.length > 0) {
     const { error, status } = toErrorEnvelope(
       'CONFLICT',
@@ -106,7 +120,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
   // Strict separation: a staff email must not collide with a member account.
-  const { data: dupeMember } = await supabase.from('Member').select('id').eq('email', email).limit(1);
+  const { data: dupeMember } = await supabase
+    .from('Member')
+    .select('id')
+    .eq('email', email)
+    .limit(1);
   if (Array.isArray(dupeMember) && dupeMember.length > 0) {
     const { error, status } = toErrorEnvelope(
       'CONFLICT',
@@ -118,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const created = await supabase.auth.admin.createUser({
     email,
-    password: randomUUID(),
+    password: temporaryPassword,
     email_confirm: true,
     user_metadata: { full_name: name },
   });
@@ -128,9 +146,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
   let authId = (created.data as { user?: { id: string } } | null)?.user?.id ?? null;
-  // Duplicate identity (orphaned auth row): adopt the existing account.
+  // Duplicate identity (orphaned auth row): adopt the existing account AND
+  // reset its password to the super-admin-provided temporary password — the
+  // orphan's stored credential is unknown, so without this the new staff
+  // could never sign in with the password they were given.
   if (!authId) {
     authId = await findAuthUserId(supabase, { email });
+    if (authId) {
+      const { error: resetError } = await supabase.auth.admin.updateUserById(authId, {
+        password: temporaryPassword,
+        email_confirm: true,
+      });
+      if (resetError) {
+        const { error, status } = toErrorEnvelope('INTERNAL', resetError.message, 500);
+        res.status(status).json({ error });
+        return;
+      }
+    }
   }
   if (!authId) {
     const { error, status } = toErrorEnvelope(
@@ -148,6 +180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       email,
       name,
       status: 'ACTIVE',
+      mustChangePassword: true,
     },
     { onConflict: 'id' },
   );

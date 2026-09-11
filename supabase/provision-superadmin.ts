@@ -35,6 +35,8 @@
 import fs from 'node:fs';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+import { STAFF_PERMISSIONS } from '../packages/contracts/src/schemas/staff-role.js';
+
 function loadEnvFile(path: string): void {
   try {
     const content = fs.readFileSync(path, 'utf8');
@@ -54,7 +56,9 @@ function loadEnvFile(path: string): void {
 
 loadEnvFile('.env');
 
-/** Canonical Role catalog (mirrors the staff-roles + member-pipeline migrations and seed.ts). */
+/** Canonical Role catalog (mirrors the staff-roles + member-pipeline migrations and seed.ts).
+ * Permissions converge to the STAFF_PERMISSIONS matrix seed (single source; member
+ * rows keep the empty set) so GET /admin/roles never drops them after a purge. */
 const ROLE_SEEDS: { slug: string; name: string; description: string; domain: string }[] = [
   {
     slug: 'super_admin',
@@ -198,7 +202,14 @@ async function main(): Promise<void> {
 
   // 1. Role catalog (idempotent upserts on slug).
   for (const r of ROLE_SEEDS) {
-    const { error } = await supabase.from('Role').upsert(r, { onConflict: 'slug' });
+    const { error } = await supabase.from('Role').upsert(
+      {
+        ...r,
+        permissions: [...((STAFF_PERMISSIONS as Record<string, readonly string[]>)[r.slug] ?? [])],
+        is_system: true,
+      },
+      { onConflict: 'slug' },
+    );
     if (error) {
       console.error(`Role upsert ${r.slug} failed: ${error.message}`);
       process.exit(1);

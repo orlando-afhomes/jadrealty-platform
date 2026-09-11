@@ -17,12 +17,18 @@ import styles from './AdminLayout.module.css';
  * role id (resolved against role records, matrix seed as fallback).
  */
 export function AdminLayout() {
-  const { user, role, roleId, logout, status } = useSession();
+  const { user, role, roleId, logout, status, mustChangePassword } = useSession();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const location = useLocation();
-  const { data: roles } = useRoles();
-  const baseItems = navItemsForRole(role, roleId, roles);
-  const { data: registrations } = useRegistrations();
+  // Admin data endpoints reject unauthenticated callers and, while a
+  // temporary-password change is required, verifyStaff 403s by design.
+  // Skip them until the session is authenticated and the flag is known
+  // (RequireRole holds every destination on My Account meanwhile). Enabling
+  // the queries refetches them fresh.
+  const queriesEnabled = status === 'authenticated' && !mustChangePassword;
+  const { data: roles } = useRoles({ enabled: queriesEnabled });
+  const baseItems = mustChangePassword ? [] : navItemsForRole(role, roleId, roles);
+  const { data: registrations } = useRegistrations({ enabled: queriesEnabled });
   const pendingCount = (registrations ?? []).filter((r) => r.status === 'PENDING').length;
   const items = baseItems.map((item) =>
     item.to === '/admin/members' ? { ...item, badge: pendingCount > 0 ? pendingCount : undefined } : item,
@@ -58,7 +64,7 @@ export function AdminLayout() {
   // error). Links stay hidden (deny by default); the notice tells the user
   // what happened instead of rendering a mysteriously empty sidebar.
   const roleUnresolved =
-    status === 'authenticated' && role === 'admin' && items.length === 0;
+    status === 'authenticated' && role === 'admin' && items.length === 0 && !mustChangePassword;
 
   useEffect(() => {
     if (roleUnresolved) {

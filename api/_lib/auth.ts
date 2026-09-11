@@ -59,7 +59,9 @@ type AdminListUsers = {
 
 /** Normalize an email for comparison (Supabase Auth stores emails lowercased). */
 function normEmail(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase();
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
 }
 
 /** Normalize a phone for comparison (digits only, tolerant of country code vs leading 0). */
@@ -202,6 +204,43 @@ type SlugQueryClient = {
   };
 };
 
+export type StaffStanding = { status: string | null; mustChangePassword: boolean };
+
+/**
+ * Own staff standing (status + temporary-password flag) for `verifyStaff`
+ * enforcement. Defensive: a missing row/column (pre-migration) or a read
+ * failure resolves to "unknown" and does NOT block — only an explicit
+ * DISABLED status or a true mustChangePassword flag denies. Same shape
+ * always, never throws.
+ */
+export async function staffStanding(
+  svc: { from: (table: string) => unknown },
+  userId: string,
+): Promise<StaffStanding> {
+  const fallback: StaffStanding = { status: null, mustChangePassword: false };
+  try {
+    const from = svc.from.bind(svc) as (t: string) => {
+      select: (c: string) => {
+        eq: (k: string, v: string) => Promise<{ data?: unknown; error?: unknown }>;
+      };
+    };
+    const res = (await from('StaffUser').select('status,mustChangePassword').eq('id', userId)) as {
+      data?: unknown;
+      error?: unknown;
+    };
+    if (!res || res.error) return fallback;
+    const row = (Array.isArray(res.data) ? res.data[0] : res.data) as
+      Record<string, unknown> | undefined;
+    if (!row) return fallback;
+    return {
+      status: typeof row.status === 'string' ? row.status : null,
+      mustChangePassword: row.mustChangePassword === true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Staff-domain role slugs: StaffAssignment (keyed by auth user id) → Role.
  * Preferred source (Phase 1 staff separation); empty when the caller holds
@@ -212,8 +251,10 @@ export async function queryStaffSlugs(
   userId: string,
 ): Promise<string[]> {
   try {
-    const from = (svc.from.bind(svc) as SlugQueryClient['from']);
-    const { data: rows, error } = await from('StaffAssignment').select('roleId').eq('staffUserId', userId);
+    const from = svc.from.bind(svc) as SlugQueryClient['from'];
+    const { data: rows, error } = await from('StaffAssignment')
+      .select('roleId')
+      .eq('staffUserId', userId);
     if (error || !Array.isArray(rows)) return [];
     const roleIds = (rows as Record<string, string>[])
       .map((r) => r.roleId ?? r.role_id ?? '')
@@ -262,6 +303,15 @@ export async function verifyStaff(
   }
   const svc =
     deps?.serviceClient ?? createClient(url, serviceKey, { auth: { autoRefreshToken: false } });
+  const standing = await staffStanding(svc, authedUser.id);
+  if (standing.status === 'DISABLED') {
+    return { error: toErrorEnvelope('FORBIDDEN', 'Account disabled.', 403) };
+  }
+  if (standing.mustChangePassword) {
+    return {
+      error: toErrorEnvelope('FORBIDDEN', 'Password change required before continuing.', 403),
+    };
+  }
   const slugs = await queryStaffSlugs(svc, authedUser.id);
   if (slugs.length > 0) {
     if (slugsAllowed(slugs, allowed)) return { userId: authedUser.id, slugs };

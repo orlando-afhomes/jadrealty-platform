@@ -45,6 +45,8 @@ export function StaffFormDialog({ open, onClose }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState('admin');
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -52,18 +54,27 @@ export function StaffFormDialog({ open, onClose }: Props) {
     setName('');
     setEmail('');
     setRoleId('admin');
+    setTemporaryPassword('');
+    setShowPassword(false);
     setErrors({});
   }, [open]);
 
-  const records = roles ?? systemRoleRecords();
+  const records = roles?.length ? roles : systemRoleRecords();
   const roleOptions = records.map((r) => ({ value: r.id, label: r.name }));
+  // The role list can arrive empty or exclude the held value (e.g. a system
+  // role missing its stored permissions). Keep the submitted/displayed role
+  // valid against the live list so a real selection is never rejected.
+  const effectiveRoleId = records.some((r) => r.id === roleId) ? roleId : (records[0]?.id ?? '');
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = 'Name is required.';
     if (!email.trim()) e.email = 'Email is required.';
     else if (!EMAIL_RE.test(email.trim())) e.email = 'Enter a valid email address.';
-    if (!records.some((r) => r.id === roleId)) e.role = 'Select a valid role.';
+    if (!effectiveRoleId) e.role = 'Select a valid role.';
+    if (!temporaryPassword) e.temporaryPassword = 'A temporary password is required.';
+    else if (temporaryPassword.length < 8)
+      e.temporaryPassword = 'Temporary password must be at least 8 characters.';
     return e;
   };
 
@@ -76,7 +87,8 @@ export function StaffFormDialog({ open, onClose }: Props) {
       const member = await createMutation.mutateAsync({
         name: name.trim(),
         email: email.trim(),
-        roleId,
+        roleId: effectiveRoleId,
+        temporaryPassword,
         actor: user?.name ?? 'Unknown',
         actorRole: user?.roleId ? user.roleId.toUpperCase() : 'ADMIN',
       });
@@ -171,7 +183,7 @@ export function StaffFormDialog({ open, onClose }: Props) {
           </span>
           <Select
             aria-label="Role"
-            value={roleId}
+            value={effectiveRoleId}
             onChange={(e) => setRoleId(e.target.value)}
             options={roleOptions}
           />
@@ -182,6 +194,40 @@ export function StaffFormDialog({ open, onClose }: Props) {
           ) : null}
           <span style={hintStyle}>
             Each staff user holds exactly one role. New accounts start ACTIVE.
+          </span>
+        </label>
+
+        <label style={labelStyle}>
+          <span style={labelTextStyle}>
+            Temporary password <span style={{ color: 'var(--color-danger)' }}>*</span>
+          </span>
+          <span style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={temporaryPassword}
+              onChange={(e) => setTemporaryPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              aria-label="Temporary password"
+              aria-invalid={Boolean(errors.temporaryPassword)}
+              aria-describedby={errors.temporaryPassword ? 'staff-password-error' : undefined}
+              style={{ ...inputStyle(Boolean(errors.temporaryPassword)), flex: 1 }}
+            />
+            <Button
+              variant="secondary"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </Button>
+          </span>
+          {errors.temporaryPassword ? (
+            <span id="staff-password-error" style={errorStyle} role="alert">
+              {errors.temporaryPassword}
+            </span>
+          ) : null}
+          <span style={hintStyle}>
+            The new staff signs in with this once, then must set their own password.
           </span>
         </label>
       </div>

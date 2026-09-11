@@ -14,15 +14,22 @@ import type { SessionUser } from '../lib/session';
 import { SessionProvider } from '../lib/session';
 import { RequireRole } from './RequireRole';
 
+const rolesStub = vi.hoisted(() => ({
+  pending: false,
+}));
+
 vi.mock('../features/roles/hooks/useRoles', async () => {
   const { systemRoleRecords } = await import('@jad/contracts');
   return {
-    useRoles: () => ({
-      data: systemRoleRecords(),
-      isPending: false,
-      isError: false,
-      error: null,
-    }),
+    useRoles: () =>
+      rolesStub.pending
+        ? { data: undefined, isPending: true, isError: false, error: null }
+        : {
+            data: systemRoleRecords(),
+            isPending: false,
+            isError: false,
+            error: null,
+          },
   };
 });
 
@@ -48,12 +55,89 @@ function renderAt(path: string, user: SessionUser | null | undefined) {
 
 describe('RequireRole', () => {
   afterEach(() => {
+    rolesStub.pending = false;
     vi.restoreAllMocks();
   });
 
   it('renders the page when the role may access the section', async () => {
     renderAt('/admin/registrations', MOCK_SUPER_ADMIN);
     expect(await screen.findByText('registrations page')).toBeInTheDocument();
+  });
+
+  it('redirects a temporary-password holder to My Account', async () => {
+    render(
+      <SessionProvider
+        initialUser={{ ...MOCK_SUPER_ADMIN, mustChangePassword: true }}
+        restoreDelayMs={0}
+      >
+        <MemoryRouter initialEntries={['/admin/members']}>
+          <Routes>
+            <Route
+              path="/admin/members"
+              element={
+                <RequireRole>
+                  <div>members page</div>
+                </RequireRole>
+              }
+            />
+            <Route path="/admin/profile" element={<div>my account page</div>} />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    expect(await screen.findByText('my account page')).toBeInTheDocument();
+    expect(screen.queryByText('members page')).not.toBeInTheDocument();
+  });
+
+  it('lets a temporary-password holder stay on My Account', async () => {
+    render(
+      <SessionProvider
+        initialUser={{ ...MOCK_SUPER_ADMIN, mustChangePassword: true }}
+        restoreDelayMs={0}
+      >
+        <MemoryRouter initialEntries={['/admin/profile']}>
+          <Routes>
+            <Route
+              path="/admin/profile"
+              element={
+                <RequireRole>
+                  <div>my account page</div>
+                </RequireRole>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    expect(await screen.findByText('my account page')).toBeInTheDocument();
+  });
+
+  it('renders My Account while flagged without waiting on the blocked roles query', async () => {
+    rolesStub.pending = true;
+    try {
+      render(
+        <SessionProvider
+          initialUser={{ ...MOCK_SUPER_ADMIN, mustChangePassword: true }}
+          restoreDelayMs={0}
+        >
+          <MemoryRouter initialEntries={['/admin/profile']}>
+            <Routes>
+              <Route
+                path="/admin/profile"
+                element={
+                  <RequireRole>
+                    <div>my account page</div>
+                  </RequireRole>
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        </SessionProvider>,
+      );
+      expect(await screen.findByText('my account page')).toBeInTheDocument();
+    } finally {
+      rolesStub.pending = false;
+    }
   });
 
   it('renders Forbidden when the role cannot access the section', async () => {

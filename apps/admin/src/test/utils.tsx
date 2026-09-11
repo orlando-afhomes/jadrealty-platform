@@ -15,14 +15,18 @@ import { createMockServer } from '@jad/mock';
  */
 export function renderWithProviders(
   ui: ReactElement,
-  { route = '/admin', user }: { route?: string; user?: SessionUser } = {},
+  {
+    route = '/admin',
+    user,
+    onRevalidate,
+  }: { route?: string; user?: SessionUser; onRevalidate?: () => void | Promise<void> } = {},
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const result = render(
     <ToastProvider>
-      <SessionProvider initialUser={user} restoreDelayMs={0}>
+      <SessionProvider initialUser={user} restoreDelayMs={0} onRevalidate={onRevalidate}>
         <QueryClientProvider client={client}>
           <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
         </QueryClientProvider>

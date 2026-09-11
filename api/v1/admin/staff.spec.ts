@@ -42,8 +42,7 @@ const mocks = vi.hoisted(() => {
     b.then = (resolve: (v: unknown) => void) => {
       if (table === 'MemberRole' || table === 'StaffAssignment') {
         resolve({ data: [{ roleId: 'r-1' }], error: null });
-      }
-      else if (table === 'Role')
+      } else if (table === 'Role')
         resolve({
           data: [
             {
@@ -85,9 +84,13 @@ const mocks = vi.hoisted(() => {
     },
     adminAuth: {
       createUser: async (input: unknown) => {
-        calls.push({ table: 'auth.users', op: 'createUser', arg: input });
+        mocks.calls.push({ table: 'auth.users', op: 'createUser', arg: input });
         if (script.createError) return { data: {}, error: script.createError };
         return { data: { user: { id: 'new-staff-uuid' } }, error: null };
+      },
+      updateUserById: async (id: unknown, attrs: unknown) => {
+        mocks.calls.push({ table: 'auth.users', op: 'updateUserById', arg: { id, attrs } });
+        return { data: { user: { id } }, error: null };
       },
       listUsers: async () => ({ data: { users: script.listedUsers } }),
     },
@@ -125,6 +128,7 @@ const BODY = {
   name: 'Ada Admin',
   email: 'ada@example.com',
   roleId: 'admin',
+  temporaryPassword: 'TempPass1',
   actor: 'Saul Super',
   actorRole: 'super_admin',
 };
@@ -162,6 +166,30 @@ describe('POST /admin/staff', () => {
     expect(mocks.calls.some((c) => c.table === 'Member')).toBe(false);
   });
 
+  it('resets the temporary password when adopting an orphaned auth account', async () => {
+    mocks.script.createError = {
+      message: 'A user with this email address has already been registered',
+    };
+    mocks.script.listedUsers = [{ id: 'orphan-uuid', email: 'ada@example.com' }];
+    const { res, seen } = capture();
+    await createStaff(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: { ...BODY, temporaryPassword: 'TempPass1' },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(201);
+    const reset = mocks.calls.find((c) => c.table === 'auth.users' && c.op === 'updateUserById')
+      ?.arg as Record<string, unknown>;
+    expect(reset).toMatchObject({
+      id: 'orphan-uuid',
+      attrs: { password: 'TempPass1', email_confirm: true },
+    });
+  });
+
   it('rejects a staff email that belongs to a member account', async () => {
     mocks.script.dupeMemberRows = [{ id: 'mem-1' }];
     const { res, seen } = capture();
@@ -186,5 +214,51 @@ describe('POST /admin/staff', () => {
     expect(seen.body).toMatchObject({
       error: { code: 'INTERNAL', message: 'Database error saving new user' },
     });
+  });
+
+  it('passes the super-admin-set temporary password to the auth account and flags first-change', async () => {
+    const { res, seen } = capture();
+    await createStaff(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: { ...BODY, temporaryPassword: 'TempPass1' },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(201);
+    const created = mocks.calls.find((c) => c.table === 'auth.users' && c.op === 'createUser')
+      ?.arg as Record<string, unknown>;
+    expect(created.password).toBe('TempPass1');
+    const upsert = mocks.calls.find((c) => c.table === 'StaffUser' && c.op === 'upsert')
+      ?.arg as Record<string, unknown>;
+    expect(upsert.mustChangePassword).toBe(true);
+  });
+
+  it('rejects a missing or weak temporary password', async () => {
+    const { name, email, roleId, actor, actorRole } = BODY;
+    const { res: r1, seen: s1 } = capture();
+    await createStaff(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: { name, email, roleId, actor, actorRole },
+      } as VercelRequest,
+      r1,
+    );
+    expect(s1.status).toBe(400);
+    const { res: r2, seen: s2 } = capture();
+    await createStaff(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: { ...BODY, temporaryPassword: 'short' },
+      } as VercelRequest,
+      r2,
+    );
+    expect(s2.status).toBe(400);
   });
 });

@@ -139,6 +139,42 @@ export const staffStatusSchema = z.enum(['ACTIVE', 'DISABLED']);
 export type StaffStatus = z.infer<typeof staffStatusSchema>;
 
 /**
+ * Staff password rule (ASSUMPTION 1 — no approved credential policy; the
+ * 8-character minimum mirrors the member registration UI assumption).
+ * Applies to super-admin-set temporary passwords and staff-chosen passwords.
+ */
+export const staffPasswordSchema = z.string().min(8).max(72);
+
+export type StaffPassword = z.infer<typeof staffPasswordSchema>;
+
+/** `POST /admin/staff` — create a staff account with a temporary password (FR-ADM). */
+export const createStaffRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email(),
+  roleId: z.string().min(1),
+  temporaryPassword: staffPasswordSchema,
+  actor: z.string().min(1).optional(),
+  actorRole: z.string().min(1).optional(),
+});
+
+export type CreateStaffRequest = z.infer<typeof createStaffRequestSchema>;
+
+/** `PATCH /admin/session` — the signed-in staff member updates their own display name. */
+export const updateStaffProfileRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+
+export type UpdateStaffProfileRequest = z.infer<typeof updateStaffProfileRequestSchema>;
+
+/** `POST /admin/session/password` — change own password (current verified server-side). */
+export const changeStaffPasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: staffPasswordSchema,
+});
+
+export type ChangeStaffPasswordRequest = z.infer<typeof changeStaffPasswordRequestSchema>;
+
+/**
  * Staff identity — internal user profile, separate from Member (Phase 1
  * staff separation). Keyed by the auth user id; owns no financial,
  * genealogy, or member data by construction.
@@ -149,6 +185,12 @@ export const staffUserSchema = z.object({
   name: z.string().min(1),
   status: staffStatusSchema,
   createdAt: z.string(),
+  /**
+   * True while the account still runs on a super-admin-set temporary
+   * password — the holder must change it before using the admin shell.
+   * Optional so pre-flag fixtures still validate; writers always set it.
+   */
+  mustChangePassword: z.boolean().optional(),
 });
 
 export type StaffUser = z.infer<typeof staffUserSchema>;
@@ -172,6 +214,8 @@ export const staffSessionSchema = z.object({
   name: z.string().min(1),
   status: staffStatusSchema,
   slugs: z.array(z.string().min(1)),
+  /** Mirrors StaffUser.mustChangePassword; drives the forced-change gate. */
+  mustChangePassword: z.boolean().optional(),
 });
 
 export type StaffSession = z.infer<typeof staffSessionSchema>;

@@ -24,6 +24,7 @@ export function createStaff(input: {
   name: string;
   email: string;
   roleId: string;
+  temporaryPassword: string;
   actor: string;
   actorRole: string;
 }): Promise<MockStaffMember> {

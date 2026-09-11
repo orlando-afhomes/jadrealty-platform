@@ -31,7 +31,9 @@ vi.mock('./supabase', async () => {
         seenTables.push(table);
         if (table === 'Member')
           return {
-            select: () => ({ eq: () => ({ single: mockMembersSingle, maybeSingle: mockMembersSingle }) }),
+            select: () => ({
+              eq: () => ({ single: mockMembersSingle, maybeSingle: mockMembersSingle }),
+            }),
           };
         return { select: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) };
       },
@@ -64,6 +66,8 @@ function stubStaffSession(
 
 function Probe() {
   const { status, role, roleId, user, sessionError, revalidate } = useSession();
+  const mustChangePassword =
+    (useSession() as unknown as { mustChangePassword?: boolean }).mustChangePassword ?? false;
   return (
     <div>
       <div data-testid="status">{status}</div>
@@ -71,6 +75,7 @@ function Probe() {
       <div data-testid="roleId">{roleId ?? 'null'}</div>
       <div data-testid="user">{user?.id ?? 'none'}</div>
       <div data-testid="sessionError">{sessionError ? 'yes' : 'no'}</div>
+      <div data-testid="mustChange">{mustChangePassword ? 'yes' : 'no'}</div>
       <button type="button" onClick={() => void revalidate()}>
         Re-run session
       </button>
@@ -111,6 +116,30 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
     expect(screen.getByTestId('role')).toHaveTextContent('admin');
     expect(screen.getByTestId('roleId')).toHaveTextContent('super_admin');
+  });
+
+  it('surfaces mustChangePassword from the staff session', async () => {
+    stubStaffSession(() =>
+      Response.json({
+        id: 'sup-001',
+        email: 'superadmin@gmail.com',
+        name: 'Saul Super',
+        status: 'ACTIVE',
+        slugs: ['super_admin'],
+        mustChangePassword: true,
+      }),
+    );
+    mockGetSession.mockResolvedValue({
+      data: { session: sessionWithUser('sup-001', 'superadmin@gmail.com') },
+    });
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(screen.getByTestId('mustChange')).toHaveTextContent('yes');
   });
 
   it('endpoint 404 (no staff identity) → user role, null shell', async () => {

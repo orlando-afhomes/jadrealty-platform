@@ -23,6 +23,10 @@ import {
   STAFF_MODULE_LABEL,
   staffMemberSchema,
   auditLogEntrySchema,
+  staffPasswordSchema,
+  createStaffRequestSchema,
+  updateStaffProfileRequestSchema,
+  changeStaffPasswordRequestSchema,
   systemConfigEntrySchema,
   CONFIG_SEEDS,
   PROGRAM_SEEDS,
@@ -191,16 +195,19 @@ describe('roleRecordSchema', () => {
 
   it('rejects empty permissions, blank names, and overlong names', () => {
     expect(
-      roleRecordSchema.safeParse({ id: 'r', name: 'X', permissions: [], isSystem: false })
-        .success,
+      roleRecordSchema.safeParse({ id: 'r', name: 'X', permissions: [], isSystem: false }).success,
     ).toBe(false);
     expect(
       roleRecordSchema.safeParse({ id: 'r', name: '  ', permissions: ['sales'], isSystem: false })
         .success,
     ).toBe(false);
     expect(
-      roleRecordSchema.safeParse({ id: 'r', name: 'x'.repeat(61), permissions: ['sales'], isSystem: false })
-        .success,
+      roleRecordSchema.safeParse({
+        id: 'r',
+        name: 'x'.repeat(61),
+        permissions: ['sales'],
+        isSystem: false,
+      }).success,
     ).toBe(false);
   });
 
@@ -333,7 +340,9 @@ describe('systemRoleRecords seed parity', () => {
     for (const seed of seeds) {
       expect(seed.isSystem).toBe(true);
       expect(seed.name).toBe(STAFF_ROLE_LABEL[seed.id as StaffRole]);
-      expect([...seed.permissions].sort()).toEqual([...STAFF_PERMISSIONS[seed.id as StaffRole]].sort());
+      expect([...seed.permissions].sort()).toEqual(
+        [...STAFF_PERMISSIONS[seed.id as StaffRole]].sort(),
+      );
       expect(seed.domain).toBe('staff');
     }
   });
@@ -478,9 +487,9 @@ describe('systemConfigEntrySchema', () => {
     for (const group of PROGRAM_QUESTION_SEEDS) {
       expect(group.questions.length).toBeGreaterThan(0);
       for (const q of group.questions) {
-        expect(qualificationQuestionSchema.safeParse({ id: q.id, questionText: q.questionText }).success).toBe(
-          true,
-        );
+        expect(
+          qualificationQuestionSchema.safeParse({ id: q.id, questionText: q.questionText }).success,
+        ).toBe(true);
       }
     }
   });
@@ -501,5 +510,55 @@ describe('STAFF_MODULE_LABEL', () => {
     }
     expect(STAFF_MODULE_LABEL.staff).toBe('Staff');
     expect(STAFF_MODULE_LABEL.marketing_tools).toBe('Marketing Tools');
+  });
+});
+
+describe('staffPasswordSchema', () => {
+  it('requires at least 8 characters', () => {
+    expect(staffPasswordSchema.safeParse('short').success).toBe(false);
+    expect(staffPasswordSchema.safeParse('TempPass1').success).toBe(true);
+  });
+});
+
+describe('createStaffRequestSchema', () => {
+  it('requires a temporary password', () => {
+    expect(
+      createStaffRequestSchema.safeParse({ name: 'A', email: 'a@b.com', roleId: 'admin' }).success,
+    ).toBe(false);
+    expect(
+      createStaffRequestSchema.safeParse({
+        name: 'A',
+        email: 'a@b.com',
+        roleId: 'admin',
+        temporaryPassword: 'TempPass1',
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe('updateStaffProfileRequestSchema', () => {
+  it('requires a non-empty name', () => {
+    expect(updateStaffProfileRequestSchema.safeParse({ name: '  ' }).success).toBe(false);
+    expect(updateStaffProfileRequestSchema.safeParse({ name: 'Ada Admin' }).success).toBe(true);
+  });
+});
+
+describe('changeStaffPasswordRequestSchema', () => {
+  it('requires the current password and a strong new one', () => {
+    expect(
+      changeStaffPasswordRequestSchema.safeParse({
+        currentPassword: 'old-pass-1',
+        newPassword: 'short',
+      }).success,
+    ).toBe(false);
+    expect(changeStaffPasswordRequestSchema.safeParse({ newPassword: 'NewPass12' }).success).toBe(
+      false,
+    );
+    expect(
+      changeStaffPasswordRequestSchema.safeParse({
+        currentPassword: 'old-pass-1',
+        newPassword: 'NewPass12',
+      }).success,
+    ).toBe(true);
   });
 });

@@ -19,6 +19,7 @@ import fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 
 import { isAuthConflict } from '../api/_lib/auth.js';
+import { STAFF_PERMISSIONS } from '../packages/contracts/src/schemas/staff-role.js';
 
 function loadEnvFile(path: string) {
   try {
@@ -128,6 +129,9 @@ async function seed() {
     const { error } = await supabase.from(table).upsert(payload as never, { onConflict: conflict });
     return error;
   };
+  // Role permissions converge to the STAFF_PERMISSIONS matrix seed (single
+  // source) so GET /admin/roles never drops them (roleRecordSchema requires
+  // >=1 permission); member-domain rows keep the empty set by design.
   const roles = [
     { slug: 'admin', name: 'Admin', description: 'Admin dashboard — Phase 1', domain: 'staff' },
     { slug: 'user', name: 'User', description: 'User dashboard — Phase 1', domain: 'member' },
@@ -149,7 +153,11 @@ async function seed() {
       description: 'Voucher redemption scope (BUSINESS-RULES #3)',
       domain: 'staff',
     },
-  ];
+  ].map((r) => ({
+    ...r,
+    permissions: [...((STAFF_PERMISSIONS as Record<string, readonly string[]>)[r.slug] ?? [])],
+    is_system: true,
+  }));
   let roleFailed = false;
   for (const r of roles) {
     let err = await tryUpsert('Role', r, 'slug');
@@ -258,10 +266,12 @@ async function seed() {
     console.error('StaffAssignment admin@jad.local->super_admin failed: missing auth or role id');
     memberRoleFailed = true;
   } else {
-    const { error: staffErr } = await supabase.from('StaffUser').upsert(
-      { id: adminId, email: 'admin@jad.local', name: 'Admin User', status: 'ACTIVE' },
-      { onConflict: 'id' },
-    );
+    const { error: staffErr } = await supabase
+      .from('StaffUser')
+      .upsert(
+        { id: adminId, email: 'admin@jad.local', name: 'Admin User', status: 'ACTIVE' },
+        { onConflict: 'id' },
+      );
     if (staffErr) {
       console.error('StaffUser admin@jad.local failed:', staffErr.message);
       memberRoleFailed = true;

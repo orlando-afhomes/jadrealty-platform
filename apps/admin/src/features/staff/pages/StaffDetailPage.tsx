@@ -43,7 +43,7 @@ export function StaffDetailPage() {
   const [showStatusConfirm, setShowStatusConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const records = roles ?? systemRoleRecords();
+  const records = roles?.length ? roles : systemRoleRecords();
   const roleOptions = records.map((r) => ({ value: r.id, label: r.name }));
 
   const actorName = user?.name ?? 'Unknown';

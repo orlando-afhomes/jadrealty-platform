@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import { useLocation } from 'react-router';
+import { Navigate, useLocation } from 'react-router';
 
 import { useSession } from '../lib/session';
 import { Button, Forbidden, Skeleton } from '@jad/ui';
@@ -62,13 +62,25 @@ function LoadingState() {
  * of stranding the user — a refresh is no longer required to recover.
  */
 export function RequireRole({ children }: { children: ReactNode }) {
-  const { status, role, roleId, sessionError, revalidate } = useSession();
-  const { data: roles, isPending: rolesPending } = useRoles();
+  const { status, role, roleId, sessionError, revalidate, mustChangePassword } = useSession();
+  // During a forced password change the roles endpoint is blocked by design
+  // (verifyStaff rejects mustChangePassword) and module RBAC is irrelevant —
+  // the redirect below pins the user to My Account. Never wait on role
+  // records in that state, or the page sits in the loading skeleton.
+  // Unauthenticated sessions never fetch either (the flag is unknown).
+  const { data: roles, isPending: rolesPending } = useRoles({
+    enabled: status === 'authenticated' && !mustChangePassword,
+  });
   const location = useLocation();
 
   if (status === 'loading') return <LoadingState />;
   if (status !== 'authenticated') {
     return <RedirectToWebLogin />;
+  }
+  // Forced temporary-password change: hold every admin destination except
+  // My Account until the holder sets their own password.
+  if (mustChangePassword && location.pathname !== '/admin/profile') {
+    return <Navigate to="/admin/profile" replace />;
   }
   const denied = sessionError ? (
     <Forbidden
@@ -81,6 +93,7 @@ export function RequireRole({ children }: { children: ReactNode }) {
   ) : (
     <Forbidden />
   );
+  if (mustChangePassword) return <>{children}</>;
   // Sessions carrying a role id enforce per-module access resolved against
   // role records (matrix seed as fallback). A matched sub-item (dropdown
   // link) is authoritative for its destination; the item module check

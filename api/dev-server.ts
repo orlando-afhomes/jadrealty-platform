@@ -58,6 +58,7 @@ import handlerForwardable from './v1/content/forwardable.js';
 import handlerAdminContent from './v1/admin/content.js';
 import handlerAdminContentById from './v1/admin/content/[id].js';
 import handlerAdminSession from './v1/admin/session.js';
+import handlerAdminSessionPassword from './v1/admin/session/password.js';
 import handlerAdminRegistrations from './v1/admin/registrations.js';
 import handlerAdminRegistrationById from './v1/admin/registrations/[id].js';
 import handlerAdminRegistrationApprove from './v1/admin/registrations/[id]/approve.js';
@@ -224,6 +225,12 @@ const server = http.createServer(async (req, res) => {
   } else if (pathname === '/api/v1/admin/session' || pathname === '/api/admin/session') {
     handler = handlerAdminSession as unknown as HandlerFn;
     routeKey = 'admin/session';
+  } else if (
+    pathname === '/api/v1/admin/session/password' ||
+    pathname === '/api/admin/session/password'
+  ) {
+    handler = handlerAdminSessionPassword as unknown as HandlerFn;
+    routeKey = 'admin/session/password';
   } else if (
     pathname === '/api/v1/content/forwardable' ||
     pathname === '/api/content/forwardable'

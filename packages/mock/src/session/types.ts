@@ -24,6 +24,11 @@ export interface MockUser {
    * later).
    */
   roleId?: string | null;
+  /**
+   * True while the account runs on a super-admin-set temporary password.
+   * The holder must change it (My Account) before using the admin shell.
+   */
+  mustChangePassword?: boolean;
 }
 
 export type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
