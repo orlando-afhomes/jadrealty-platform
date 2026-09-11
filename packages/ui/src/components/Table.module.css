@@ -105,6 +105,15 @@
     gap: var(--space-4);
     padding: var(--space-2) var(--space-3);
     text-align: right;
+    min-width: 0;
+  }
+
+  /* Long unbreakable values (emails, ids) must wrap inside the card instead
+     of pushing the row wider than the viewport. */
+  .cell > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .cell::before {
@@ -112,6 +121,7 @@
     font-weight: 600;
     color: var(--color-text-muted);
     text-align: left;
+    flex-shrink: 0;
   }
 
   .cell[data-label='']::before,

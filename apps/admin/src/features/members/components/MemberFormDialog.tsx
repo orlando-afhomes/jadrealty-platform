@@ -157,7 +157,15 @@ export function MemberFormDialog({ open, onClose, member }: MemberFormDialogProp
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--space-3)', minWidth: 320 }}>
+      <div
+        data-testid="member-form-fields"
+        style={{
+          display: 'grid',
+          gap: 'var(--space-3)',
+          minWidth: 'min(320px, 100%)',
+          maxWidth: '100%',
+        }}
+      >
         {submitError ? (
           <p
             role="alert"
