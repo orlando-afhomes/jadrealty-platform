@@ -175,7 +175,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       id: string;
       email: string;
       user_metadata: Record<string, unknown>;
-    }): Promise<{ user: SessionUser; verified: boolean }> => {
+    }): Promise<{ user: SessionUser | null; verified: boolean }> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const supaAny = client as any;
       let member: {
@@ -184,25 +184,20 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         isQualified: boolean;
         status: string;
       } | null = null;
+      let memberFound = false;
       try {
-        let res: { data: Record<string, unknown> | null; error: unknown } | null = null;
-        try {
-          const r = (await supaAny.from('Member').select('*').eq('id', supaUser.id).single()) as {
-            data: Record<string, unknown> | null;
-            error: unknown;
-          };
-          if (!r.error && r.data)
-            res = r as { data: Record<string, unknown> | null; error: unknown };
-          else throw r.error;
-        } catch {
-          const r2 = (await supaAny.from('members').select('*').eq('id', supaUser.id).single()) as {
-            data: Record<string, unknown> | null;
-            error: unknown;
-          };
-          res = r2;
-        }
-        if (res?.data) {
-          const d = res.data as Record<string, unknown>;
+        // maybeSingle on the real "Member" table: 0 rows (deleted/purged
+        // Member) resolves null instead of throwing PGRST116 like .single()
+        // did. No legacy-table fallback: only quoted PascalCase tables exist
+        // in the schema (auth foundation migration), so probing "members"
+        // can only ever produce PGRST205 noise.
+        const r = (await supaAny.from('Member').select('*').eq('id', supaUser.id).maybeSingle()) as {
+          data: Record<string, unknown> | null;
+          error: unknown;
+        };
+        if (!r.error && r.data) {
+          memberFound = true;
+          const d = r.data as Record<string, unknown>;
           const name = (d['name'] as string) ?? '';
           const firstName = (d['firstName'] as string) ?? name.split(' ')[0] ?? '';
           const lastName = (d['lastName'] as string) ?? name.split(' ').slice(1).join(' ') ?? '';
@@ -216,6 +211,19 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       }
       const { role: resolvedRole, verified } = await resolveRole(client, supaUser.id);
       let role = resolvedRole;
+      // Orphaned auth user: valid Supabase login but the Member row was
+      // deleted/purged (and no StaffUser identity). Never grant a member
+      // session — sign out so the user lands on login with a clear message
+      // instead of a broken panel of 404s. Staff-only identities (no Member
+      // row by design) keep their admin session.
+      if (!memberFound && role !== 'admin') {
+        try {
+          await client.auth.signOut();
+        } catch {
+          // best effort — local sign-out below still clears the session
+        }
+        return { user: null, verified: true };
+      }
       // No staff identity: member-tier session. user_metadata is
       // client-writable and must never confer privilege.
       if (role === null) {

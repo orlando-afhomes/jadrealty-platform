@@ -8,6 +8,7 @@ import { Breadcrumbs, ConfirmDialog, ErrorState, PageHeader, Skeleton, StatusChi
 import { Button } from '../../../components/Button';
 import { Alert } from '../../../components/Alert';
 import { apiErrorMessage } from '../../../lib/api/errorMessage';
+import { orphanMessageFor } from '../../../lib/api/orphan';
 import { useMemberProfile } from '../hooks/useMember';
 import { formatDate, MEMBER_STATUS_TONE, memberStatusLabel } from '../lib/presentation';
 import { updateProfile } from '../services/member';
@@ -114,6 +115,7 @@ export function ProfilePage() {
         <ErrorState
           error={profileQuery.error}
           title="Could not load your profile"
+          message={orphanMessageFor(profileQuery.error)}
           onRetry={() => void profileQuery.refetch()}
         />
       </section>

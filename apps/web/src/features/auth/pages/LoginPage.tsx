@@ -11,6 +11,7 @@ import { Alert } from '../../../components/Alert';
 import { Button } from '../../../components/Button';
 import { ApiError } from '../../../lib/api/errors';
 import { apiErrorMessage } from '../../../lib/api/errorMessage';
+import { ORPHAN_ACCOUNT_MESSAGE } from '../../../lib/api/orphan';
 import { useQuery } from '@tanstack/react-query';
 import { getGlobalCmsPublic, getLoginCmsPublic } from '@/lib/cms';
 import { AUTH } from '../content';
@@ -115,6 +116,7 @@ export function LoginPage() {
             };
             error: { message: string } | null;
           }>;
+          signOut: () => Promise<void>;
         };
         from: (t: string) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,7 +137,11 @@ export function LoginPage() {
         });
       }
       const userId = data.user.id;
-      // Fetch profile from Member table (quoted "Member" per migration, fallback to legacy "members")
+      // Fetch profile from the real "Member" table (quoted per migration).
+      // maybeSingle: 0 rows (deleted/purged Member) resolves null instead of
+      // throwing PGRST116 like .single() did. No legacy "members" fallback:
+      // that table does not exist in the schema, so probing it can only
+      // ever produce PGRST205 noise.
       let member: {
         firstName: string;
         lastName: string;
@@ -150,7 +156,7 @@ export function LoginPage() {
                 eq: (
                   k: string,
                   v: string,
-                ) => { single: () => Promise<{ data: Record<string, unknown> | null }> };
+                ) => { maybeSingle: () => Promise<{ data: Record<string, unknown> | null }> };
               };
             };
           }
@@ -158,7 +164,7 @@ export function LoginPage() {
           .from('Member')
           .select('*')
           .eq('id', userId)
-          .single()) as {
+          .maybeSingle()) as {
           data: Record<string, unknown> | null;
         };
         if (res.data) {
@@ -172,23 +178,7 @@ export function LoginPage() {
           };
         }
       } catch {
-        try {
-          const res2 = (await (supaClient
-            .from('members')
-            .select('*')
-            .eq('id', userId)
-            .single() as Promise<{
-            data: {
-              firstName: string;
-              lastName: string;
-              isQualified: boolean;
-              status: string;
-            } | null;
-          }>)) ?? { data: null };
-          member = res2.data;
-        } catch {
-          member = null;
-        }
+        member = null;
       }
 
       // Authoritative role resolution (staff-first): staff-only identities
@@ -202,6 +192,21 @@ export function LoginPage() {
         userId,
         (data.user.user_metadata ?? {}) as Record<string, unknown>,
       );
+      // Orphaned auth user: valid Supabase login but the Member row was
+      // deleted/purged (and no StaffUser identity → not admin). Block the
+      // login with a friendly message instead of entering a broken panel.
+      if (!member && authoritativeRole !== 'admin') {
+        try {
+          await supaClient.auth.signOut();
+        } catch {
+          // best effort — the ApiError below still blocks entry
+        }
+        throw new ApiError({
+          code: 'ACCOUNT_DELETED',
+          message: ORPHAN_ACCOUNT_MESSAGE,
+          status: 403,
+        });
+      }
       return {
         id: data.user.id,
         name:

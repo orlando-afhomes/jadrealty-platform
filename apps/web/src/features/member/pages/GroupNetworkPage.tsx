@@ -1,6 +1,7 @@
 import { Breadcrumbs, EmptyState, ErrorState, Icon, PageHeader, Skeleton } from '@jad/ui';
 
 import { ButtonLink } from '@/components/ButtonLink';
+import { orphanMessageFor } from '../../../lib/api/orphan';
 import { useGroupNetwork } from '../hooks/useMember';
 import styles from './GroupNetworkPage.module.css';
 
@@ -53,6 +54,7 @@ export function GroupNetworkPage() {
         <ErrorState
           error={networkQuery.error}
           title="Could not load your group network"
+          message={orphanMessageFor(networkQuery.error)}
           onRetry={() => void networkQuery.refetch()}
         />
       ) : networkQuery.data && networkQuery.data.totalMembers === 0 ? (

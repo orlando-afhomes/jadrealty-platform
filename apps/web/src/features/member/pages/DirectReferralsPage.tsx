@@ -4,6 +4,7 @@ import { EmptyState, ErrorState, PageHeader, Skeleton, StatusChip } from '@jad/u
 import type { MemberStatus } from '@jad/contracts';
 
 import { useDirectReferrals } from '../hooks/useMember';
+import { orphanMessageFor } from '../../../lib/api/orphan';
 import { MEMBER_STATUS_TONE, formatDate, memberStatusLabel } from '../lib/presentation';
 import styles from './DirectReferralsPage.module.css';
 
@@ -29,7 +30,11 @@ export function DirectReferralsPage() {
           <Skeleton />
         </div>
       ) : referralsQuery.isError ? (
-        <ErrorState error={referralsQuery.error} title="Could not load your direct referrals" />
+        <ErrorState
+          error={referralsQuery.error}
+          title="Could not load your direct referrals"
+          message={orphanMessageFor(referralsQuery.error)}
+        />
       ) : (referralsQuery.data ?? []).length === 0 ? (
         <EmptyState
           title="No direct referrals yet"

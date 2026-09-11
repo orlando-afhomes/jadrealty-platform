@@ -13,6 +13,7 @@ import {
 import type { GenealogyNode, MemberStatus } from '@jad/contracts';
 
 import { ButtonLink } from '@/components/ButtonLink';
+import { orphanMessageFor } from '../../../lib/api/orphan';
 import { useGenealogy } from '../hooks/useMember';
 import { MEMBER_STATUS_TONE, formatDate, memberStatusLabel } from '../lib/presentation';
 import styles from './MyGenealogyPage.module.css';
@@ -222,6 +223,7 @@ export function MyGenealogyPage() {
         <ErrorState
           error={genealogyQuery.error}
           title="Could not load your genealogy"
+          message={orphanMessageFor(genealogyQuery.error)}
           onRetry={() => void genealogyQuery.refetch()}
         />
       ) : !visibleRoot ? (

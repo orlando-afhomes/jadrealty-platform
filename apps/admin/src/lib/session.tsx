@@ -244,26 +244,17 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         status: string;
       } | null = null;
       try {
-        // Prefer quoted "Member" (auth foundation) with correct columns: id, email, name, status, "isQualified"
-        // Fallback to legacy "members" for compat
-        let res: { data: Record<string, unknown> | null; error: unknown } | null = null;
-        try {
-          const r = (await supaAny.from('Member').select('*').eq('id', supaUser.id).single()) as {
-            data: Record<string, unknown> | null;
-            error: unknown;
-          };
-          if (!r.error && r.data)
-            res = r as { data: Record<string, unknown> | null; error: unknown };
-          else throw r.error;
-        } catch {
-          const r2 = (await supaAny.from('members').select('*').eq('id', supaUser.id).single()) as {
-            data: Record<string, unknown> | null;
-            error: unknown;
-          };
-          res = r2;
-        }
-        if (res?.data) {
-          const d = res.data as Record<string, unknown>;
+        // maybeSingle on the real quoted "Member" table: 0 rows
+        // (staff-only identity, no Member row by design) resolves null
+        // instead of throwing PGRST116 like .single() did. No legacy
+        // "members" fallback: that table does not exist in the schema, so
+        // probing it can only ever produce PGRST205 noise.
+        const r = (await supaAny.from('Member').select('*').eq('id', supaUser.id).maybeSingle()) as {
+          data: Record<string, unknown> | null;
+          error: unknown;
+        };
+        if (!r.error && r.data) {
+          const d = r.data as Record<string, unknown>;
           // Handle both new "name" and legacy "firstName"/"lastName"
           const name = (d['name'] as string) ?? '';
           const firstName = (d['firstName'] as string) ?? name.split(' ')[0] ?? '';

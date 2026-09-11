@@ -38,10 +38,11 @@ export function useMemberRoles() {
         } | null;
         if (client && user?.id) {
           try {
-            // Try quoted "MemberRole" first (auth foundation), fallback to snake
+            // Only the quoted "MemberRole" table exists in the schema —
+            // legacy variants are gone (probing them only yields PGRST205).
             let links: { roleId: string }[] | null = null;
             let linkErr: unknown = null;
-            for (const tbl of ['MemberRole', 'member_roles', 'memberrole'] as const) {
+            for (const tbl of ['MemberRole'] as const) {
               const res = (await (client as unknown as { from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => Promise<{ data: unknown[] | null; error: unknown }> } } }).from(tbl).select('roleId').eq('memberId', user.id)) as { data: { roleId: string }[] | null; error: unknown };
               if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
                 links = res.data as { roleId: string }[];
@@ -71,10 +72,10 @@ export function useMemberRoles() {
                   };
                 };
               };
-              // Try quoted "Role" first
+              // Only the quoted "Role" table exists in the schema.
               let roles: MemberRole[] | null = null;
               let roleErr: unknown = null;
-              for (const tbl of ['Role', 'roles', 'role'] as const) {
+              for (const tbl of ['Role'] as const) {
                 const res = await supa.from(tbl).select('slug,name').in('id', ids);
                 if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
                   roles = res.data as MemberRole[];
@@ -88,7 +89,7 @@ export function useMemberRoles() {
               }
               const collected: MemberRole[] = [];
               for (const rid of ids) {
-                for (const tbl of ['Role', 'roles', 'role'] as const) {
+                for (const tbl of ['Role'] as const) {
                   const { data: one } = await supa.from(tbl).select('slug,name').eq('id', rid);
                   if (Array.isArray(one) && one.length > 0) {
                     for (const row of one as MemberRole[]) collected.push(row);

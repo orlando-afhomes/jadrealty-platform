@@ -116,12 +116,10 @@ export async function resolveLoginRole(
     // fall through to member-tier resolution
   }
 
-  // 2. Member-tier roles via MemberRole → Role (quoted tables first, legacy fallbacks).
-  const variants: [linkTable: string, roleTable: string][] = [
-    ['MemberRole', 'Role'],
-    ['member_roles', 'roles'],
-    ['memberrole', 'role'],
-  ];
+  // 2. Member-tier roles via MemberRole → Role. Only the quoted tables
+  // exist in the schema (auth foundation migration) — legacy snake_case
+  // variants are gone, since probing them can only produce PGRST205 noise.
+  const variants: [linkTable: string, roleTable: string][] = [['MemberRole', 'Role']];
   for (const [linkTable, roleTable] of variants) {
     try {
       const { data: links, error: linkErr } = await client

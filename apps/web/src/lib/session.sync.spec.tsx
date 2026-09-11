@@ -26,6 +26,18 @@ vi.mock('./supabase', async () => {
         select: () => ({
           eq: () => ({
             single: () => Promise.resolve({ data: null }),
+            // A Member row exists for restored sessions (deleted-member
+            // orphans are covered by session.orphan.spec.tsx).
+            maybeSingle: () =>
+              Promise.resolve({
+                data: {
+                  firstName: 'Test',
+                  lastName: 'User',
+                  isQualified: true,
+                  status: 'APPROVED_ACTIVE',
+                },
+                error: null,
+              }),
           }),
         }),
       }),

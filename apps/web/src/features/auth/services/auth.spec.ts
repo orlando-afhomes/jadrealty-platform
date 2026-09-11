@@ -70,6 +70,21 @@ describe('resolveLoginRole (staff-first login resolution)', () => {
     await expect(resolveLoginRole(client, 'mem-uuid-3', {})).resolves.toBe('user');
   });
 
+  it('never queries phantom tables that do not exist in the schema', async () => {
+    // Regression (PGRST205): only "MemberRole"/"Role" (+ StaffUser) exist —
+    // probing member_roles/roles/memberrole/role emits failing requests and,
+    // on orphaned accounts, surfaces "Could not find the table" noise.
+    const seen = new Set<string>();
+    const client = clientFor((table) => {
+      seen.add(table);
+      return { data: [], error: null };
+    });
+    await expect(resolveLoginRole(client, 'orphan-id', {})).resolves.toBe('user');
+    for (const table of seen) {
+      expect(['StaffUser', 'MemberRole', 'Role']).toContain(table);
+    }
+  });
+
   it('defaults to user when nothing resolves', async () => {
     await expect(resolveLoginRole(failAll, 'unknown-id', {})).resolves.toBe('user');
   });

@@ -32,8 +32,12 @@ vi.mock('./supabase', async () => {
         if (lower === 'staffuser') {
           return { select: () => ({ eq: mockStaffUserEq }) };
         }
-        if (lower === 'members' || table === 'members') {
-          return { select: () => ({ eq: () => ({ single: mockMembersSingle }) }) };
+        if (lower === 'member' || lower === 'members') {
+          return {
+            select: () => ({
+              eq: () => ({ single: mockMembersSingle, maybeSingle: mockMembersSingle }),
+            }),
+          };
         }
         return { select: () => ({ eq: vi.fn(), in: vi.fn() }) };
       },
@@ -133,7 +137,7 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
     expect(normalizeRole(null)).toBe('user');
   });
 
-  it('Missing profile (members null) → safe user, no crash', async () => {
+  it('Missing profile (members null) → orphan sign-out, never a member session', async () => {
     mockGetSession.mockResolvedValue({
       data: {
         session: {
@@ -141,7 +145,8 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
         },
       },
     });
-    mockMembersSingle.mockResolvedValue({ data: null, error: { message: 'not found' } });
+    // 0 rows: .maybeSingle() resolves null (deleted/purged Member, no staff identity).
+    mockMembersSingle.mockResolvedValue({ data: null, error: null });
 
     render(
       <SupabaseSessionProvider>
@@ -149,9 +154,9 @@ describe('SupabaseSessionProvider – authoritative role via StaffUser (regressi
       </SupabaseSessionProvider>,
     );
 
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
-    expect(screen.getByTestId('role')).toHaveTextContent('user');
-    expect(screen.getByTestId('name')).toHaveTextContent('Ghost');
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+    expect(mockSignOut).toHaveBeenCalled();
   });
 
   it('StaffUser lookup failure → safe user, no accidental admin', async () => {

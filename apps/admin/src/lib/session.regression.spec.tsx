@@ -10,6 +10,7 @@ const mockOnAuthStateChange = vi.fn();
 const mockSignOut = vi.fn();
 const mockMembersSingle = vi.fn();
 const mockTryRefreshSession = vi.fn();
+const seenTables: string[] = [];
 
 vi.mock('./supabase', async () => {
   const actual = await vi.importActual<typeof import('./supabase')>('./supabase');
@@ -27,8 +28,11 @@ vi.mock('./supabase', async () => {
         signOut: mockSignOut,
       },
       from: (table: string) => {
-        if (table === 'Member' || table === 'members')
-          return { select: () => ({ eq: () => ({ single: mockMembersSingle }) }) };
+        seenTables.push(table);
+        if (table === 'Member')
+          return {
+            select: () => ({ eq: () => ({ single: mockMembersSingle, maybeSingle: mockMembersSingle }) }),
+          };
         return { select: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) };
       },
     }),
@@ -81,6 +85,7 @@ function sessionWithUser(id: string, email: string, accessToken = 'tok') {
 describe('Admin SupabaseSessionProvider – server-side staff session (regression)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    seenTables.length = 0;
     mockGetSession.mockResolvedValue({ data: { session: null } });
     mockOnAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
     mockMembersSingle.mockResolvedValue({ data: null });
@@ -162,6 +167,27 @@ describe('Admin SupabaseSessionProvider – server-side staff session (regressio
   it('unknown role slug normalizes safely (no escalation)', async () => {
     expect(normalizeRole('nonsense')).toBe('user');
     expect(normalizeRole('ADMIN')).toBe('admin'); // only SUPER_ADMIN maps
+  });
+
+  it('member lookup never touches the non-existent legacy members table (no PGRST205)', async () => {
+    // 0 rows on Member must resolve via maybeSingle — never fall back to the
+    // phantom lowercase table whose PGRST205 leaks onto the login surface.
+    mockGetSession.mockResolvedValue({
+      data: { session: sessionWithUser('mem-001', 'juan@example.com') },
+    });
+    mockMembersSingle.mockRejectedValue({
+      code: 'PGRST116',
+      message: 'Cannot coerce the result to a single JSON object',
+    });
+
+    render(
+      <SupabaseSessionProvider>
+        <Probe />
+      </SupabaseSessionProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('status')).not.toHaveTextContent('loading'));
+    expect(seenTables).not.toContain('members');
   });
 
   it('Expired session → unauthenticated', async () => {
