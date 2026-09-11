@@ -42,6 +42,16 @@ describe('RegistrationsPage', () => {
     expect(screen.getByLabelText('Filter by program')).toBeInTheDocument();
   });
 
+  it('offers only PENDING and REJECTED status filters (no Active)', async () => {
+    renderWithProviders(<RegistrationsPage />, { user: MOCK_ADMIN });
+    await screen.findByText(/Juan/);
+    const select = screen.getByLabelText('Filter by status') as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toContain('PENDING');
+    expect(values).toContain('REJECTED');
+    expect(values).not.toContain('APPROVED_ACTIVE');
+  });
+
   it('renders the error state when the queue cannot be fetched', async () => {
     server.restore();
     renderWithProviders(<RegistrationsPage />, { user: MOCK_ADMIN });

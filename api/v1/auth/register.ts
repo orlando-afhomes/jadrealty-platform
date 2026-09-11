@@ -162,9 +162,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       return;
     }
-    const { error, status } = duplicateAccount();
-    res.status(status).json({ error });
-    return;
+    if (existing.status === 'APPROVED_ACTIVE') {
+      // Orphaned application: approval always creates the member row, so an
+      // APPROVED registration with no Member for this email means the member
+      // was purged (a live member returned 409 above). Release the email
+      // (purge-everything semantics) and continue as a fresh application
+      // instead of stranding a permanent 409.
+      const { error: releaseError } = await supabase
+        .from('Registration')
+        .delete()
+        .eq('id', existing.id);
+      if (releaseError) {
+        const { error, status } = toErrorEnvelope('INTERNAL', releaseError.message, 500);
+        res.status(status).json({ error });
+        return;
+      }
+    } else {
+      const { error, status } = duplicateAccount();
+      res.status(status).json({ error });
+      return;
+    }
   }
   if (input.referralCode) {
     const code = input.referralCode.trim();

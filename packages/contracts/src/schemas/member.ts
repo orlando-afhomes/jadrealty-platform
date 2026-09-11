@@ -120,6 +120,8 @@ export type PurgeMemberRequest = z.infer<typeof purgeMemberRequestSchema>;
 /** Success payload for `DELETE /admin/members/:id`. */
 export const purgeMemberResponseSchema = z.object({
   purgedId: z.string().min(1),
+  /** False when the auth identity survived (retry exhausted) — caller must warn. */
+  authRemoved: z.boolean(),
 });
 
 export type PurgeMemberResponse = z.infer<typeof purgeMemberResponseSchema>;

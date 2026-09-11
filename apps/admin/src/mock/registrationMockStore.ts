@@ -167,7 +167,7 @@ export const initialRegistrations: Registration[] = [
   },
   {
     id: 'reg-008',
-    status: 'APPROVED_ACTIVE',
+    status: 'PENDING',
     firstName: 'Elena',
     lastName: 'Navarro',
     phone: '+34 600 111 222',
@@ -188,7 +188,7 @@ export const initialRegistrations: Registration[] = [
   },
   {
     id: 'reg-009',
-    status: 'APPROVED_ACTIVE',
+    status: 'PENDING',
     firstName: 'Ramon',
     lastName: 'Reyes',
     phone: '+63 919 333 4455',
@@ -209,7 +209,7 @@ export const initialRegistrations: Registration[] = [
   },
   {
     id: 'reg-010',
-    status: 'APPROVED_ACTIVE',
+    status: 'PENDING',
     firstName: 'Kevin',
     lastName: 'Kintanar',
     phone: '+63 921 555 6677',
@@ -229,12 +229,6 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-13T08:30:00.000Z',
   },
 ];
-
-// Map to existing memberStatusSchema: use APPROVED_ACTIVE for approved
-function normalizeRegStatus(s: string): 'PENDING' | 'REJECTED' | 'APPROVED_ACTIVE' {
-  if (s === 'APPROVED') return 'APPROVED_ACTIVE';
-  return s as 'PENDING' | 'REJECTED' | 'APPROVED_ACTIVE';
-}
 
 // Initial members converted from approved registrations — single member
 // universe shared with the web/member mock store (mem-001 is Juan Dela Cruz
@@ -328,25 +322,25 @@ export const initialArchived: ArchivedMember[] = [
     // mem-012 was removed from the roster on archival — it must not collide
     // with any active member id (asserted by the integrity spec).
     memberId: 'mem-012',
+    // Archive snapshots the member row itself (approved applications leave
+    // the registration queue on approve).
     originalData: {
-      id: 'reg-012',
-      status: 'APPROVED_ACTIVE',
+      id: 'mem-012',
       firstName: 'Sofia',
       lastName: 'Reyes',
-      phone: '+63 920 555 012',
       dateOfBirth: '1990-03-03',
+      age: 36,
       gender: 'Female',
+      address: 'Manila, PH',
       countryCode: 'PH',
       countryName: 'Philippines',
-      address: 'Manila, PH',
-      programId: 'prg-domestic',
-      programCode: 'DOMESTIC',
-      qualificationAnswers: [{ questionId: 'q-001', answer: 'Yes' }],
-      governmentId: { fileName: 'sofia_id.pdf', mimeType: 'application/pdf', sizeBytes: 200000 },
-      submittedAt: '2026-08-09T10:00:00.000Z',
-      createdAt: '2026-08-09T10:00:00.000Z',
-      updatedAt: '2026-08-13T10:00:00.000Z',
-    } as Registration,
+      phone: '+63 920 555 012',
+      email: 'sofia.reyes@example.com',
+      referralCode: 'JAD-SOFIA01',
+      status: 'APPROVED_ACTIVE',
+      isQualified: true,
+      program: { id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' },
+    },
     archivedAt: '2026-08-14T10:00:00.000Z',
     archivedBy: 'admin-001',
     previousStatus: 'APPROVED_ACTIVE',
@@ -360,7 +354,7 @@ export const registrationStore: {
   members: AdminMember[];
   archived: ArchivedMember[];
 } = {
-  registrations: initialRegistrations.map((r) => ({ ...r, status: normalizeRegStatus(r.status as string) as Registration['status'] })),
+  registrations: initialRegistrations.map((r) => ({ ...r })),
   members: initialMembers.map((m) => ({ ...m })),
   archived: initialArchived.map((a) => ({ ...a })),
 };

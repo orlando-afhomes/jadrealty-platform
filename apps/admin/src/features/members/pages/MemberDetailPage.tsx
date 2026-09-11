@@ -235,14 +235,22 @@ export function MemberDetailPage() {
   const handlePurge = async () => {
     setPurgePending(true);
     try {
-      await deleteMemberPermanently(data.id, purgeReason.trim());
+      const result = await deleteMemberPermanently(data.id, purgeReason.trim());
       await queryClient.invalidateQueries({ queryKey: ['admin', 'members'] });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'archived'] });
-      toast({
-        title: 'Member permanently deleted',
-        message: `${memberName} and all associated records were removed`,
-        tone: 'success',
-      });
+      if (result.authRemoved === false) {
+        toast({
+          title: 'Member deleted — auth account still exists',
+          message: `${memberName} was removed, but their login is still active. Remove the auth user in Supabase Auth so the email can re-register cleanly.`,
+          tone: 'warning',
+        });
+      } else {
+        toast({
+          title: 'Member permanently deleted',
+          message: `${memberName} and all associated records were removed`,
+          tone: 'success',
+        });
+      }
       resetPurgeForm();
       navigate('/admin/members');
     } catch (e) {
@@ -561,7 +569,7 @@ export function MemberDetailPage() {
                 margin: 0,
               }}
             >
-              Application {data.registrationId} not found.
+              Approved — application {data.registrationId} was removed from the queue on approval.
             </p>
           ) : (
             <dl className={styles.fieldGrid}>

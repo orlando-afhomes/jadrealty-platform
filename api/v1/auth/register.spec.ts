@@ -51,6 +51,16 @@ const mocks = vi.hoisted(() => {
         calls.push({ table, op: 'insert', arg: row });
         return { error: null };
       },
+      delete: () => {
+        calls.push({ table, op: 'delete' });
+        return {
+          eq: async () => {
+            // Faithful mock: a deleted row is gone for subsequent reads.
+            if (table === 'Registration') script.registrationRow = null;
+            return { error: null };
+          },
+        };
+      },
       update: (patch: unknown) => {
         calls.push({ table, op: 'update', arg: patch });
         return { eq: async () => ({ error: null }) };
@@ -156,10 +166,12 @@ describe('POST /api/v1/auth/register', () => {
     await registerHandler(postReq(VALID_BODY), dup.res);
     expect(dup.seen.status).toBe(409);
 
-    // Auth-level conflict with a decided application behind it stays 409
-    // (covered below); a conflict with no application completes it instead.
+    // Auth-level conflict with a decided (REJECTED) application behind it
+    // stays 409 (resubmit path); a conflict with no application completes
+    // it instead. APPROVED with no Member is a purged orphan and is
+    // released (covered by the release test below), not 409.
     mocks.script.existingMembers = [];
-    mocks.script.registrationRow = { id: 'reg-old', status: 'APPROVED_ACTIVE' };
+    mocks.script.registrationRow = { id: 'reg-old', status: 'REJECTED' };
     mocks.script.createResult = 'conflict';
     const decided = capture();
     await registerHandler(postReq(VALID_BODY), decided.res);
@@ -246,6 +258,25 @@ describe('POST /api/v1/auth/register', () => {
     await registerHandler(postReq(VALID_BODY), res);
     expect(seen.status).toBe(409);
     expect(mocks.calls.some((c) => c.op === 'createUser')).toBe(false);
+  });
+
+  it('releases a purged member’s leftover APPROVED registration instead of 409', async () => {
+    // Orphaned application: approval always creates the member, so an
+    // APPROVED registration with no Member row means the member was purged
+    // (purge-everything semantics). The surviving auth account conflicts, so
+    // the interrupted registration is completed fresh.
+    mocks.script.existingMembers = [];
+    mocks.script.registrationRow = { id: 'reg-stale', status: 'APPROVED_ACTIVE' };
+    mocks.script.createResult = 'conflict';
+    const { res, seen } = capture();
+    await registerHandler(postReq(VALID_BODY), res);
+    expect(seen.status).toBe(201);
+    expect(seen.body).toMatchObject({
+      application: { email: 'new.applicant@example.com', status: 'PENDING' },
+    });
+    expect(
+      mocks.calls.some((c) => c.table === 'Registration' && c.op === 'delete'),
+    ).toBe(true);
   });
 
   it('completes the interrupted registration on auth conflict', async () => {

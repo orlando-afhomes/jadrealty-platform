@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { idDocumentSchema, qualificationAnswerSchema } from './auth.js';
-import { memberStatusSchema } from './member.js';
+import { memberProfileSchema } from './member.js';
 
 /**
  * Rejection note — structured per Business Flow (BR-REG-004).
@@ -16,13 +16,21 @@ export const rejectionNoteSchema = z.object({
 export type RejectionNote = z.infer<typeof rejectionNoteSchema>;
 
 /**
+ * Registration lifecycle statuses — PENDING | REJECTED only. Approval moves
+ * the application to the Member domain (the Registration row is deleted on
+ * approve), so APPROVED_ACTIVE never lives in Registration.
+ */
+export const registrationStatusSchema = z.enum(['PENDING', 'REJECTED']);
+
+export type RegistrationStatus = z.infer<typeof registrationStatusSchema>;
+
+/**
  * Canonical mock registration entity — database-ready, ID + ISO country, no display-name duplication.
- * Reuses existing memberStatusSchema (PENDING | APPROVED_ACTIVE | REJECTED) per SSOT.
  * Governed by BR-AUTH-002 / BR-REG-004 / BR-REG-010.
  */
 export const registrationSchema = z.object({
   id: z.string().min(1),
-  status: memberStatusSchema,
+  status: registrationStatusSchema,
   firstName: z.string().min(1),
   middleInitial: z.string().max(1).optional(),
   lastName: z.string().min(1),
@@ -62,12 +70,14 @@ export type AccountStatus = z.infer<typeof accountStatusSchema>;
 
 /**
  * Archived member record — preserves original member + audit trail.
- * Never hard-delete (Delete = Archive).
+ * Never hard-delete (Delete = Archive). The snapshot is the member row
+ * itself (archive snapshots members); a registration-shaped snapshot is
+ * accepted for legacy rows.
  */
 export const archivedMemberSchema = z.object({
   id: z.string().min(1),
   memberId: z.string().min(1),
-  originalData: registrationSchema, // snapshot of registration/member at archive time (or member profile)
+  originalData: z.union([registrationSchema, memberProfileSchema]),
   archivedAt: z.string(),
   archivedBy: z.string().min(1),
   previousStatus: z.string().min(1),

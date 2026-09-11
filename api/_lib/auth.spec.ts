@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   canonicalSlug,
   extractBearerToken,
+  findAuthUserId,
   isAuthConflict,
   slugsAllowed,
   verifyStaff,
@@ -344,5 +345,60 @@ describe('isAuthConflict', () => {
     expect(isAuthConflict(new Error('Password should be stronger'))).toBe(false);
     expect(isAuthConflict(null)).toBe(false);
     expect(isAuthConflict('already exists')).toBe(false);
+  });
+});
+
+describe('findAuthUserId', () => {
+  const svcFor = (users: unknown[]) => ({
+    auth: {
+      admin: {
+        listUsers: async () => ({ data: { users }, error: null }),
+      },
+    },
+  });
+
+  it('matches an existing auth user by exact email', async () => {
+    const id = await findAuthUserId(
+      svcFor([{ id: 'u-1', email: 'juan@example.com', phone: '+639171234567' }]),
+      { email: 'juan@example.com' },
+    );
+    expect(id).toBe('u-1');
+  });
+
+  it('adopts case-variant emails (GoTrue stores lowercase, approval rows may not)', async () => {
+    const id = await findAuthUserId(
+      svcFor([{ id: 'u-1', email: 'juan.delacruz@example.com' }]),
+      { email: 'Juan.DelaCruz@Example.COM' },
+    );
+    expect(id).toBe('u-1');
+  });
+
+  it('falls back to identity emails when the user email differs', async () => {
+    const id = await findAuthUserId(
+      svcFor([
+        {
+          id: 'u-2',
+          email: 'primary@example.com',
+          identities: [{ identity_data: { email: 'juan@example.com' } }],
+        },
+      ]),
+      { email: 'juan@example.com' },
+    );
+    expect(id).toBe('u-2');
+  });
+
+  it('matches phones despite formatting differences', async () => {
+    const id = await findAuthUserId(
+      svcFor([{ id: 'u-3', email: null, phone: '+639171234567' }]),
+      { phone: '0917 123 4567' },
+    );
+    expect(id).toBe('u-3');
+  });
+
+  it('returns null when nothing matches', async () => {
+    const id = await findAuthUserId(svcFor([{ id: 'u-1', email: 'a@b.com' }]), {
+      email: 'missing@example.com',
+    });
+    expect(id).toBeNull();
   });
 });

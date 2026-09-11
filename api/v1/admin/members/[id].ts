@@ -144,9 +144,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     // Remove the Supabase Auth identity. Best-effort: an already-missing
     // auth account must not fail the purge (the Member row is already gone).
+    // One retry on transient failure — a surviving auth user stays
+    // login-capable, so the outcome is reported (authRemoved) rather than
+    // swallowed.
     let authRemoved = true;
-    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id);
-    if (authDeleteError) authRemoved = false;
+    const { error: firstDeleteError } = await supabase.auth.admin.deleteUser(id);
+    if (firstDeleteError) {
+      const { error: retryDeleteError } = await supabase.auth.admin.deleteUser(id);
+      if (retryDeleteError) authRemoved = false;
+    }
     await appendAudit(supabase, {
       action: 'MEMBER_PURGED',
       actorId: auth.userId,
@@ -158,7 +164,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         authRemoved ? '' : ' (auth user removal failed or already absent)'
       }`,
     });
-    res.status(200).json({ purgedId: id });
+    res.status(200).json({ purgedId: id, authRemoved });
     return;
   }
 

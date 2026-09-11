@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     qualifiedRoleId: 'role-qualified' as string | null,
     rpcResult: { data: null as unknown, error: null as unknown },
     authDeleteError: null as unknown,
+    authDeleteFailures: 0,
   };
   const builder = (table: string) => {
     const b: Record<string, (...a: never[]) => unknown> = {};
@@ -90,6 +91,10 @@ const mocks = vi.hoisted(() => {
         admin: {
           deleteUser: async (id: string) => {
             calls.push({ table: 'auth.users', op: 'deleteUser', arg: id });
+            if (script.authDeleteFailures > 0) {
+              script.authDeleteFailures -= 1;
+              return { error: { message: 'transient auth failure' } };
+            }
             return { error: script.authDeleteError };
           },
         },
@@ -176,6 +181,7 @@ describe('PATCH /admin/members/:id qualification', () => {
       error: null,
     };
     mocks.script.authDeleteError = null;
+    mocks.script.authDeleteFailures = 0;
   });
 
   it('403s merchant and other non-staff roles', async () => {
@@ -264,6 +270,7 @@ describe('DELETE /admin/members/:id permanent purge (super_admin only)', () => {
       error: null,
     };
     mocks.script.authDeleteError = null;
+    mocks.script.authDeleteFailures = 0;
   });
 
   it('403s non-super-admin staff before any mutation', async () => {
@@ -295,7 +302,7 @@ describe('DELETE /admin/members/:id permanent purge (super_admin only)', () => {
     const { res, seen } = capture();
     await memberById(deleteReq({ reason: 'Duplicate test account' }), res);
     expect(seen.status).toBe(200);
-    expect(seen.body).toEqual({ purgedId: 'mem-uuid-1' });
+    expect(seen.body).toEqual({ purgedId: 'mem-uuid-1', authRemoved: true });
     const rpc = mocks.calls.find((c) => c.table === 'rpc:member_purge_cascade');
     expect(rpc?.arg).toEqual({
       p_member: 'mem-uuid-1',
@@ -332,6 +339,29 @@ describe('DELETE /admin/members/:id permanent purge (super_admin only)', () => {
     const { res, seen } = capture();
     await memberById(deleteReq({ reason: 'cleanup' }), res);
     expect(seen.status).toBe(200);
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(String(audit.detail)).toContain('auth user removal failed');
+  });
+
+  it('retries a transient auth-user deletion failure and reports authRemoved', async () => {
+    mocks.script.authDeleteFailures = 1;
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'cleanup' }), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toEqual({ purgedId: 'mem-uuid-1', authRemoved: true });
+    expect(mocks.calls.filter((c) => c.table === 'auth.users').length).toBe(2);
+    const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
+    expect(String(audit.detail)).not.toContain('auth user removal failed');
+  });
+
+  it('reports authRemoved:false when auth deletion ultimately fails', async () => {
+    mocks.script.authDeleteError = { message: 'user not found' };
+    const { res, seen } = capture();
+    await memberById(deleteReq({ reason: 'cleanup' }), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toEqual({ purgedId: 'mem-uuid-1', authRemoved: false });
+    // One retry before giving up — the Member row is already gone.
+    expect(mocks.calls.filter((c) => c.table === 'auth.users').length).toBe(2);
     const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
     expect(String(audit.detail)).toContain('auth user removal failed');
   });

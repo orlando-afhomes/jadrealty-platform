@@ -99,7 +99,7 @@ function primeMemberMocks() {
   mockUseMember.mockReturnValue({ data: MEMBER, isPending: false, isError: false, error: null });
   mockUseMemberRegistration.mockReturnValue({ data: APPLICATION, isPending: false });
   mockGetGovernmentIdUrl.mockResolvedValue('https://signed.test/id.png');
-  mockDeleteMemberPermanently.mockResolvedValue({ purgedId: 'mem-uuid-1' });
+  mockDeleteMemberPermanently.mockResolvedValue({ purgedId: 'mem-uuid-1', authRemoved: true });
 }
 
 describe('MemberDetailPage application card', () => {
@@ -129,6 +129,13 @@ describe('MemberDetailPage application card', () => {
     renderDetail();
     expect(await screen.findByText(/Direct-created member/)).toBeInTheDocument();
     expect(mockUseMemberRegistration).toHaveBeenCalledWith(undefined);
+  });
+
+  it('explains a missing application as approved-and-removed (not an error)', async () => {
+    mockUseMemberRegistration.mockReturnValue({ data: undefined, isPending: false });
+    renderDetail();
+    expect(await screen.findByText(/removed from the queue/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
   });
 });
 
@@ -168,5 +175,20 @@ describe('MemberDetailPage permanent purge (super_admin)', () => {
       'mem-uuid-1',
       'Duplicate test account',
     );
+  });
+
+  it('warns when the auth identity survived the purge (authRemoved:false)', async () => {
+    const user = userEvent.setup();
+    mockDeleteMemberPermanently.mockResolvedValue({ purgedId: 'mem-uuid-1', authRemoved: false });
+    renderDetailAs(MOCK_SUPER_ADMIN as SessionUser);
+
+    await user.click(screen.getByRole('button', { name: 'Delete member permanently' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByPlaceholderText('juan@example.com'), 'juan@example.com');
+    await user.type(within(dialog).getByLabelText(/Reason/), 'Duplicate test account');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete Permanently' }));
+
+    // The Member row is gone but the login still works — this must be loud.
+    expect(await screen.findByText(/auth.*account.*still|still.*log in/i)).toBeInTheDocument();
   });
 });

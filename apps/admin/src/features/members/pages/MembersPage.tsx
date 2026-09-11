@@ -26,12 +26,24 @@ import { formatDate } from '../../../lib/format';
 import { archiveMember } from '../repositories/memberRepository';
 import { getMembers } from '../repositories/memberRepository';
 import { getArchived, restoreArchivedMember } from '../repositories/archiveRepository';
-import type { AdminMember } from '@jad/contracts';
+import type { AdminMember, ArchivedMember } from '@jad/contracts';
 import { MemberFormDialog } from '../components/MemberFormDialog';
 import { MEMBER_STATUS_LABEL, MEMBER_STATUS_TONE } from '../status';
 import styles from './MembersPage.module.css';
 
 const PAGE_SIZE = 10;
+
+/**
+ * Program code of an archived snapshot, tolerant of both snapshot shapes:
+ * registration snapshots carry `programCode`, member snapshots (what the
+ * archive endpoint actually stores) carry `program.code`.
+ */
+function archivedProgramCode(a: ArchivedMember): string {
+  const d = a.originalData as { programCode?: unknown; program?: { code?: unknown } };
+  if (typeof d.programCode === 'string') return d.programCode;
+  if (d.program && typeof d.program.code === 'string') return d.program.code;
+  return '';
+}
 
 export function MembersPage() {
   const navigate = useNavigate();
@@ -100,7 +112,7 @@ export function MembersPage() {
     if (tab !== 'archived') return [];
     return archived.filter((a) => {
       if (countryFilter !== 'ALL' && a.originalData.countryCode !== countryFilter) return false;
-      if (programFilter !== 'ALL' && a.originalData.programCode !== programFilter) return false;
+      if (programFilter !== 'ALL' && archivedProgramCode(a) !== programFilter) return false;
       if (membershipFilter !== 'ALL' && (a.previousStatus as string) !== membershipFilter)
         return false;
       if (accountFilter !== 'ALL' && (a.previousAccountStatus as string) !== accountFilter)

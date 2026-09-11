@@ -29,7 +29,7 @@ export function RegistrationsPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'REJECTED' | 'APPROVED_ACTIVE'>('PENDING');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'REJECTED'>('PENDING');
   const [programFilter, setProgramFilter] = useState<'ALL' | 'DOMESTIC' | 'ABROAD'>('ALL');
   const { data, isPending, isError, error, refetch } = useRegistrations();
 
@@ -113,7 +113,6 @@ export function RegistrationsPage() {
             { value: 'PENDING', label: 'Pending' },
             { value: 'ALL', label: 'All statuses' },
             { value: 'REJECTED', label: 'Rejected' },
-            { value: 'APPROVED_ACTIVE', label: 'Active' },
           ]}
         />
         <Select

@@ -50,17 +50,54 @@ type AdminListUsers = {
   auth: {
     admin: {
       listUsers: (params?: { page?: number; perPage?: number }) => Promise<{
-        data: { users: { id: string; email?: string; phone?: string }[] };
+        data: { users: unknown[] };
         error: unknown;
       }>;
     };
   };
 };
 
+/** Normalize an email for comparison (Supabase Auth stores emails lowercased). */
+function normEmail(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+/** Normalize a phone for comparison (digits only, tolerant of country code vs leading 0). */
+function normPhone(value: unknown): string {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+/** True when two digit strings are the same number (63… vs 0…, spacing, etc.). */
+function samePhone(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Tolerant of +63-country-code vs leading-0 forms: compare the trailing
+  // local digits (PH mobile numbers are 10 digits).
+  const ca = a.length > 10 ? a.slice(-10) : a;
+  const cb = b.length > 10 ? b.slice(-10) : b;
+  if (ca === cb) return true;
+  return a.endsWith(b) || b.endsWith(a);
+}
+
+/** True when the listed user row matches the requested email (primary or identity). */
+function userMatchesEmail(
+  u: { email?: unknown; identities?: { identity_data?: { email?: unknown } }[] },
+  email: string,
+): boolean {
+  const wanted = normEmail(email);
+  if (wanted && normEmail(u.email) === wanted) return true;
+  if (Array.isArray(u.identities)) {
+    return u.identities.some((id) => normEmail(id?.identity_data?.email) === wanted);
+  }
+  return false;
+}
+
 /**
  * Find an existing auth user by email or phone (orphan adoption after an
- * `isAuthConflict`). Paginates wide (perPage 1000) — the default 50-user
- * page can miss the account and falsely report it unresolvable.
+ * `isAuthConflict`). Emails compare case-insensitively (GoTrue stores them
+ * lowercased) and fall back to identity emails; phones compare by digits
+ * only. Paginates wide (perPage 1000) — the default 50-user page can miss
+ * the account and falsely report it unresolvable.
  */
 export async function findAuthUserId(
   svc: AdminListUsers,
@@ -69,9 +106,17 @@ export async function findAuthUserId(
   try {
     const { data, error } = await svc.auth.admin.listUsers({ page: 1, perPage: 1000 });
     if (error || !data) return null;
-    const hit = data.users.find((u) =>
-      identity.email ? u.email === identity.email : u.phone === identity.phone,
-    );
+    const users = data.users as {
+      id: string;
+      email?: unknown;
+      phone?: unknown;
+      identities?: { identity_data?: { email?: unknown } }[];
+    }[];
+    const hit = users.find((u) => {
+      if (identity.email) return userMatchesEmail(u, identity.email);
+      if (identity.phone) return samePhone(normPhone(u.phone), normPhone(identity.phone));
+      return false;
+    });
     return hit?.id ?? null;
   } catch {
     return null;

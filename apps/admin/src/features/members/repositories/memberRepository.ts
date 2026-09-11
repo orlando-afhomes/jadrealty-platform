@@ -5,6 +5,7 @@ import {
   purgeMemberResponseSchema,
   type AdminMember,
   type MemberProfile,
+  type PurgeMemberResponse,
 } from '@jad/contracts';
 
 import { request, requestList } from '../../../lib/api/client';
@@ -86,7 +87,7 @@ export async function archiveMember(id: string): Promise<{ archivedId: string }>
 export async function deleteMemberPermanently(
   id: string,
   reason: string,
-): Promise<{ purgedId: string }> {
+): Promise<PurgeMemberResponse> {
   return request(`/admin/members/${id}`, purgeMemberResponseSchema, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },

@@ -14,9 +14,10 @@ import { methodNotAllowed, readJsonBody } from '../../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../../_lib/envelope.js';
 
 /**
- * POST /admin/registrations/:id/approve — approve an application: marks it
- * APPROVED_ACTIVE, provisions the auth account + Member row + basic role,
- * and audits. Only PENDING applications convert (409 otherwise).
+ * POST /admin/registrations/:id/approve — approve an application: provisions
+ * the auth account + Member row + basic role, deletes the Registration row
+ * (registrations are PENDING | REJECTED only — the member owns the identity
+ * from here), and audits. Only PENDING applications convert (409 otherwise).
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -87,8 +88,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   // Provision the auth account (random unusable password — member sets their own via recovery).
   // Registration identity is phone-based (the Registration table has no
-  // email column); email is used when present (forward-compat).
-  const email = String((row.email as string | undefined) ?? '').trim();
+  // email column); email is used when present (forward-compat). Normalized
+  // to lowercase to match how Supabase Auth stores emails (GoTrue lowercases)
+  // — otherwise adoption after a createUser conflict misses on exact match.
+  const email = String((row.email as string | undefined) ?? '').trim().toLowerCase();
   const phone = String((row.phone as string | undefined) ?? '').trim();
   if (!email && !phone) {
     const { error, status } = toErrorEnvelope(
@@ -118,10 +121,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     memberAuthId = await findAuthUserId(supabase, email ? { email } : { phone });
   }
   if (!memberAuthId) {
+    // The identity exists in Auth (createUser conflicted) but could not be
+    // resolved — surface an actionable conflict instead of a raw INTERNAL.
     const { error, status } = toErrorEnvelope(
-      'INTERNAL',
-      'Approved member auth account unresolvable',
-      500,
+      'AUTH_IDENTITY_UNRESOLVABLE',
+      'An auth account already exists for this email but could not be matched. Reconcile the identity in Supabase Auth (or remove the stray account) and retry.',
+      409,
     );
     res.status(status).json({ error });
     return;
@@ -179,7 +184,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sponsorId = sponsor.id;
     }
   }
-  const now = new Date().toISOString();
   const buildMemberRow = (referralCode: string) => ({
     id: memberAuthId,
     email: memberEmail,
@@ -260,12 +264,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
   }
-  const { error: updateError } = await supabase
-    .from('Registration')
-    .update({ status: 'APPROVED_ACTIVE', reviewedAt: now, reviewedBy: auth.userId, updatedAt: now })
-    .eq('id', id);
-  if (updateError) {
-    const { error, status } = toErrorEnvelope('INTERNAL', updateError.message, 500);
+  // Approval consumes the application: the member owns the identity from
+  // here, so the Registration row leaves the queue (registrations are
+  // PENDING | REJECTED only). Runs after member + roles succeed.
+  const { error: deleteError } = await supabase.from('Registration').delete().eq('id', id);
+  if (deleteError) {
+    const { error, status } = toErrorEnvelope('INTERNAL', deleteError.message, 500);
     res.status(status).json({ error });
     return;
   }

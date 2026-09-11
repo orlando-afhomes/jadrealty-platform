@@ -56,7 +56,7 @@ export const MOCK_REGISTRATIONS: MemberAccount[] = [
     id: 'reg-002',
     name: 'Maria Santos',
     email: 'maria.santos@example.com',
-    status: 'APPROVED_ACTIVE',
+    status: 'PENDING',
     registeredAt: '2026-08-18T08:40:00.000Z',
   },
   {
@@ -84,7 +84,7 @@ export const MOCK_REGISTRATIONS: MemberAccount[] = [
     id: 'reg-006',
     name: 'Liza Fernandez',
     email: 'liza.fernandez@example.com',
-    status: 'APPROVED_ACTIVE',
+    status: 'PENDING',
     registeredAt: '2026-08-17T11:30:00.000Z',
   },
   {
@@ -105,7 +105,7 @@ export const MOCK_REGISTRATIONS: MemberAccount[] = [
     id: 'reg-009',
     name: 'Oscar Mendoza',
     email: 'oscar.mendoza@example.com',
-    status: 'APPROVED_ACTIVE',
+    status: 'PENDING',
     registeredAt: '2026-08-16T13:35:00.000Z',
   },
   {

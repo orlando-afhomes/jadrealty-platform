@@ -7,7 +7,8 @@ import { request, requestList } from '../../../lib/api/client';
 
 /**
  * Registration repository — REST over api/v1 (Phase B3 cutover).
- * Centralizes state transitions: PENDING -> APPROVED_ACTIVE -> MEMBER, PENDING -> REJECTED.
+ * Centralizes state transitions: PENDING -> MEMBER (row deleted on approve),
+ * PENDING -> REJECTED.
  */
 export async function getRegistrations(): Promise<Registration[]> {
   return requestList('/admin/registrations', registrationSchema);

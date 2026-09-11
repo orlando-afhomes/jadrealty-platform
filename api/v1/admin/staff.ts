@@ -133,7 +133,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     authId = await findAuthUserId(supabase, { email });
   }
   if (!authId) {
-    const { error, status } = toErrorEnvelope('INTERNAL', 'Staff auth account unresolvable', 500);
+    const { error, status } = toErrorEnvelope(
+      'AUTH_IDENTITY_UNRESOLVABLE',
+      'An auth account already exists for this email but could not be matched. Reconcile the identity in Supabase Auth (or remove the stray account) and retry.',
+      409,
+    );
     res.status(status).json({ error });
     return;
   }

@@ -11,12 +11,14 @@ export type { ListResponse } from './schemas/collection.js';
 export {
   rejectionNoteSchema,
   registrationSchema,
+  registrationStatusSchema,
   accountStatusSchema,
   archivedMemberSchema,
 } from './schemas/registration.js';
 export type {
   RejectionNote,
   Registration,
+  RegistrationStatus,
   AccountStatus,
   ArchivedMember,
 } from './schemas/registration.js';
