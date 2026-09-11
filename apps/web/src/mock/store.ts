@@ -215,6 +215,7 @@ export interface MockPolicy {
   title: string;
   type: string;
   content?: string;
+  documentUrl?: string;
   updatedAt: string;
 }
 

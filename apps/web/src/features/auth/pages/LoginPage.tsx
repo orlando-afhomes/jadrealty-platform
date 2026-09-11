@@ -15,6 +15,7 @@ import { ORPHAN_ACCOUNT_MESSAGE } from '../../../lib/api/orphan';
 import { useQuery } from '@tanstack/react-query';
 import { getGlobalCmsPublic, getLoginCmsPublic } from '@/lib/cms';
 import { AUTH } from '../content';
+import { PRIVACY_POLICY_ID, TERMS_POLICY_ID, policyPath } from '../../public/content/policies';
 import { AuthLayout } from '../components/AuthLayout';
 import { PasswordField } from '../components/PasswordField';
 import { TextField } from '../components/TextField';
@@ -341,7 +342,15 @@ export function LoginPage() {
         </p>
 
         <p className={styles.note}>
-          Secure sign-in. By continuing, you agree to our Terms and Privacy Policy.
+          Secure sign-in. By continuing, you agree to our{' '}
+          <Link className={styles.promptLink} to={policyPath(TERMS_POLICY_ID)}>
+            Terms
+          </Link>{' '}
+          and{' '}
+          <Link className={styles.promptLink} to={policyPath(PRIVACY_POLICY_ID)}>
+            Privacy Policy
+          </Link>
+          .
         </p>
       </form>
     </AuthLayout>

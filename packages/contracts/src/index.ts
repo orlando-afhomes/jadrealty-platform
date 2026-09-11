@@ -28,8 +28,8 @@ export { systemConfigEntrySchema, PUBLIC_CONFIG_KEYS } from './schemas/system-co
 export type { SystemConfigEntry } from './schemas/system-config.js';
 export { programSchema, qualificationQuestionSchema } from './schemas/program.js';
 export type { Program, QualificationQuestion } from './schemas/program.js';
-export { policySchema } from './schemas/policy.js';
-export type { Policy } from './schemas/policy.js';
+export { policySchema, policyCreateSchema, policyUpdateSchema } from './schemas/policy.js';
+export type { Policy, PolicyCreateRequest, PolicyUpdateRequest } from './schemas/policy.js';
 export { roleSchema, normalizeRole } from './schemas/role.js';
 export type { Role } from './schemas/role.js';
 export {

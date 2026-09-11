@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 
 import { Breadcrumbs, EmptyState, ErrorState, Icon, PageHeader, Skeleton } from '@jad/ui';
 
-import { usePolicies } from '../hooks/useMember';
+import { usePolicies } from '../../../hooks/usePolicies';
 import { formatDate } from '../lib/presentation';
 import styles from './PoliciesPage.module.css';
 

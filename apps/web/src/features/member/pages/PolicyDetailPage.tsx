@@ -4,7 +4,7 @@ import { useParams } from 'react-router';
 import { Breadcrumbs, ErrorState, NotFound, PageHeader, Skeleton } from '@jad/ui';
 
 import { ButtonLink } from '@/components/ButtonLink';
-import { usePolicies } from '../hooks/useMember';
+import { usePolicies } from '../../../hooks/usePolicies';
 import { formatDate } from '../lib/presentation';
 import styles from './PolicyDetailPage.module.css';
 
@@ -114,6 +114,18 @@ export function PolicyDetailPage() {
       <div className={styles.bodyCard}>
         <div className={styles.body}>{policy.content}</div>
       </div>
+      {policy.documentUrl ? (
+        <div className={styles.bodyCard}>
+          <a
+            href={policy.documentUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.pdfLink}
+          >
+            View PDF
+          </a>
+        </div>
+      ) : null}
       <div className={styles.footerNav} role="navigation" aria-label="Policy navigation">
         <div className={styles.navGroup}>
           {prev ? (

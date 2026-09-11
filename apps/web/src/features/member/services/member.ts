@@ -10,7 +10,6 @@ import {
   memberProfileSchema,
   notificationSchema,
   payoutAccountSchema,
-  policySchema,
   qualificationSummarySchema,
   referralCodeSchema,
   reopenSaleRequestResponseSchema,
@@ -33,7 +32,6 @@ import type {
   MemberProfile,
   Notification,
   PayoutAccount,
-  Policy,
   QualificationSummary,
   ReferralCode,
   ReopenSaleRequestResponse,
@@ -245,9 +243,4 @@ export function getVoucher(voucherId: string): Promise<Voucher> {
 /** `GET /content/forwardable` — permitted shareable/downloadable content (API-SPECIFICATION #68, SCR-MEM-022). */
 export function getContentLibrary(): Promise<ForwardableContent[]> {
   return requestList('/content/forwardable', forwardableContentSchema);
-}
-
-/** `GET /policies` — policies, guidelines, T&C (API-SPECIFICATION #69, PUBLIC, SCR-MEM-023). */
-export function getPolicies(): Promise<Policy[]> {
-  return requestList('/policies', policySchema);
 }

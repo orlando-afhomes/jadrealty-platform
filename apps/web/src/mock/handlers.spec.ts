@@ -8,7 +8,7 @@ import {
   resendVerificationCode,
   verifyEmail,
 } from '../features/auth/services/auth';
-import { getPrograms } from '../lib/api/endpoints';
+import { getPolicies, getPrograms } from '../lib/api/endpoints';
 import {
   createPayoutAccount,
   createWithdrawal,
@@ -19,7 +19,6 @@ import {
   getGroupNetwork,
   getLedgerPage,
   getPayoutAccounts,
-  getPolicies,
   getVoucher,
   getVouchers,
   getWallet,

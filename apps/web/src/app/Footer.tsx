@@ -1,9 +1,14 @@
-import { NavLink } from 'react-router';
+import { Link, NavLink } from 'react-router';
 
 import { useQuery } from '@tanstack/react-query';
 
 import { getGlobalCmsPublic } from '@/lib/cms';
 import { CONTACT, LOGO, SITE } from '../features/public/content';
+import {
+  PRIVACY_POLICY_ID,
+  TERMS_POLICY_ID,
+  policyPath,
+} from '../features/public/content/policies';
 import styles from './Footer.module.css';
 
 /**
@@ -19,7 +24,8 @@ export function Footer() {
   const positioningLine = globalCms?.brand?.positioningLine ?? SITE.positioning.line;
   const rawLogo = globalCms?.logo ?? LOGO;
   const logo = rawLogo as typeof LOGO;
-  const logoSrc = (rawLogo as { src?: string; id?: string }).src ?? (rawLogo as { id?: string }).id ?? LOGO.src;
+  const logoSrc =
+    (rawLogo as { src?: string; id?: string }).src ?? (rawLogo as { id?: string }).id ?? LOGO.src;
   return (
     <footer className={styles.footer}>
       <div className={`container ${styles.inner}`}>
@@ -65,6 +71,18 @@ export function Footer() {
           <p className={styles.legal}>
             © {new Date().getFullYear()} {siteName}. All rights reserved.
           </p>
+          <ul className={styles.legalLinks} aria-label="Legal">
+            <li>
+              <Link className={styles.legalLink} to={policyPath(TERMS_POLICY_ID)}>
+                Terms
+              </Link>
+            </li>
+            <li>
+              <Link className={styles.legalLink} to={policyPath(PRIVACY_POLICY_ID)}>
+                Privacy Policy
+              </Link>
+            </li>
+          </ul>
           <p className={styles.tagline}>{positioningLine}.</p>
         </div>
       </div>

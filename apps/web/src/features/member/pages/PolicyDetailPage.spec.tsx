@@ -79,4 +79,28 @@ describe('member PolicyDetailPage', () => {
       '/member/policies',
     );
   });
+
+  it('renders a PDF link when the policy has one attached', async () => {
+    mockFetchRoutes({
+      '/policies': {
+        data: [
+          {
+            ...POLICIES.data[0],
+            documentUrl: 'https://cdn.test/terms.pdf',
+          },
+          POLICIES.data[1],
+        ],
+        meta: {},
+      },
+    });
+    renderAt('/member/policies/pol-001');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Terms and Conditions' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View PDF' })).toHaveAttribute(
+      'href',
+      'https://cdn.test/terms.pdf',
+    );
+  });
 });

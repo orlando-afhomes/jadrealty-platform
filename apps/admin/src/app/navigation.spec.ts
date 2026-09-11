@@ -118,6 +118,7 @@ describe('navItemsForRole with staff role', () => {
       'Operations',
       'Properties',
       'Marketing Tools',
+      'Policies',
       'System',
       'Website CMS',
     ]);

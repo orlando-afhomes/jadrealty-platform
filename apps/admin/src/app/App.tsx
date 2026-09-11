@@ -16,6 +16,8 @@ import { CatalogPage } from '../features/catalog/pages/CatalogPage';
 import { CatalogDetailPage } from '../features/catalog/pages/CatalogDetailPage';
 import { ContentPage } from '../features/content/pages/ContentPage';
 import { MarketingToolDetailPage } from '../features/content/pages/MarketingToolDetailPage';
+import { PoliciesPage } from '../features/policies/pages/PoliciesPage';
+import { PolicyDetailPage } from '../features/policies/pages/PolicyDetailPage';
 import { ConfigPage } from '../features/config/pages/ConfigPage';
 import { AuditPage } from '../features/audit/pages/AuditPage';
 import { StaffPage } from '../features/staff/pages/StaffPage';
@@ -166,6 +168,22 @@ export default function App() {
             }
           />
           <Route path="/admin/adjustments" element={<Navigate to="/admin/audit" replace />} />
+          <Route
+            path="/admin/policies"
+            element={
+              <RequireRole>
+                <PoliciesPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/admin/policies/:id"
+            element={
+              <RequireRole>
+                <PolicyDetailPage />
+              </RequireRole>
+            }
+          />
           <Route
             path="/admin/config"
             element={

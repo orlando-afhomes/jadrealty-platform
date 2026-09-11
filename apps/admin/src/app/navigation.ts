@@ -96,6 +96,13 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     roles: ADMINS_ONLY,
     module: 'marketing_tools',
   },
+  {
+    to: '/admin/policies',
+    label: 'Policies',
+    icon: 'file-text',
+    roles: ADMINS_ONLY,
+    module: 'policies',
+  },
 
   /* Category: System (dropdown) */
   {

@@ -108,6 +108,30 @@
   font-size: var(--text-body-s);
 }
 
+.legalLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legalLink {
+  color: var(--color-on-dark-faint);
+  font-size: var(--text-body-s);
+  text-decoration: none;
+}
+
+.legalLink:visited {
+  color: var(--color-on-dark-faint);
+}
+
+.legalLink:hover {
+  color: var(--color-on-dark);
+  text-decoration: underline;
+}
+
 .tagline {
   margin: 0;
   color: var(--color-on-dark-faint);

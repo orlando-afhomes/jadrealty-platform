@@ -2,6 +2,12 @@ import type { AdminQueues, ContentKind } from '@jad/contracts';
 import { CMS_PROPERTIES_SEED, STAFF_MODULE_LABEL, roleNameFor } from '@jad/contracts';
 import type { MockRequestContext, MockRoute } from '@jad/mock';
 import { contentStore, createStoreContent, deleteStoreContent } from './contentMockStore';
+import {
+  createStorePolicy,
+  deleteStorePolicy,
+  policyStore,
+  updateStorePolicy,
+} from './policyMockStore';
 
 import {
   MOCK_SALES,
@@ -309,6 +315,67 @@ export const adminMockHandlers: MockRoute[] = [
         };
       }
       return { body: item, status: 200 };
+    },
+  },
+  {
+    path: '/policies',
+    method: 'POST',
+    handler: (ctx: MockRequestContext) => {
+      const input = (ctx.body ?? {}) as Record<string, unknown>;
+      try {
+        const item = createStorePolicy({
+          title: String(input.title ?? ''),
+          type: String(input.type ?? ''),
+          content: typeof input.content === 'string' ? input.content : undefined,
+          documentUrl: String(input.documentUrl ?? ''),
+        });
+        return { body: item, status: 201 };
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  },
+  {
+    path: '/policies',
+    response: () => {
+      const data = policyStore.items;
+      return {
+        data,
+        meta: {
+          page: 1,
+          pageSize: data.length,
+          total: data.length,
+        },
+      };
+    },
+  },
+  {
+    path: '/policies/',
+    method: 'PUT',
+    match: 'prefix',
+    handler: (ctx: MockRequestContext) => {
+      const id = idFromPath(ctx.url, /\/policies\/([^/?#]+)/);
+      const patch = (ctx.body ?? {}) as Record<string, unknown>;
+      const item = id
+        ? updateStorePolicy(id, {
+            ...(typeof patch.title === 'string' && { title: patch.title }),
+            ...(typeof patch.type === 'string' && { type: patch.type }),
+            ...(typeof patch.content === 'string' && { content: patch.content }),
+            ...(typeof patch.documentUrl === 'string' && { documentUrl: patch.documentUrl }),
+          })
+        : undefined;
+      if (!item) return notFound('Policy');
+      return { body: item, status: 200 };
+    },
+  },
+  {
+    path: '/policies/',
+    method: 'DELETE',
+    match: 'prefix',
+    handler: (ctx: MockRequestContext) => {
+      const id = idFromPath(ctx.url, /\/policies\/([^/?#]+)/);
+      if (!id || !deleteStorePolicy(id)) return notFound('Policy');
+      return { body: { id, deleted: true }, status: 200 };
     },
   },
   {

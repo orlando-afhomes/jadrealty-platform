@@ -7,3 +7,4 @@ export * from './properties';
 export * from './routes';
 export * from './faqs';
 export * from './contact';
+export * from './policies';

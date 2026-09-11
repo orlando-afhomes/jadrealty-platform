@@ -13,7 +13,6 @@ import {
   getGroupNetwork,
   getLedgerPage,
   getPayoutAccounts,
-  getPolicies,
   getProfile,
   getQualification,
   getReferralCode,
@@ -180,33 +179,5 @@ export function useContentLibrary() {
   return useQuery({
     queryKey: ['member', 'content-library'],
     queryFn: () => getContentLibrary(),
-  });
-}
-
-/** `GET /policies` — policies, guidelines, T&C (SCR-MEM-023). CMS `policies` table when Supabase configured. */
-export function usePolicies() {
-  return useQuery({
-    queryKey: ['member', 'policies'],
-    queryFn: async () => {
-      if (
-        (import.meta.env as Record<string, string | undefined>).MODE !== 'test' &&
-        isSupabaseConfigured()
-      ) {
-        const client = getSupabaseClient() as unknown as {
-          from: (t: string) => {
-            select: (c: string) => Promise<{ data: unknown[] | null; error: unknown }>;
-          };
-        } | null;
-        if (client) {
-          try {
-            const { data, error } = await client.from('policies').select('*');
-            if (!error && Array.isArray(data)) return data as never;
-          } catch {
-            // fallback
-          }
-        }
-      }
-      return getPolicies();
-    },
   });
 }

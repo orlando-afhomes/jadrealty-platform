@@ -15,6 +15,8 @@ import { FaqsPage } from '../features/public/pages/FaqsPage';
 import { HomePage } from '../features/public/pages/HomePage';
 import { LoginPage } from '../features/auth/pages/LoginPage';
 import { NotFoundPage } from '../features/public/pages/NotFoundPage';
+import { PoliciesPage as PublicPoliciesPage } from '../features/public/pages/PoliciesPage';
+import { PolicyDetailPage as PublicPolicyDetailPage } from '../features/public/pages/PolicyDetailPage';
 import { PropertiesPage } from '../features/public/pages/PropertiesPage';
 import { PropertyDetailPage } from '../features/public/pages/PropertyDetailPage';
 import { RegisterPage } from '../features/auth/pages/RegisterPage';
@@ -98,6 +100,8 @@ export default function App() {
           <Route path="properties/:categorySlug/:propertySlug" element={<PropertyDetailPage />} />
           <Route path="faqs" element={<FaqsPage />} />
           <Route path="contact" element={<ContactPage />} />
+          <Route path="policies" element={<PublicPoliciesPage />} />
+          <Route path="policies/:policyId" element={<PublicPolicyDetailPage />} />
           <Route path="login" element={<LoginPage />} />
           <Route path="register" element={<RegisterPage />} />
           <Route path="register/verify-email" element={<VerifyEmailPage />} />

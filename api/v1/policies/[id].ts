@@ -1,27 +1,28 @@
-import { policySchema } from '@jad/contracts';
+import { policySchema, policyUpdateSchema } from '@jad/contracts';
 
+import { ADMIN_STAFF } from '../../_lib/access.js';
 import { verifyStaff } from '../../_lib/auth.js';
 import { appendAudit } from '../../_lib/audit.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../_lib/rest.js';
 
-const updateSchema = policySchema.pick({ title: true, type: true, content: true }).partial();
+const updateSchema = policyUpdateSchema;
 
-/** PUT /policies/:id — admin policy edit (FR-ADM-004). */
+/** PUT + DELETE /policies/:id — admin policy edit/delete (FR-ADM-004). */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'PUT,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
-  if (req.method !== 'PUT') {
+  if (req.method !== 'PUT' && req.method !== 'DELETE') {
     methodNotAllowed(res, req.method);
     return;
   }
-  const auth = await verifyStaff(req, ['super_admin', 'admin']);
+  const auth = await verifyStaff(req, [...ADMIN_STAFF]);
   if ('error' in auth) {
     const { error, status } = auth.error;
     res.status(status).json({ error });
@@ -34,6 +35,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
+  const supabase = requireService(res);
+  if (!supabase) return;
+  if (req.method === 'DELETE') {
+    const { data, error } = await supabase.from('Policy').delete().eq('id', id).select().single();
+    if (error) {
+      const notFound = /no rows|not found/i.test(error.message);
+      const { error: env, status } = toErrorEnvelope(
+        notFound ? 'NOT_FOUND' : 'INTERNAL',
+        notFound ? `Policy not found: ${id}` : error.message,
+        notFound ? 404 : 500,
+      );
+      res.status(status).json({ error: env });
+      return;
+    }
+    if (!data) {
+      const { error: env, status } = toErrorEnvelope('NOT_FOUND', `Policy not found: ${id}`, 404);
+      res.status(status).json({ error: env });
+      return;
+    }
+    const row = data as { id: string; title: string };
+    await appendAudit(supabase, {
+      action: 'POLICY_DELETED',
+      actorId: auth.userId,
+      actorRole: auth.slugs[0] ?? 'admin',
+      targetType: 'Policy',
+      targetId: row.id,
+      targetName: row.title,
+      detail: `Deleted policy ${row.title}`,
+    });
+    res.status(200).json({ id: row.id, deleted: true });
+    return;
+  }
   const parsedBody = readJsonBody(req);
   if (!parsedBody.ok) {
     const { error, status } = parsedBody.error;
@@ -44,20 +77,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!parsed.success || Object.keys(parsed.data).length === 0) {
     const { error, status } = toErrorEnvelope(
       'VALIDATION_ERROR',
-      parsed.success ? 'Nothing to update' : (parsed.error.issues[0]?.message ?? 'Validation failed'),
+      parsed.success
+        ? 'Nothing to update'
+        : (parsed.error.issues[0]?.message ?? 'Validation failed'),
       400,
       parsed.success ? undefined : parsed.error.issues,
     );
     res.status(status).json({ error });
     return;
   }
-  const supabase = requireService(res);
-  if (!supabase) return;
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (parsed.data.title !== undefined) patch.title = parsed.data.title;
   if (parsed.data.type !== undefined) patch.type = parsed.data.type;
   if (parsed.data.content !== undefined) patch.content = parsed.data.content;
-  const { data, error } = await supabase.from('Policy').update(patch).eq('id', id).select().single();
+  if (parsed.data.documentUrl !== undefined) patch.document_url = parsed.data.documentUrl;
+  const { data, error } = await supabase
+    .from('Policy')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .single();
   if (error) {
     const { error: env, status } = toErrorEnvelope('INTERNAL', error.message, 500);
     res.status(status).json({ error: env });
@@ -68,7 +107,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error: env });
     return;
   }
-  const row = data as { id: string; title: string };
+  const row = data as {
+    id: string;
+    type: string;
+    title: string;
+    content: unknown;
+    document_url?: string;
+    documentUrl?: string;
+    updated_at?: string;
+    updatedAt?: string;
+  };
   await appendAudit(supabase, {
     action: 'POLICY_UPDATED',
     actorId: auth.userId,
@@ -78,5 +126,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     targetName: row.title,
     detail: `Updated policy ${row.title}`,
   });
-  res.status(200).json(data);
+  res.status(200).json({
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    content: row.content,
+    documentUrl: row.document_url ?? row.documentUrl,
+    updatedAt: row.updated_at ?? row.updatedAt,
+  });
 }

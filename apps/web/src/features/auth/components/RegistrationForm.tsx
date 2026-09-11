@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { useBlocker } from 'react-router';
+import { Link } from 'react-router';
 
 import type { IdDocument, RegisterRequest } from '@jad/contracts';
 import { Skeleton } from '@jad/ui';
@@ -11,6 +12,7 @@ import { Button } from '../../../components/Button';
 import { apiErrorMessage } from '../../../lib/api/errorMessage';
 import { usePrograms } from '../../public/hooks/usePrograms';
 import { usePublicConfig } from '../../public/hooks/usePublicConfig';
+import { PRIVACY_POLICY_ID, TERMS_POLICY_ID, policyPath } from '../../public/content/policies';
 import { getQualificationQuestions } from '../services/auth';
 import { usePersistedDraft, clearPersistedDraft } from '../hooks/usePersistedDraft';
 import { useLocationVerification } from '../hooks/useLocationVerification';
@@ -877,13 +879,13 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 />
                 <span>
                   I agree to the{' '}
-                  <a href="/policies" className={styles.consentLink}>
+                  <Link to={policyPath(TERMS_POLICY_ID)} className={styles.consentLink}>
                     JA&amp;D member terms
-                  </a>{' '}
+                  </Link>{' '}
                   and{' '}
-                  <a href="/policies" className={styles.consentLink}>
+                  <Link to={policyPath(PRIVACY_POLICY_ID)} className={styles.consentLink}>
                     privacy policy
-                  </a>
+                  </Link>
                   .
                 </span>
               </label>
