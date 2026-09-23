@@ -7,6 +7,7 @@ import { getSupabaseEnv } from '../../_lib/env.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { serviceClient } from '../../_lib/rest.js';
+import { removeStorageKeys, MARKETING_TOOLS_BUCKET } from '../../_lib/storage.js';
 
 import {
   aboutContentSchema,
@@ -253,18 +254,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
         if (toDelete.length > 0) {
-          // Deduplicate
-          const unique = [...new Set(toDelete)];
-          const { error: delErr } = await supabase.storage.from('marketing-tools').remove(unique);
-          if (delErr) {
-            console.error(
-              `[cms:${key}] cleanup failed for ${unique.length} objects:`,
-              delErr.message,
-            );
-          } else {
+          // Deduplicated inside the helper; failures are logged there and
+          // never roll back the CMS save.
+          const removal = await removeStorageKeys(
+            supabase,
+            MARKETING_TOOLS_BUCKET,
+            [...new Set(toDelete)],
+          );
+          if (removal.removed) {
             console.log(
-              `[cms:${key}] cleaned up ${unique.length} orphaned images:`,
-              unique.join(', '),
+              `[cms:${key}] cleaned up ${removal.attempted.length} orphaned images:`,
+              removal.attempted.join(', '),
             );
           }
         }

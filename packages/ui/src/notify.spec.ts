@@ -15,17 +15,18 @@ describe('notify', () => {
     fire.mockClear();
   });
 
-  it('shows a centered auto-dismissing success notice', () => {
+  it('shows a centered auto-dismissing success modal (not a toast)', () => {
     notifySuccess({ title: 'Policy updated', message: 'Saved.' });
     expect(fire).toHaveBeenCalledTimes(1);
     const [config] = fire.mock.calls[0] as [Record<string, unknown>];
-    expect(config.toast).toBe(true);
-    expect(config.position).toBe('center');
+    expect(config.toast).not.toBe(true);
     expect(config.icon).toBe('success');
     expect(config.title).toBe('Policy updated');
     expect(config.text).toBe('Saved.');
     expect(config.showConfirmButton).toBe(false);
     expect(typeof config.timer).toBe('number');
+    expect(config.backdrop).toBe(true);
+    expect(config.allowOutsideClick).toBe(false);
   });
 
   it('shows a blocking error modal', () => {
@@ -34,6 +35,8 @@ describe('notify', () => {
     expect(config.icon).toBe('error');
     expect(config.title).toBe('Delete failed');
     expect(config.showConfirmButton).not.toBe(false);
+    expect(config.backdrop).toBe(true);
+    expect(config.allowOutsideClick).toBe(false);
   });
 
   it('shows a warning modal', () => {
@@ -41,5 +44,7 @@ describe('notify', () => {
     const [config] = fire.mock.calls[0] as [Record<string, unknown>];
     expect(config.icon).toBe('warning');
     expect(config.title).toBe('Auth user remains');
+    expect(config.backdrop).toBe(true);
+    expect(config.allowOutsideClick).toBe(false);
   });
 });

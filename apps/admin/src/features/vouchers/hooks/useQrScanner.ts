@@ -7,13 +7,20 @@ export type ScannerStatus =
   | { kind: 'running' }
   | { kind: 'error'; message: string };
 
+const IDLE_STATUS: ScannerStatus = { kind: 'idle' };
+
 /**
  * Camera QR scanner. Requests `getUserMedia`, streams to a hidden canvas,
  * decodes frames with jsQR, and reports the first stable decode. Cleans up
- * the stream + RAF on unmount. Falls back to a manual code entry when the
- * camera is denied or unavailable (caller supplies the input).
+ * the stream + RAF on unmount.
+ *
+ * `active` gates the stream: flipping it to `false` stops the camera (tracks
+ * + RAF released, status back to idle) so a successful decode can freeze the
+ * viewfinder while the result is displayed; flipping back to `true` restarts
+ * scanning. Falls back to a manual code entry when the camera is denied or
+ * unavailable (caller supplies the input).
  */
-export function useQrScanner(onDecode: (code: string) => void) {
+export function useQrScanner(onDecode: (code: string) => void, active = true) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -22,6 +29,7 @@ export function useQrScanner(onDecode: (code: string) => void) {
   const [status, setStatus] = useState<ScannerStatus>({ kind: 'idle' });
 
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
 
     const stop = () => {
@@ -92,7 +100,9 @@ export function useQrScanner(onDecode: (code: string) => void) {
       cancelled = true;
       stop();
     };
-  }, []);
+  }, [active]);
 
-  return { videoRef, status };
+  // While paused the viewfinder reports idle (derived, not state - the live
+  // status resumes when scanning restarts).
+  return { videoRef, status: active ? status : IDLE_STATUS };
 }

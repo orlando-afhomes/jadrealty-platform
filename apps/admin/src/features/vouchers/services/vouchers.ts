@@ -1,6 +1,7 @@
 import {
   voucherAssignmentSchema,
   voucherTemplateSchema,
+  type UpdateVoucherTemplateRequest,
   type VoucherAssignment,
   type VoucherTemplate,
   type AssignVoucherRequest,
@@ -29,6 +30,23 @@ export function getVoucherTemplates(): Promise<VoucherTemplate[]> {
 /** A single voucher definition. */
 export function getVoucherTemplate(id: string): Promise<VoucherTemplate> {
   return request(`/admin/voucher-templates/${id}`, voucherTemplateSchema);
+}
+
+/** PATCH /admin/voucher-templates/:id - edit a voucher definition (title/expiry/validity). */
+export function updateVoucherTemplate(
+  id: string,
+  patch: UpdateVoucherTemplateRequest,
+): Promise<VoucherTemplate> {
+  return request(`/admin/voucher-templates/${id}`, voucherTemplateSchema, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+/** DELETE /admin/voucher-templates/:id - delete a definition and its assignments. */
+export async function deleteVoucherTemplate(id: string): Promise<boolean> {
+  await request(`/admin/voucher-templates/${id}`, deleteResultSchema, { method: 'DELETE' });
+  return true;
 }
 
 /** POST /admin/voucher-templates - create a voucher definition (title + value). */

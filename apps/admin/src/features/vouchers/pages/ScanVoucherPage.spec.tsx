@@ -123,6 +123,35 @@ describe('ScanVoucherPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/no voucher matches/i);
   });
 
+  it('offers Try again after a failed lookup and restarts scanning', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ScanVoucherPage />, { user: MOCK_ADMIN });
+    await selectTab(user, 'Manual');
+    const input = await screen.findByLabelText('Voucher code');
+    await user.type(input, 'JAD-VCH-2026-999');
+    await user.click(screen.getByText('Look up'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no voucher matches/i);
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Waiting for a scan…')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('offers Scan another next to Redeem on a verified result', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ScanVoucherPage />, { user: MOCK_ADMIN });
+    await selectTab(user, 'Manual');
+    const input = await screen.findByLabelText('Voucher code');
+    await user.type(input, 'JAD-VCH-2026-101');
+    await user.click(screen.getByText('Look up'));
+
+    expect(await screen.findByTestId('scan-result')).toBeInTheDocument();
+    expect(screen.getByText('Redeem voucher')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Scan another' }));
+    expect(await screen.findByText('Waiting for a scan…')).toBeInTheDocument();
+    expect(screen.queryByTestId('scan-result')).not.toBeInTheDocument();
+  });
+
   it('redeems a verified voucher after confirmation', async () => {
     const user = userEvent.setup();
     renderWithProviders(<ScanVoucherPage />, { user: MOCK_ADMIN });

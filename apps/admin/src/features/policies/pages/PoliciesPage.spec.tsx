@@ -196,7 +196,7 @@ describe('PoliciesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Delete Terms and Conditions' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/permanently remove/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/uploaded PDF stays in storage/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/its uploaded PDF/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(screen.queryByText('Terms and Conditions')).not.toBeInTheDocument());

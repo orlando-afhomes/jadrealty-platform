@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 
-import handler, { marketingToolsObjectKey } from './[id].js';
+import handler from './[id].js';
+import { marketingToolsObjectKey } from '../../../_lib/storage.js';
 
 /**
  * DELETE /admin/content/:id (marketing tool removal): role gates, row +

@@ -184,6 +184,12 @@
   font-size: var(--text-body-s);
 }
 
+.errorWrap {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
 .result {
   display: grid;
   grid-template-columns: auto 1fr;

@@ -2,7 +2,12 @@ import { registerRequestSchema } from '@jad/contracts';
 
 import { getSupabaseEnv } from '../../_lib/env.js';
 import { isAuthConflict } from '../../_lib/auth.js';
-import { stripDocumentData, uploadGovernmentId } from '../../_lib/documents.js';
+import {
+  GOVERNMENT_ID_BUCKET,
+  stripDocumentData,
+  uploadGovernmentId,
+} from '../../_lib/documents.js';
+import { removeStorageKeys } from '../../_lib/storage.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { issueVerificationCode } from '../../_lib/verification-code.js';
 import { calculateAge, prefixedId } from '../../_lib/pipeline.js';
@@ -103,7 +108,9 @@ async function attachDocument(
 /**
  * Refresh a pending application with the latest submission. Replaces the
  * applicant details so the admin queue always reflects the most recent data
- * for that email (production-ready, same-email replay).
+ * for that email (production-ready, same-email replay). A replaced ID
+ * document orphans its old storage object - it is removed best-effort AFTER
+ * the row points at the new file (never before the upload succeeds).
  */
 async function refreshPendingRegistration(
   supabase: Service,
@@ -115,6 +122,9 @@ async function refreshPendingRegistration(
   const now = new Date().toISOString();
   let governmentId = (existing as unknown as { governmentId?: unknown }).governmentId as
     Record<string, unknown> | undefined;
+  const previousStoragePath =
+    typeof governmentId?.storagePath === 'string' ? (governmentId.storagePath as string) : null;
+  let replacedStoragePath: string | null = null;
   if (input.idDocument?.data) {
     const uploaded = await uploadGovernmentId(supabase, existing.id, {
       fileName: input.idDocument.fileName,
@@ -129,6 +139,9 @@ async function refreshPendingRegistration(
       >),
       storagePath: uploaded.storagePath,
     };
+    if (previousStoragePath && previousStoragePath !== uploaded.storagePath) {
+      replacedStoragePath = previousStoragePath;
+    }
   }
   const patch: Record<string, unknown> = {
     firstName: input.firstName,
@@ -150,7 +163,14 @@ async function refreshPendingRegistration(
     updatedAt: now,
   };
   const { error } = await supabase.from('Registration').update(patch).eq('id', existing.id);
-  return error ? error.message : null;
+  if (error) return error.message;
+  // The row now points at the new file - the superseded exact object can go.
+  // Best-effort and non-blocking: a storage failure leaves an orphaned file
+  // but never an inconsistent row.
+  if (replacedStoragePath) {
+    await removeStorageKeys(supabase, GOVERNMENT_ID_BUCKET, [replacedStoragePath]);
+  }
+  return null;
 }
 
 /**

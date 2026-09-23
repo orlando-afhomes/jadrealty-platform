@@ -72,6 +72,18 @@ const mocks = vi.hoisted(() => {
     script,
     service: {
       from: (table: string) => builder(table),
+      storage: {
+        from: (bucket: string) => ({
+          list: async (path?: string) => {
+            calls.push({ table: `storage:${bucket}`, op: 'list', arg: path });
+            return { data: [{ name: '1756000000-id.png' }], error: null };
+          },
+          remove: async (paths: string[]) => {
+            calls.push({ table: `storage:${bucket}`, op: 'remove', arg: paths });
+            return { error: null };
+          },
+        }),
+      },
       auth: {
         admin: {
           createUser: async (input: unknown) => {
@@ -182,6 +194,18 @@ describe('POST /admin/registrations/:id/approve', () => {
     const member = mocks.calls.find((c) => c.table === 'Member' && c.op === 'upsert')
       ?.arg as Record<string, unknown>;
     expect(member).toMatchObject({ id: 'mem-auth-1', status: 'APPROVED_ACTIVE' });
+  });
+
+  it('removes the consumed ID-document folder without blocking the approval', async () => {
+    const { res, seen } = capture();
+    await approveHandler(approveReq('reg-001'), res);
+    expect(seen.status).toBe(200);
+    const list = mocks.calls.find((c) => c.table === 'storage:government-ids' && c.op === 'list');
+    expect(list?.arg).toBe('reg-001');
+    const removal = mocks.calls.find(
+      (c) => c.table === 'storage:government-ids' && c.op === 'remove',
+    );
+    expect(removal?.arg).toEqual(['reg-001/1756000000-id.png']);
   });
 
   it('adopts an existing auth account whose email case differs from the registration', async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
+import Swal from 'sweetalert2';
 import { MOCK_ADMIN } from '@jad/mock';
 
 import { resetPolicyStore } from '../../../mock/policyMockStore';
@@ -104,10 +105,13 @@ describe('PolicyDetailPage', () => {
     await user.type(titleInput, 'Detail Updated Terms');
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
 
+    // Success notifications are proper modals (aria-hidden on the page) -
+    // assert their copy, then close before role queries on the page.
+    expect(await screen.findByText('Policy updated')).toBeInTheDocument();
+    Swal.close();
     expect(
       await screen.findByRole('heading', { name: 'Detail Updated Terms' }),
     ).toBeInTheDocument();
-    expect(await screen.findByText('Policy updated')).toBeInTheDocument();
   });
 
   it('deletes the policy from the detail page and returns to the list', async () => {
@@ -117,7 +121,7 @@ describe('PolicyDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete Terms and Conditions' }));
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/uploaded PDF stays in storage/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/its uploaded PDF/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(await screen.findByText('list-marker')).toBeInTheDocument();
@@ -148,6 +152,8 @@ describe('PolicyDetailPage', () => {
     await user.upload(fileInput, new File(['%PDF-1.4'], 'terms.pdf', { type: 'application/pdf' }));
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
 
+    expect(await screen.findByText('Policy updated')).toBeInTheDocument();
+    Swal.close();
     await waitFor(() => expect(screen.getByTitle('Terms and Conditions')).toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
       'href',

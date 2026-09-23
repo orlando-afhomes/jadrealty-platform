@@ -5,34 +5,14 @@ import { appendAudit } from '../../../_lib/audit.js';
 import { verifyStaffModule } from '../../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { isValidContentItemRow, mapContentItemRow } from '../../../_lib/mappers.js';
+import {
+  marketingToolsObjectKey,
+  removeMarketingToolsObjects,
+} from '../../../_lib/storage.js';
 import { validateUpdateContentItem } from '../../../_lib/cutover.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 import { buildContentShare } from '../content.js';
-
-/** Bucket markers inside public download URLs (see `cms/upload/sign.ts`). */
-const MARKETING_TOOLS_OBJECT_MARKERS = [
-  '/storage/v1/object/public/marketing-tools/',
-  '/storage/v1/object/authenticated/marketing-tools/',
-];
-
-/**
- * Extract the `marketing-tools` bucket object key from a download URL, or
- * null when the URL points elsewhere (external links are never touched).
- * Query strings are stripped; path traversal is rejected.
- */
-export function marketingToolsObjectKey(downloadUrl: unknown): string | null {
-  if (typeof downloadUrl !== 'string' || !downloadUrl) return null;
-  const path = (downloadUrl.split('?')[0] ?? '').trim();
-  for (const marker of MARKETING_TOOLS_OBJECT_MARKERS) {
-    const at = path.indexOf(marker);
-    if (at === -1) continue;
-    const key = path.slice(at + marker.length).replace(/^\/+/, '');
-    if (!key || key.includes('..')) return null;
-    return key;
-  }
-  return null;
-}
 
 /**
  * DELETE /admin/content/:id (super_admin + admin, FR-ADM-003) - permanently
@@ -129,14 +109,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const nextKey =
       typeof nextDownloadUrl === 'string' ? marketingToolsObjectKey(nextDownloadUrl) : null;
     if (oldKey && oldKey !== nextKey) {
-      try {
-        const { error: removalError } = await supabase.storage
-          .from('marketing-tools')
-          .remove([oldKey]);
-        if (!removalError) replacedFile = true;
-      } catch {
-        replacedFile = false;
-      }
+      const removal = await removeMarketingToolsObjects(supabase, [
+        current.download_url as string,
+      ]);
+      replacedFile = removal.removed;
     }
   }
   const { data: updated, error: updateError } = await supabase
@@ -199,18 +175,13 @@ async function deleteContentItem(
   current: Record<string, unknown>,
 ) {
   // Best-effort bucket cleanup - never blocks the row delete.
-  let fileRemoved = false;
+  const removal = await removeMarketingToolsObjects(supabase, [
+    current.download_url as string | null | undefined,
+  ]);
   const objectKey = marketingToolsObjectKey(current.download_url);
-  if (objectKey) {
-    try {
-      const { error: storageError } = await supabase.storage
-        .from('marketing-tools')
-        .remove([objectKey]);
-      fileRemoved = !storageError;
-    } catch {
-      fileRemoved = false;
-    }
-  }
+  // `fileRemoved` reports an actual removal (false when there was no bucket
+  // object to remove or the removal failed).
+  const fileRemoved = removal.attempted.length > 0 && removal.removed;
   const { error: deleteError } = await supabase.from('ContentItem').delete().eq('id', id);
   if (deleteError) {
     const { error, status } = toErrorEnvelope('INTERNAL', deleteError.message, 500);

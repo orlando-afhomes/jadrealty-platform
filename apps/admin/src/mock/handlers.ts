@@ -50,10 +50,12 @@ import { messagesMockStore, staffUnreadFor } from './messagesMockStore';
 import {
   assignMockVoucher,
   createMockVoucher,
+  deleteMockVoucherTemplate,
   mockVoucherById,
   mockVoucherTemplateById,
   redeemMockVoucher,
   scanMockVoucher,
+  updateMockVoucherTemplate,
   voucherStore,
 } from './voucherMockStore';
 
@@ -670,6 +672,35 @@ export const adminMockHandlers: MockRoute[] = [
     handler: (ctx: MockRequestContext) => {
       const id = idFromPath(ctx.url, /\/admin\/voucher-templates\/([^/?#]+)/);
       if (!id) return notFound('Voucher');
+      if (ctx.method === 'PATCH') {
+        try {
+          const input = (ctx.body ?? {}) as Record<string, unknown>;
+          const definition = updateMockVoucherTemplate(id, {
+            ...(typeof input.title === 'string' ? { title: input.title } : {}),
+            ...(input.expiresAt === null
+              ? { expiresAt: null }
+              : typeof input.expiresAt === 'string'
+                ? { expiresAt: input.expiresAt }
+                : {}),
+            ...(input.validityDays === null
+              ? { validityDays: null }
+              : typeof input.validityDays === 'number'
+                ? { validityDays: input.validityDays }
+                : {}),
+          });
+          return { body: definition, status: 200 };
+        } catch (e) {
+          return fail((e as Error).message);
+        }
+      }
+      if (ctx.method === 'DELETE') {
+        try {
+          deleteMockVoucherTemplate(id);
+          return { body: { id, deleted: true }, status: 200 };
+        } catch {
+          return notFound('Voucher');
+        }
+      }
       const definition = mockVoucherTemplateById(id);
       if (!definition) return notFound('Voucher');
       return { body: definition, status: 200 };

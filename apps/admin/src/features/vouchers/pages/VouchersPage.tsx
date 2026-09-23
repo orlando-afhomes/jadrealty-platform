@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 
 import {
   Button,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   PageHeader,
@@ -14,6 +15,8 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  notifyError,
+  notifySuccess,
 } from '@jad/ui';
 import { formatMoney } from '@jad/shared';
 import type { VoucherTemplate } from '@jad/contracts';
@@ -21,7 +24,9 @@ import type { VoucherTemplate } from '@jad/contracts';
 import { formatDate } from '../../../lib/format';
 import { useVouchers } from '../hooks/useVouchers';
 import { useAllVoucherAssignments } from '../hooks/useVoucherAssignments';
+import { useDeleteVoucherTemplate } from '../hooks/useDeleteVoucherTemplate';
 import { VoucherCreateDialog } from '../components/VoucherCreateDialog';
+import { VoucherEditDialog } from '../components/VoucherEditDialog';
 import styles from './VouchersPage.module.css';
 
 const PAGE_SIZE = 10;
@@ -35,11 +40,15 @@ function TableSkeleton() {
           <TableHeaderCell align="right">Value</TableHeaderCell>
           <TableHeaderCell align="right">Assigned</TableHeaderCell>
           <TableHeaderCell>Created</TableHeaderCell>
+          <TableHeaderCell>Actions</TableHeaderCell>
         </TableRow>
       </TableHead>
       <TableBody>
         {Array.from({ length: 4 }, (_, i) => (
           <TableRow key={i}>
+            <TableCell>
+              <Skeleton />
+            </TableCell>
             <TableCell>
               <Skeleton />
             </TableCell>
@@ -64,8 +73,11 @@ export function VouchersPage() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useVouchers();
   const { data: allAssignments } = useAllVoucherAssignments();
+  const deleteTemplateMutation = useDeleteVoucherTemplate();
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<VoucherTemplate | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<VoucherTemplate | null>(null);
 
   const assignmentCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -79,6 +91,18 @@ export function VouchersPage() {
   const rows = (data ?? []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openCreate = () => setCreateOpen(true);
+
+  const handleDeleteTemplate = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    try {
+      await deleteTemplateMutation.mutateAsync(target.id);
+      notifySuccess({ title: 'Voucher deleted', message: `"${target.title}" was removed.` });
+    } catch (e) {
+      notifyError({ title: 'Delete failed', message: (e as Error).message });
+    }
+  };
 
   return (
     <section>
@@ -120,6 +144,7 @@ export function VouchersPage() {
                   <TableHeaderCell align="right">Value</TableHeaderCell>
                   <TableHeaderCell align="right">Assigned</TableHeaderCell>
                   <TableHeaderCell>Created</TableHeaderCell>
+                  <TableHeaderCell>Actions</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -151,6 +176,20 @@ export function VouchersPage() {
                         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{count}</span>
                       </TableCell>
                       <TableCell label="Created">{formatDate(row.createdAt)}</TableCell>
+                      <TableCell label="Actions">
+                        <div
+                          style={{ display: 'flex', gap: 'var(--space-2)' }}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <Button variant="secondary" onClick={() => setEditTarget(row)}>
+                            Edit
+                          </Button>
+                          <Button variant="danger" onClick={() => setDeleteTarget(row)}>
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -167,6 +206,33 @@ export function VouchersPage() {
       )}
 
       <VoucherCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      <VoucherEditDialog
+        key={editTarget?.id ?? 'none'}
+        open={editTarget !== null}
+        template={editTarget}
+        onClose={() => setEditTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteTemplate}
+        title="Delete voucher?"
+        message={
+          deleteTarget
+            ? `This will permanently delete "${deleteTarget.title}"` +
+              ((assignmentCounts.get(deleteTarget.id) ?? 0) > 0
+                ? ` and revoke the ${assignmentCounts.get(deleteTarget.id)} assigned member voucher${assignmentCounts.get(deleteTarget.id) === 1 ? '' : 's'}`
+                : '') +
+              '. This action cannot be undone.'
+            : 'This will permanently delete this voucher. This action cannot be undone.'
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        confirmDisabled={deleteTemplateMutation.isPending}
+        confirmLoading={deleteTemplateMutation.isPending}
+      />
     </section>
   );
 }

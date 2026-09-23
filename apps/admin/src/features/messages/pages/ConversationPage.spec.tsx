@@ -77,4 +77,40 @@ describe('admin ConversationPage', () => {
 
     expect(await screen.findByText('No messages yet')).toBeInTheDocument();
   });
+
+  it('scrolls to the newest message when the thread opens', async () => {
+    renderConversation();
+
+    // Geometry before the thread data lands (jsdom has no layout).
+    const thread = screen.getByTestId('message-thread') as HTMLElement;
+    Object.defineProperty(thread, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(thread, 'clientHeight', { value: 200, configurable: true });
+
+    await screen.findByText('Hello, I have a question about my commission.');
+    // The jump lands on the next animation frame, after the items paint.
+    await waitFor(() => expect(thread.scrollTop).toBe(1000));
+  });
+
+  it('scrolls to the newest message after the staff reply sends', async () => {
+    const user = userEvent.setup();
+    renderConversation();
+
+    const thread = screen.getByTestId('message-thread') as HTMLElement;
+    Object.defineProperty(thread, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(thread, 'clientHeight', { value: 200, configurable: true });
+    await screen.findByText('Hello, I have a question about my commission.');
+    await waitFor(() => expect(thread.scrollTop).toBe(1000));
+
+    // The reader scrolls up; their own send still jumps to the latest.
+    thread.scrollTop = 100;
+    Object.defineProperty(thread, 'scrollHeight', { value: 1400, configurable: true });
+    const input = screen.getByLabelText(/Reply as Ada Admin/);
+    await user.type(input, 'Your commission clears after 7 days.');
+    await user.click(screen.getByRole('button', { name: 'Send reply' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Your commission clears after 7 days.')).toBeInTheDocument();
+    });
+    await waitFor(() => expect(thread.scrollTop).toBe(1400));
+  });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
-import { Button, ErrorState, Icon, Skeleton, getInitials, notifyError } from '@jad/ui';
+import { Button, ErrorState, Icon, Skeleton, getInitials, notifyError, useScrollToLatest } from '@jad/ui';
 import type { Message } from '@jad/contracts';
 
 import { ApiError } from '../../../lib/api/errors';
@@ -44,6 +44,11 @@ export function ConversationThread({ memberId, memberName, memberEmail }: Conver
   );
   const items = useMemo(() => buildThreadItems(messages), [messages]);
 
+  // Latest-message scrolling: open-at-latest on first load and per member,
+  // follow new arrivals only when the reader is near the bottom, always jump
+  // after the user's own send (see submit below).
+  const { scrollToLatest } = useScrollToLatest(threadRef, messages.length, memberId);
+
   const resolvedName =
     memberName ?? messages.find((m) => m.senderType === 'MEMBER')?.senderName ?? 'Member';
   const resolvedEmail = memberEmail ?? '';
@@ -57,15 +62,6 @@ export function ConversationThread({ memberId, memberName, memberEmail }: Conver
     markedRef.current = true;
     markReadMutation.mutate(undefined);
   }, [threadQuery.isSuccess, threadQuery.data, markReadMutation]);
-
-  const scrollToBottom = () => {
-    const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  };
-
-  useEffect(() => {
-    if (threadQuery.isSuccess) requestAnimationFrame(scrollToBottom);
-  }, [threadQuery.isSuccess, memberId]);
 
   // Composer auto-grow: follow content up to the cap so the box never
   // scrolls internally (direct DOM write only - no state, no extra render).
@@ -84,7 +80,7 @@ export function ConversationThread({ memberId, memberName, memberEmail }: Conver
     sendMutation.mutate(draft, {
       onSuccess: () => {
         setDraft('');
-        requestAnimationFrame(scrollToBottom);
+        scrollToLatest();
       },
       onError: (error) => {
         notifyError({
@@ -118,7 +114,7 @@ export function ConversationThread({ memberId, memberName, memberEmail }: Conver
         </button>
       </header>
 
-      <div className={styles.thread} ref={threadRef}>
+      <div className={styles.thread} ref={threadRef} data-testid="message-thread">
         {threadQuery.isLoading ? (
           <div className={styles.loading} role="status" aria-live="polite" aria-busy="true">
             <Skeleton />

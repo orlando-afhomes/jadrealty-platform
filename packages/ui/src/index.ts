@@ -2,6 +2,8 @@ export { useDisclosure } from './hooks/useDisclosure.js';
 export type { Disclosure } from './hooks/useDisclosure.js';
 export { useMediaQuery } from './hooks/useMediaQuery.js';
 export { useDialogShell } from './hooks/useDialogShell.js';
+export { useScrollToLatest, SCROLL_STICK_THRESHOLD_PX } from './hooks/useScrollToLatest.js';
+export type { ScrollToLatest } from './hooks/useScrollToLatest.js';
 
 export { Icon } from './components/Icon.js';
 export type { IconName, IconProps } from './components/Icon.js';

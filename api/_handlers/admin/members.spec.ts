@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
     const b: Record<string, (...a: never[]) => unknown> = {};
     b.select = () => b;
     b.eq = () => b;
+    b.ilike = async () => ({ data: [], error: null });
     b.limit = async () => ({ data: [], error: null });
     b.order = async () => ({ data: [], error: null });
     b.in = async (key: string) => {

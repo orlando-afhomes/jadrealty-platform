@@ -6,6 +6,7 @@ import { appendAudit } from '../../../../_lib/audit.js';
 import { getSupabaseEnv } from '../../../../_lib/env.js';
 import type { VercelRequest, VercelResponse } from '../../../../_lib/http.js';
 import { isReferralCodeConflict, pickUniqueReferralCode } from '../../../../_lib/referral-codes.js';
+import { removeGovernmentIdObjects } from '../../../../_lib/storage.js';
 import { methodNotAllowed, readJsonBody, serviceClient } from '../../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../../_lib/envelope.js';
 
@@ -284,6 +285,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
+  // The application row is gone and `idVerified` now lives on the Member -
+  // its ID document folder has no readers left. Remove it best-effort so no
+  // orphaned private file survives; a storage failure never fails the
+  // approval (logged by the helper).
+  await removeGovernmentIdObjects(supabase, id);
   await appendAudit(supabase, {
     action: 'REGISTRATION_APPROVED',
     actorId: auth.userId,

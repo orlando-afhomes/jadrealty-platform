@@ -1,6 +1,11 @@
 import { appendAudit } from '../../_lib/audit.js';
 import { verifyUser } from '../../_lib/auth.js';
-import { stripDocumentData, uploadGovernmentId } from '../../_lib/documents.js';
+import {
+  GOVERNMENT_ID_BUCKET,
+  stripDocumentData,
+  uploadGovernmentId,
+} from '../../_lib/documents.js';
+import { removeStorageKeys } from '../../_lib/storage.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { calculateAge } from '../../_lib/pipeline.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../_lib/rest.js';
@@ -120,6 +125,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
   const registrationId = typeof m.registrationId === 'string' ? m.registrationId : null;
+  // Exact storage key of a replaced ID document, removed best-effort after
+  // the row update commits (file-last ordering keeps DB and Storage
+  // consistent even when the removal fails).
+  let regPatchPendingStorageRemoval: string | null = null;
   if (registrationId) {
     const regPatch: Record<string, unknown> = {
       status: 'PENDING',
@@ -144,7 +153,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const governmentId = (body.governmentId ?? body.idDocument) as
       Record<string, unknown> | undefined;
     if (governmentId !== undefined) {
-      // Never persist upload bytes; upload a fresh file when provided.
+      // Never persist upload bytes; upload a fresh file when provided. A
+      // replaced file orphans its old object - captured here so it can be
+      // removed after the row update succeeds (never before).
+      let previousStoragePath: string | null = null;
+      if (typeof governmentId.data === 'string' && governmentId.data) {
+        const { data: currentReg } = await supabase
+          .from('Registration')
+          .select('governmentId')
+          .eq('id', registrationId)
+          .maybeSingle();
+        const stored = (currentReg as { governmentId?: unknown } | null)?.governmentId as
+          | Record<string, unknown>
+          | undefined;
+        if (typeof stored?.storagePath === 'string' && stored.storagePath) {
+          previousStoragePath = stored.storagePath as string;
+        }
+      }
       regPatch.governmentId = stripDocumentData(governmentId) ?? governmentId;
       if (typeof governmentId.data === 'string' && governmentId.data) {
         const uploaded = await uploadGovernmentId(supabase, registrationId, {
@@ -161,6 +186,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ...(regPatch.governmentId as Record<string, unknown>),
           storagePath: uploaded.storagePath,
         };
+        if (previousStoragePath && previousStoragePath !== uploaded.storagePath) {
+          regPatchPendingStorageRemoval = previousStoragePath;
+        }
       }
     }
     const { error: regUpdateError } = await supabase
@@ -171,6 +199,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { error, status } = toErrorEnvelope('INTERNAL', regUpdateError.message, 500);
       res.status(status).json({ error });
       return;
+    }
+    if (regPatchPendingStorageRemoval) {
+      await removeStorageKeys(supabase, GOVERNMENT_ID_BUCKET, [regPatchPendingStorageRemoval]);
     }
   }
   await appendAudit(supabase, {

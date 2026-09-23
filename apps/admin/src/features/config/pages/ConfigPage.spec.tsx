@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import Swal from 'sweetalert2';
 import { MOCK_ADMIN, MOCK_STAFF_ADMIN } from '@jad/mock';
 
 import { installMockApi, renderWithProviders } from '../../../test/utils';
@@ -76,6 +77,11 @@ describe('ConfigPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Create' }));
 
     expect(await screen.findByText('Student Program')).toBeInTheDocument();
+
+    // The success notification is a proper modal - close it before the
+    // role queries below (aria-hidden would hide the page tree).
+    expect(await screen.findByText('Program created')).toBeInTheDocument();
+    Swal.close();
 
     // Retire it - the row stays visible to super_admin, marked inactive.
     const card = screen.getByText('Student Program').closest('[class*="programCard"]');

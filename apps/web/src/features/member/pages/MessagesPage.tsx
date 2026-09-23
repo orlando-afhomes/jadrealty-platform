@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { Button, EmptyState, ErrorState, Icon, PageHeader, Skeleton } from '@jad/ui';
+import { Button, EmptyState, ErrorState, Icon, PageHeader, Skeleton, useScrollToLatest } from '@jad/ui';
 import type { Message } from '@jad/contracts';
 
 import { Alert } from '@/components/Alert';
@@ -73,15 +73,12 @@ export function MessagesPage() {
     user?.id,
   ]);
 
-  // Scroll to the newest message after a send or a live refresh.
-  const scrollToBottom = () => {
-    const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  };
-
+  // Scroll to the newest message on open; follow new arrivals only while
+  // the reader is near the bottom; always jump after the user's own send.
   const messages: Message[] = (threadQuery.data?.pages.flatMap((page) => page.items) ?? [])
     .slice()
     .reverse();
+  const { scrollToLatest } = useScrollToLatest(threadRef, messages.length);
   const now = new Date();
 
   const canSend = draft.trim().length > 0 && draft.length <= 4000;
@@ -94,7 +91,7 @@ export function MessagesPage() {
       {
         onSuccess: () => {
           setDraft('');
-          requestAnimationFrame(scrollToBottom);
+          scrollToLatest();
         },
         onError: (error) => {
           setSendError(apiErrorMessage(error, 'We could not send your message.'));
@@ -134,7 +131,7 @@ export function MessagesPage() {
           </div>
         </header>
 
-        <div className={styles.thread} ref={threadRef} aria-live="polite">
+        <div className={styles.thread} ref={threadRef} aria-live="polite" data-testid="message-thread">
           {threadQuery.isLoading ? (
             <div className={styles.loading} role="status" aria-live="polite" aria-busy="true">
               <div className={styles.skeletonRow}>

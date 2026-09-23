@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Route, Routes } from 'react-router';
@@ -174,6 +174,81 @@ describe('LoginPage', () => {
     });
 
     vi.restoreAllMocks();
+  });
+
+  it('links Terms and Privacy Policy to the canonical policy routes', async () => {
+    const fetchFn = mockFetchRoutes({
+      '/policies': {
+        data: [
+          {
+            id: 'pol-001',
+            slug: 'terms',
+            title: 'Terms and Conditions',
+            type: 'terms',
+            content: 'Terms copy.',
+            updatedAt: '2026-08-18T10:00:00.000Z',
+          },
+          {
+            id: 'pol-003',
+            slug: 'privacy',
+            title: 'Privacy Policy',
+            type: 'privacy',
+            content: 'Privacy copy.',
+            updatedAt: '2026-08-18T10:00:00.000Z',
+          },
+        ],
+      },
+    });
+    renderLogin();
+
+    // Wait for the mocked policies response to drive the note (the static
+    // fallback renders the same slugs while the query is pending).
+    await waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining('/policies'),
+        expect.anything(),
+      ),
+    );
+    expect(await screen.findByRole('link', { name: 'Terms' })).toHaveAttribute(
+      'href',
+      '/policies/terms',
+    );
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+      'href',
+      '/policies/privacy',
+    );
+  });
+
+  it('renders Privacy Policy as plain text when no privacy policy exists', async () => {
+    mockFetchRoutes({
+      '/policies': {
+        data: [
+          {
+            id: 'pol-001',
+            slug: 'terms',
+            title: 'Terms and Conditions',
+            type: 'terms',
+            content: 'Terms copy.',
+            updatedAt: '2026-08-18T10:00:00.000Z',
+          },
+        ],
+      },
+    });
+    renderLogin();
+
+    expect(await screen.findByRole('link', { name: 'Terms' })).toHaveAttribute(
+      'href',
+      '/policies/terms',
+    );
+    // The fallback renders the link while the query is pending - wait for the
+    // terms-only response to settle before asserting the plain-text fallback.
+    const note = await screen.findByText(/Secure sign-in/);
+    await waitFor(() =>
+      expect(
+        within(note).queryByRole('link', { name: 'Privacy Policy' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(note.textContent).toContain('Privacy Policy');
   });
 
   afterEach(() => {

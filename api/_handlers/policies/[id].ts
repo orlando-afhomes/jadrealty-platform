@@ -3,6 +3,7 @@ import { policySchema, policyUpdateSchema } from '@jad/contracts';
 import { ADMIN_STAFF } from '../../_lib/access.js';
 import { verifyStaffModule } from '../../_lib/auth.js';
 import { appendAudit } from '../../_lib/audit.js';
+import { removeMarketingToolsObjects } from '../../_lib/storage.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../_lib/rest.js';
@@ -54,7 +55,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error: env });
       return;
     }
-    const row = data as { id: string; title: string };
+    const row = data as { id: string; title: string; document_url?: string | null };
+    // The stored PDF lives in `marketing-tools` - remove it best-effort so
+    // no orphaned object survives the row delete. Row deletion stays
+    // authoritative: a storage failure never fails the delete. `fileRemoved`
+    // is true only when a referenced object was actually removed.
+    const removal = await removeMarketingToolsObjects(supabase, [row.document_url]);
+    const fileRemoved = removal.attempted.length > 0 && removal.removed;
     await appendAudit(supabase, {
       action: 'POLICY_DELETED',
       actorId: auth.userId,
@@ -62,9 +69,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       targetType: 'Policy',
       targetId: row.id,
       targetName: row.title,
-      detail: `Deleted policy ${row.title}`,
+      detail:
+        `Deleted policy ${row.title}` +
+        (row.document_url
+          ? removal.removed
+            ? ' (uploaded PDF removed)'
+            : ' (uploaded PDF removal failed)'
+          : ''),
     });
-    res.status(200).json({ id: row.id, deleted: true });
+    res.status(200).json({ id: row.id, deleted: true, fileRemoved });
     return;
   }
   const parsedBody = readJsonBody(req);
@@ -92,6 +105,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (parsed.data.type !== undefined) patch.type = parsed.data.type;
   if (parsed.data.content !== undefined) patch.content = parsed.data.content;
   if (parsed.data.documentUrl !== undefined) patch.document_url = parsed.data.documentUrl;
+  // PDF replacement needs the previous URL so the superseded object can be
+  // removed afterwards (best-effort, never blocks the update).
+  let previousDocumentUrl: string | null = null;
+  if (parsed.data.documentUrl !== undefined) {
+    const { data: current } = await supabase
+      .from('Policy')
+      .select('document_url')
+      .eq('id', id)
+      .maybeSingle();
+    previousDocumentUrl =
+      typeof (current as { document_url?: unknown } | null)?.document_url === 'string'
+        ? ((current as { document_url: string }).document_url as string)
+        : null;
+  }
   const { data, error } = await supabase
     .from('Policy')
     .update(patch)
@@ -133,6 +160,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     targetName: row.title,
     detail: `Updated policy ${row.title}`,
   });
+  // A replaced PDF orphans its old object - remove it now that the row points
+  // at the new URL (best-effort, post-commit, never blocks the update).
+  if (
+    parsed.data.documentUrl !== undefined &&
+    previousDocumentUrl &&
+    previousDocumentUrl !== parsed.data.documentUrl
+  ) {
+    const removal = await removeMarketingToolsObjects(supabase, [previousDocumentUrl]);
+    if (!removal.removed) {
+      console.error(`[policies:${id}] previous PDF removal failed:`, previousDocumentUrl);
+    }
+  }
   res.status(200).json({
     id: row.id,
     slug: row.slug,

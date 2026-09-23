@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
   const calls: { table: string; op: string; arg?: unknown }[] = [];
   const script = {
     member: null as unknown,
+    registrationRow: null as unknown,
     minAge: '18',
     uploadError: null as string | null,
   };
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => {
     b.maybeSingle = async () => {
       if (table === 'Member') return { data: script.member, error: null };
       if (table === 'SystemConfig') return { data: { value: script.minAge }, error: null };
+      if (table === 'Registration') return { data: script.registrationRow, error: null };
       return { data: null, error: null };
     };
     return {
@@ -43,6 +45,10 @@ const mocks = vi.hoisted(() => {
           upload: async (...args: unknown[]) => {
             calls.push({ table: 'government-ids', op: 'upload', arg: args[0] });
             if (script.uploadError) return { error: { message: script.uploadError } };
+            return { error: null };
+          },
+          remove: async (paths: unknown) => {
+            calls.push({ table: 'government-ids', op: 'remove', arg: paths });
             return { error: null };
           },
         }),
@@ -93,6 +99,7 @@ describe('POST /me/resubmit government ID', () => {
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
     mocks.calls.length = 0;
     mocks.script.uploadError = null;
+    mocks.script.registrationRow = null;
     mocks.script.member = {
       id: 'mem-uuid-1',
       status: 'REJECTED',
@@ -174,5 +181,38 @@ describe('POST /me/resubmit government ID', () => {
     );
     expect(seen.status).toBe(500);
     expect(seen.body).toMatchObject({ error: { code: 'INTERNAL', message: 'bucket missing' } });
+  });
+
+  it('removes the superseded ID file after a replacement upload', async () => {
+    mocks.script.registrationRow = {
+      governmentId: {
+        fileName: 'old-id.png',
+        mimeType: 'image/png',
+        storagePath: 'reg-001/1756000000-old-id.png',
+      },
+    };
+    const png =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const { res, seen } = capture();
+    await resubmitHandler(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: {
+          governmentId: { fileName: 'id.png', mimeType: 'image/png', sizeBytes: 70, data: png },
+        },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(200);
+    const update = mocks.calls.find((c) => c.table === 'Registration')?.arg as Record<
+      string,
+      unknown
+    >;
+    const governmentId = update.governmentId as Record<string, unknown>;
+    expect(governmentId.storagePath).not.toBe('reg-001/1756000000-old-id.png');
+    const removal = mocks.calls.find((c) => c.table === 'government-ids' && c.op === 'remove');
+    expect(removal?.arg).toEqual(['reg-001/1756000000-old-id.png']);
   });
 });

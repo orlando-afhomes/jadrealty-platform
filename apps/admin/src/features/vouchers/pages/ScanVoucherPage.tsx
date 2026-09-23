@@ -47,6 +47,10 @@ export function ScanVoucherPage() {
   const [stage, setStage] = useState<ScanStage>({ kind: 'idle' });
   const [redeeming, setRedeeming] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Guards the camera path: the first decode starts the lookup and every
+  // frame after it is ignored until the operator scans again, so a QR held
+  // in the viewfinder can never fire duplicate lookups.
+  const busyRef = useRef(false);
 
   const resolve = async (code: string) => {
     if (!code.trim()) return;
@@ -57,10 +61,18 @@ export function ScanVoucherPage() {
       setStage({ kind: 'result', voucher });
     } catch (e) {
       setStage({ kind: 'error', message: (e as Error).message });
+    } finally {
+      busyRef.current = false;
     }
   };
 
-  const handleDecode = (code: string) => {
+  const handleCameraDecode = (code: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    void resolve(code);
+  };
+
+  const handleUploadDecode = (code: string) => {
     void resolve(code);
   };
 
@@ -71,9 +83,10 @@ export function ScanVoucherPage() {
     error: uploadError,
     handleFile: handleQrUpload,
     reset: resetQrUpload,
-  } = useQrImageUpload(handleDecode);
+  } = useQrImageUpload(handleUploadDecode);
 
   function resetTransient() {
+    busyRef.current = false;
     setStage({ kind: 'idle' });
     setManualCode('');
     setConfirmOpen(false);
@@ -147,7 +160,10 @@ export function ScanVoucherPage() {
               role="tabpanel"
               aria-labelledby="scan-input-camera-tab"
             >
-              <CameraView onDecode={handleDecode} />
+              <CameraView
+                onDecode={handleCameraDecode}
+                active={stage.kind === 'idle'}
+              />
             </div>
           ) : null}
 
@@ -250,9 +266,14 @@ export function ScanVoucherPage() {
             </p>
           ) : null}
           {stage.kind === 'error' ? (
-            <p role="alert" className={styles.error}>
-              {stage.message}
-            </p>
+            <div className={styles.errorWrap}>
+              <p role="alert" className={styles.error}>
+                {stage.message}
+              </p>
+              <Button variant="secondary" onClick={scanAnother}>
+                Try again
+              </Button>
+            </div>
           ) : null}
           {stage.kind === 'result' ? (
             <VoucherResult
@@ -294,10 +315,12 @@ export function ScanVoucherPage() {
 
 /**
  * Camera pane - mounted only while the Camera tab is active so the stream
- * starts and stops with the tab (unmount cleanup releases the camera).
+ * starts and stops with the tab (unmount cleanup releases the camera). The
+ * stream is additionally paused via `active` once a decode resolves, so the
+ * viewfinder freezes on the result instead of firing duplicate scans.
  */
-function CameraView({ onDecode }: { onDecode: (code: string) => void }) {
-  const { videoRef, status } = useQrScanner(onDecode);
+function CameraView({ onDecode, active }: { onDecode: (code: string) => void; active: boolean }) {
+  const { videoRef, status } = useQrScanner(onDecode, active);
   return (
     <div>
       <div className={styles.viewfinder}>
@@ -418,9 +441,14 @@ function VoucherResult({
           <span className={styles.issued}>Expires {formatDate(voucher.expiresAt)}</span>
         ) : null}
         {isActive ? (
-          <Button variant="primary" onClick={onRedeem} className={styles.redeemButton}>
-            Redeem voucher
-          </Button>
+          <>
+            <Button variant="primary" onClick={onRedeem} className={styles.redeemButton}>
+              Redeem voucher
+            </Button>
+            <Button variant="ghost" onClick={onScanAnother} className={styles.redeemButton}>
+              Scan another
+            </Button>
+          </>
         ) : (
           <Button variant="secondary" onClick={onScanAnother} className={styles.redeemButton}>
             Scan another

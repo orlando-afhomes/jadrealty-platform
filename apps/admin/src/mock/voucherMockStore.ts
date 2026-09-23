@@ -51,6 +51,50 @@ export function mockVoucherTemplateById(id: string): VoucherTemplate | undefined
   return voucherStore.definitions.find((d) => d.id === id);
 }
 
+/**
+ * Edit a voucher definition (title/expiry/validity). The original value is
+ * not editable - assignments snapshot it at issue (mirrors the API).
+ */
+export function updateMockVoucherTemplate(
+  id: string,
+  patch: { title?: string; expiresAt?: string | null; validityDays?: number | null },
+): VoucherTemplate {
+  const definition = mockVoucherTemplateById(id);
+  if (!definition) throw new Error('Voucher not found.');
+  if (patch.title !== undefined) {
+    if (!patch.title.trim()) throw new Error('Enter a voucher title.');
+    definition.title = patch.title.trim();
+  }
+  if (patch.expiresAt !== undefined) {
+    if (patch.expiresAt === null) delete definition.expiresAt;
+    else definition.expiresAt = patch.expiresAt;
+  }
+  if (patch.validityDays !== undefined) {
+    if (patch.validityDays === null) delete definition.validityDays;
+    else {
+      if (!Number.isInteger(patch.validityDays) || patch.validityDays < 1)
+        throw new Error('Enter a whole number of days.');
+      definition.validityDays = patch.validityDays;
+    }
+  }
+  return definition;
+}
+
+/** Delete a voucher definition and revoke all its assigned member vouchers. */
+export function deleteMockVoucherTemplate(id: string): void {
+  const index = voucherStore.definitions.findIndex((d) => d.id === id);
+  if (index < 0) throw new Error('Voucher not found.');
+  voucherStore.definitions.splice(index, 1);
+  voucherStore.vouchers = voucherStore.vouchers.filter((v) => v.templateId !== id);
+}
+
+/** Restore the seeded voucher store (module singleton - tests reset in beforeEach). */
+export function resetVoucherStore(): void {
+  voucherStore.definitions = MOCK_VOUCHERS.map((v) => ({ ...v }));
+  voucherStore.vouchers = MOCK_VOUCHER_ASSIGNMENTS.map((v) => ({ ...v }));
+  seq = 110;
+}
+
 export function assignMockVoucher(input: {
   templateId: string;
   memberId: string;

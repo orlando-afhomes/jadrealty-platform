@@ -5,6 +5,7 @@ import { slugsAllowed, verifyStaffModule } from '../../../_lib/auth.js';
 import { appendAudit } from '../../../_lib/audit.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { mapAdminMemberRow } from '../../../_lib/pipeline.js';
+import { removeGovernmentIdObjects } from '../../../_lib/storage.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 
@@ -147,6 +148,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error });
       return;
     }
+    // The purge function (SQL) destroys Registration rows but cannot touch
+    // Supabase Storage - collect the application ids first so their private
+    // ID-document folders can be removed afterwards (best-effort).
+    const purgeRegistrationIds = new Set<string>();
+    if (typeof current.registrationId === 'string' && current.registrationId) {
+      purgeRegistrationIds.add(current.registrationId);
+    }
+    if (typeof current.email === 'string' && current.email) {
+      const { data: regRows } = await supabase
+        .from('Registration')
+        .select('id')
+        .ilike('email', current.email);
+      for (const row of ((regRows as { id?: unknown }[] | null) ?? [])) {
+        if (typeof row?.id === 'string' && row.id) purgeRegistrationIds.add(row.id);
+      }
+    }
     const { data: rpcData, error: rpcError } = await supabase.rpc('member_purge_cascade', {
       p_member: id,
       p_actor: auth.userId,
@@ -180,6 +197,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (firstDeleteError) {
       const { error: retryDeleteError } = await supabase.auth.admin.deleteUser(id);
       if (retryDeleteError) authRemoved = false;
+    }
+    // The purged member's applications (and their ID documents) are gone from
+    // the database - remove the orphaned private folders best-effort. Never
+    // blocks the purge response (logged by the helper).
+    for (const registrationId of purgeRegistrationIds) {
+      await removeGovernmentIdObjects(supabase, registrationId);
     }
     await appendAudit(supabase, {
       action: 'MEMBER_PURGED',

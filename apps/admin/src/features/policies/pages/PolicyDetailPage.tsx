@@ -35,10 +35,14 @@ export function PolicyDetailPage() {
   const handleDelete = async () => {
     if (!item) return;
     try {
-      await deletePolicy.mutateAsync(item.id);
+      const result = await deletePolicy.mutateAsync(item.id);
       notifySuccess({
         title: 'Policy deleted',
-        message: `"${item.title}" was permanently removed. Its uploaded PDF stays in storage.`,
+        message:
+          `"${item.title}" was permanently removed` +
+          (item.documentUrl && result.fileRemoved === false
+            ? ', but its uploaded PDF could not be removed.'
+            : '.'),
       });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'policies'] });
       navigate('/admin/policies');
@@ -161,7 +165,7 @@ export function PolicyDetailPage() {
         onCancel={() => setShowDeleteConfirm(false)}
         onConfirm={handleDelete}
         title={`Delete "${item?.title ?? ''}"?`}
-        message="This will permanently remove this policy. Its uploaded PDF stays in storage. This action cannot be undone."
+        message="This will permanently remove this policy and its uploaded PDF. This action cannot be undone."
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger

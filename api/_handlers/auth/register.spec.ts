@@ -85,6 +85,10 @@ const mocks = vi.hoisted(() => {
             if (mocks.uploadError) return { error: { message: mocks.uploadError } };
             return { error: null };
           },
+          remove: async (paths: unknown) => {
+            calls.push({ table: 'government-ids', op: 'remove', arg: paths });
+            return { error: null };
+          },
         }),
       },
     },
@@ -295,6 +299,41 @@ describe('POST /api/v1/auth/register', () => {
     await registerHandler(postReq(VALID_BODY), res);
     expect(seen.status).toBe(409);
     expect(mocks.calls.some((c) => c.op === 'createUser')).toBe(false);
+  });
+
+  it('removes the superseded ID file when a replay replaces it', async () => {
+    mocks.script.registrationRow = {
+      id: 'reg-existing',
+      status: 'PENDING',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      governmentId: {
+        fileName: 'old-id.pdf',
+        mimeType: 'application/pdf',
+        storagePath: 'reg-existing/1756000000-old-id.pdf',
+      },
+    };
+    const png =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const { res, seen } = capture();
+    await registerHandler(
+      postReq({
+        ...VALID_BODY,
+        idDocument: { fileName: 'new-id.png', mimeType: 'image/png', sizeBytes: 100, data: png },
+      }),
+      res,
+    );
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ replayed: true });
+    // Row first (new path persisted), old exact object removed afterwards.
+    const update = mocks.calls.find((c) => c.table === 'Registration' && c.op === 'update');
+    const governmentId = (update?.arg as Record<string, unknown>)?.governmentId as Record<
+      string,
+      unknown
+    >;
+    expect(typeof governmentId.storagePath === 'string').toBe(true);
+    expect(governmentId.storagePath).not.toBe('reg-existing/1756000000-old-id.pdf');
+    const removal = mocks.calls.find((c) => c.table === 'government-ids' && c.op === 'remove');
+    expect(removal?.arg).toEqual(['reg-existing/1756000000-old-id.pdf']);
   });
 
   it('releases a purged member’s leftover APPROVED registration instead of 409', async () => {

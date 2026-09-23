@@ -9,7 +9,11 @@ import {
 
 import { request, requestList } from '../../../lib/api/client';
 
-const deleteResponseSchema = z.object({ id: z.string().min(1), deleted: z.boolean() });
+const deleteResponseSchema = z.object({
+  id: z.string().min(1),
+  deleted: z.boolean(),
+  fileRemoved: z.boolean().optional(),
+});
 
 export type CreatePolicyInput = {
   title: string;
@@ -50,9 +54,12 @@ export function updatePolicy(id: string, patch: PolicyUpdateRequest): Promise<Po
 
 /**
  * DELETE /policies/:id - permanently remove a policy. The stored PDF object
- * stays in `marketing-tools` (no orphan cleanup). Irreversible - callers
- * confirm first.
+ * is removed from `marketing-tools` best-effort (`fileRemoved` reports the
+ * outcome; a storage failure never blocks the delete). Irreversible -
+ * callers confirm first.
  */
-export function deletePolicy(id: string): Promise<{ id: string; deleted: boolean }> {
+export function deletePolicy(
+  id: string,
+): Promise<{ id: string; deleted: boolean; fileRemoved?: boolean }> {
   return request(`/policies/${id}`, deleteResponseSchema, { method: 'DELETE' });
 }
