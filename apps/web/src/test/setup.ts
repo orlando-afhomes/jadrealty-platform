@@ -35,6 +35,7 @@ afterEach(() => {
   }
   try {
     sessionStorage.removeItem('jad:register:draft:v1');
+    sessionStorage.removeItem('jad:register:draft:v2');
     sessionStorage.removeItem('jad:register:email');
     sessionStorage.removeItem('jad:register:draft');
   } catch {

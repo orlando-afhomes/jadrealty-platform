@@ -15,6 +15,8 @@ export interface AuthLayoutProps {
   brandMark?: CmsPhoto | null;
   /** Form panel content (the form or a result/preview panel). */
   children: ReactNode;
+  /** Wide (680px) form panel for complex multi-field forms; default is 440px. */
+  wide?: boolean;
 }
 
 /**
@@ -36,6 +38,7 @@ export function AuthLayout({
   image,
   brandMark,
   children,
+  wide = false,
 }: AuthLayoutProps) {
   const effectiveMark = brandMark ?? null;
   const logoSrc = effectiveMark?.id ?? AUTH_LOGO.src;
@@ -69,7 +72,7 @@ export function AuthLayout({
           </div>
         </aside>
         <div className={styles.formColumn}>
-          <div className={styles.formPanel}>
+          <div className={`${styles.formPanel} ${wide ? styles.formPanelWide : ''}`}>
             <div className={styles.heading}>
               <p className={styles.eyebrow}>{eyebrow}</p>
               <h1>{title}</h1>

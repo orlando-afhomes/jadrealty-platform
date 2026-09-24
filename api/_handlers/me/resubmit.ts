@@ -1,3 +1,5 @@
+import { resubmitRequestSchema } from '@jad/contracts';
+
 import { appendAudit } from '../../_lib/audit.js';
 import { verifyUser } from '../../_lib/auth.js';
 import {
@@ -5,6 +7,12 @@ import {
   stripDocumentData,
   uploadGovernmentId,
 } from '../../_lib/documents.js';
+import {
+  locationLookupsFor,
+  resolveIntakeAddress,
+  validateIntakePhone,
+  type AddressColumns,
+} from '../../_lib/intake-validation.js';
 import { removeStorageKeys } from '../../_lib/storage.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { calculateAge } from '../../_lib/pipeline.js';
@@ -62,8 +70,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  const body = (parsedBody.body ?? {}) as Record<string, unknown>;
-  if (body.countryCode !== undefined && body.countryCode !== m.countryCode) {
+  // Legacy alias: early clients send `governmentId` where the contract
+  // expects `idDocument`. Fold it before validation (idDocument wins).
+  const rawBody = (parsedBody.body ?? {}) as Record<string, unknown>;
+  if (rawBody.idDocument === undefined && rawBody.governmentId !== undefined) {
+    rawBody.idDocument = rawBody.governmentId;
+  }
+  // Resubmission faces the same rules as intake - every provided value is
+  // schema-validated (names, birth date, phone shape, address groups).
+  // Country-specific phone/address checks follow against the immutable
+  // member country.
+  const parsed = resubmitRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    const { error, status } = toErrorEnvelope(
+      'VALIDATION_ERROR',
+      'Some resubmitted details are missing or invalid.',
+      400,
+      parsed.error.issues,
+    );
+    res.status(status).json({ error });
+    return;
+  }
+  const body = parsed.data;
+  if (
+    body.countryCode !== undefined &&
+    body.countryCode.toUpperCase() !== String(m.countryCode ?? '').toUpperCase()
+  ) {
     const { error, status } = toErrorEnvelope(
       'VALIDATION_ERROR',
       'Country cannot be changed.',
@@ -72,7 +104,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  const trimmed = (value: unknown) => (typeof value === 'string' ? value.trim() : undefined);
+  const memberCountry = String(m.countryCode ?? '');
+  const lookups = locationLookupsFor(supabase);
+  // Phone: country-rule validation with E.164 normalization.
+  let normalizedPhone: string | undefined;
+  if (body.phone !== undefined) {
+    const phoneCheck = await validateIntakePhone({ country: lookups.country }, memberCountry, body.phone);
+    if (!phoneCheck.ok) {
+      const { error, status } = toErrorEnvelope('VALIDATION_ERROR', phoneCheck.message, 400);
+      res.status(status).json({ error });
+      return;
+    }
+    normalizedPhone = phoneCheck.normalized;
+  }
+  // Address: hierarchy changes resolve against the member's country
+  // (membership-checked, names snapshotted); a street-only correction
+  // updates just the street line.
+  let addressColumns: AddressColumns | undefined;
+  if (
+    body.provinceCode !== undefined ||
+    body.cityCode !== undefined ||
+    body.barangayCode !== undefined ||
+    body.region !== undefined ||
+    body.city !== undefined
+  ) {
+    const addressCheck = await resolveIntakeAddress(lookups, memberCountry, {
+      provinceCode: body.provinceCode,
+      cityCode: body.cityCode,
+      barangayCode: body.barangayCode,
+      region: body.region,
+      city: body.city,
+      street: body.address,
+    });
+    if (!addressCheck.ok) {
+      const { error, status } = toErrorEnvelope('VALIDATION_ERROR', addressCheck.message, 400);
+      res.status(status).json({ error });
+      return;
+    }
+    addressColumns = addressCheck.columns;
+  }
   if (typeof body.dateOfBirth === 'string' && body.dateOfBirth) {
     const { data: minAgeRow } = await supabase
       .from('SystemConfig')
@@ -97,19 +167,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // clear the approval-time flag (mirrors the mock's isIdVerified reset).
     idVerified: false,
   };
-  for (const field of [
-    'firstName',
-    'lastName',
-    'phone',
-    'address',
-    'dateOfBirth',
-    'gender',
-  ] as const) {
-    const value = trimmed(body[field]);
-    if (value) memberPatch[field] = value;
-  }
-  for (const field of ['middleInitial', 'nameSuffix'] as const) {
-    if (typeof body[field] === 'string') memberPatch[field] = body[field];
+  // Schema-normalized values flow straight into the patches (no raw input).
+  if (body.firstName !== undefined) memberPatch.firstName = body.firstName;
+  if (body.lastName !== undefined) memberPatch.lastName = body.lastName;
+  if (body.middleInitial !== undefined) memberPatch.middleInitial = body.middleInitial;
+  if (body.nameSuffix !== undefined) memberPatch.nameSuffix = body.nameSuffix;
+  if (normalizedPhone !== undefined) memberPatch.phone = normalizedPhone;
+  if (body.dateOfBirth !== undefined) memberPatch.dateOfBirth = body.dateOfBirth;
+  if (body.gender !== undefined) memberPatch.gender = body.gender;
+  const hierarchyTouched =
+    body.provinceCode !== undefined ||
+    body.cityCode !== undefined ||
+    body.barangayCode !== undefined ||
+    body.region !== undefined ||
+    body.city !== undefined;
+  if (addressColumns !== undefined) {
+    if (body.address !== undefined) memberPatch.address = addressColumns.address;
+    memberPatch.province_code = addressColumns.province_code;
+    memberPatch.province_name = addressColumns.province_name;
+    memberPatch.city_code = addressColumns.city_code;
+    memberPatch.city_name = addressColumns.city_name;
+    memberPatch.barangay_code = addressColumns.barangay_code;
+    memberPatch.barangay_name = addressColumns.barangay_name;
+    memberPatch.region_name = addressColumns.region_name;
+  } else if (body.address !== undefined) {
+    // Street-only correction (no hierarchy fields touched).
+    memberPatch.address = body.address === '' ? null : body.address;
   }
   const fullName = [memberPatch.firstName ?? m.firstName, memberPatch.lastName ?? m.lastName]
     .filter((part) => typeof part === 'string' && part)
@@ -145,13 +228,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'address',
       'dateOfBirth',
       'gender',
+      'province_code',
+      'province_name',
+      'city_code',
+      'city_name',
+      'barangay_code',
+      'barangay_name',
+      'region_name',
     ] as const) {
       if (memberPatch[field] !== undefined) regPatch[field] = memberPatch[field];
     }
-    if (Array.isArray(body.qualificationAnswers))
+    if (body.qualificationAnswers !== undefined)
       regPatch.qualificationAnswers = body.qualificationAnswers;
-    const governmentId = (body.governmentId ?? body.idDocument) as
-      Record<string, unknown> | undefined;
+    const governmentId = body.idDocument as Record<string, unknown> | undefined;
     if (governmentId !== undefined) {
       // Never persist upload bytes; upload a fresh file when provided. A
       // replaced file orphans its old object - captured here so it can be

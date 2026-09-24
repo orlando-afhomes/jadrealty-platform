@@ -43,6 +43,15 @@ export const registrationSchema = z.object({
   countryCode: z.string().length(2),
   countryName: z.string().min(1),
   address: z.string().optional(),
+  /** Structured address (new applications): PH hierarchy codes + name
+   * snapshots, or region/city text for other countries. Absent on legacy rows. */
+  provinceCode: z.string().min(1).optional(),
+  provinceName: z.string().min(1).optional(),
+  cityCode: z.string().min(1).optional(),
+  cityName: z.string().min(1).optional(),
+  barangayCode: z.string().min(1).optional(),
+  barangayName: z.string().min(1).optional(),
+  regionName: z.string().min(1).optional(),
   programId: z.string().min(1),
   programCode: z.string().min(1),
   referralCode: z.string().optional(),

@@ -43,7 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const { data: countries, error: countriesError } = await supabase
     .from('countries')
-    .select('code, name')
+    .select('code, name, dial_code, phone_national_min, phone_national_max, phone_pattern')
     .eq('is_active', true)
     .order('code');
   if (countriesError) {
@@ -54,10 +54,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({
     minimumAge: Number.isFinite(minimumAge) ? minimumAge : 18,
     genders,
-    countries: countries ?? [],
+    countries: ((countries as Record<string, unknown>[] | null) ?? []).map(sanitizeCountry),
     withdrawalLimits: {
       min: moneyOk(minWithdrawal) ? minWithdrawal : '100.00',
       max: moneyOk(maxWithdrawal) ? maxWithdrawal : '50000.00',
     },
   });
+}
+
+/**
+ * Phone metadata is operator-curated reference data - malformed values are
+ * dropped per row (clients fall back to generic E.164) rather than served.
+ */
+function sanitizeCountry(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { code: row.code, name: row.name };
+  if (typeof row.dial_code === 'string' && /^[0-9]{1,4}$/.test(row.dial_code)) {
+    out.dialCode = row.dial_code;
+  }
+  const asBound = (value: unknown): number | null => {
+    const n = typeof value === 'number' ? value : value === '' || value == null ? NaN : Number(value);
+    return Number.isInteger(n) && (n as number) > 0 && (n as number) <= 15 ? (n as number) : null;
+  };
+  const min = asBound(row.phone_national_min);
+  const max = asBound(row.phone_national_max);
+  if (min !== null) out.phoneMin = min;
+  if (max !== null) out.phoneMax = max;
+  if (typeof row.phone_pattern === 'string' && row.phone_pattern.length > 0) {
+    try {
+      new RegExp(row.phone_pattern);
+      out.phonePattern = row.phone_pattern;
+    } catch {
+      // invalid regex - drop it, generic length rules still apply
+    }
+  }
+  return out;
 }

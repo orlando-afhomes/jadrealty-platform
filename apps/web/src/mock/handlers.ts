@@ -466,6 +466,11 @@ export function memberMockHandlers(store: MockStore): MockRoute[] {
           age,
           gender: input.gender,
           address: input.address,
+          provinceCode: input.provinceCode,
+          cityCode: input.cityCode,
+          barangayCode: input.barangayCode,
+          region: input.region,
+          city: input.city,
           countryCode: country.code,
           countryName: country.name,
           phone: input.phone,
@@ -699,6 +704,50 @@ export function memberMockHandlers(store: MockStore): MockRoute[] {
       path: '/programs',
       method: 'GET',
       handler: () => list(store.programs),
+    },
+    {
+      // Philippine location reference (tiny dev dataset mirroring the
+      // PSGC-seeded tables; the form pages through these, never bundles them).
+      path: '/locations/provinces',
+      method: 'GET',
+      handler: () =>
+        list([
+          { code: '0128', name: 'Ilocos Norte', kind: 'province' },
+          { code: '133900', name: 'City of Manila', kind: 'city' },
+        ]),
+    },
+    {
+      path: '/locations/cities',
+      method: 'GET',
+      handler: (ctx) => {
+        const provinceCode = new URL(ctx.url, 'http://mock.local').searchParams.get(
+          'provinceCode',
+        );
+        if (provinceCode === '0128') {
+          return list([
+            { code: '012801', name: 'Laoag City', provinceCode: '0128', kind: 'city' },
+            { code: '012802', name: 'Adams', provinceCode: '0128', kind: 'municipality' },
+          ]);
+        }
+        return list([]);
+      },
+    },
+    {
+      path: '/locations/barangays',
+      method: 'GET',
+      handler: (ctx) => {
+        const cityCode = new URL(ctx.url, 'http://mock.local').searchParams.get('cityCode');
+        if (cityCode === '012801') {
+          return list([
+            { code: '012801001', name: 'Brgy 1', cityCode: '012801' },
+            { code: '012801002', name: 'Brgy 2', cityCode: '012801' },
+          ]);
+        }
+        if (cityCode === '133900') {
+          return list([{ code: '133900001', name: 'Brgy 2', cityCode: '133900' }]);
+        }
+        return list([]);
+      },
     },
     {
       path: '/programs',

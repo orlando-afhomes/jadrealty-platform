@@ -40,3 +40,46 @@ export const locationVerificationResponseSchema = z.object({
 });
 
 export type LocationVerificationResponse = z.infer<typeof locationVerificationResponseSchema>;
+
+/**
+ * Philippine administrative reference - served by `GET /locations/*`
+ * (PUBLIC, seeded from the official PSGC publication). Independent cities
+ * (province NULL, e.g. Manila) appear as top-level entries alongside
+ * provinces so the address hierarchy stays three levels deep.
+ */
+export const provinceRefSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(['province', 'city']),
+});
+
+export type ProvinceRef = z.infer<typeof provinceRefSchema>;
+
+export const cityRefSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  provinceCode: z.string().min(1).nullable(),
+  kind: z.enum(['city', 'municipality']),
+});
+
+export type CityRef = z.infer<typeof cityRefSchema>;
+
+export const barangayRefSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  cityCode: z.string().min(1),
+});
+
+export type BarangayRef = z.infer<typeof barangayRefSchema>;
+
+export const provincesQuerySchema = z.object({ countryCode: z.string().length(2) });
+
+export type ProvincesQuery = z.infer<typeof provincesQuerySchema>;
+
+export const citiesQuerySchema = z.object({ provinceCode: z.string().min(1) });
+
+export type CitiesQuery = z.infer<typeof citiesQuerySchema>;
+
+export const barangaysQuerySchema = z.object({ cityCode: z.string().min(1) });
+
+export type BarangaysQuery = z.infer<typeof barangaysQuerySchema>;

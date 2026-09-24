@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
   const script = {
     configRows: [] as { key: string; value: string }[],
     configError: null as string | null,
-    countries: [] as { code: string; name: string }[],
+    countries: [] as Record<string, unknown>[],
   };
   const builder = (table: string) => {
     const b: Record<string, (...a: never[]) => unknown> = {};
@@ -89,6 +89,53 @@ describe('GET /config/public', () => {
       countries: [{ code: 'PH', name: 'Philippines' }],
       withdrawalLimits: { min: '100.00', max: '50000.00' },
     });
+  });
+
+  it('serves phone metadata for countries that carry it', async () => {
+    mocks.script.countries = [
+      {
+        code: 'PH',
+        name: 'Philippines',
+        dial_code: '63',
+        phone_national_min: 10,
+        phone_national_max: 10,
+        phone_pattern: '^9[0-9]{9}$',
+      },
+      { code: 'US', name: 'United States' },
+    ];
+    const { res, seen } = capture();
+    await handler(getReq(), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({
+      countries: [
+        {
+          code: 'PH',
+          name: 'Philippines',
+          dialCode: '63',
+          phoneMin: 10,
+          phoneMax: 10,
+          phonePattern: '^9[0-9]{9}$',
+        },
+        { code: 'US', name: 'United States' },
+      ],
+    });
+  });
+
+  it('drops malformed phone metadata instead of serving it', async () => {
+    mocks.script.countries = [
+      {
+        code: 'PH',
+        name: 'Philippines',
+        dial_code: '6+3!',
+        phone_national_min: 'ten',
+        phone_national_max: -1,
+        phone_pattern: 42,
+      },
+    ];
+    const { res, seen } = capture();
+    await handler(getReq(), res);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ countries: [{ code: 'PH', name: 'Philippines' }] });
   });
 
   it('falls back to safe defaults for missing or malformed rows', async () => {

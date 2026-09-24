@@ -91,6 +91,24 @@ export function selectHandler(
   if (pathname === '/api/v1/programs' || pathname === '/api/programs') {
     return { handler: lazy(() => import('../_handlers/programs.js')), routeKey: 'programs' };
   }
+  if (pathname === '/api/v1/locations/provinces' || pathname === '/api/locations/provinces') {
+    return {
+      handler: lazy(() => import('../_handlers/locations/provinces.js')),
+      routeKey: 'locations/provinces',
+    };
+  }
+  if (pathname === '/api/v1/locations/cities' || pathname === '/api/locations/cities') {
+    return {
+      handler: lazy(() => import('../_handlers/locations/cities.js')),
+      routeKey: 'locations/cities',
+    };
+  }
+  if (pathname === '/api/v1/locations/barangays' || pathname === '/api/locations/barangays') {
+    return {
+      handler: lazy(() => import('../_handlers/locations/barangays.js')),
+      routeKey: 'locations/barangays',
+    };
+  }
   if (pathname === '/api/v1/admin/programs' || pathname === '/api/admin/programs') {
     return {
       handler: lazy(() => import('../_handlers/admin/programs.js')),

@@ -162,6 +162,13 @@
   max-width: 440px;
 }
 
+/* Wide variant for complex multi-field forms (registration) - single-column
+ * rows with composite fields need more room than the 440px login panel.
+ * Opt-in per screen; auth login/preview panels keep the default width. */
+.formPanelWide {
+  max-width: 680px;
+}
+
 .heading {
   display: grid;
   gap: var(--space-3);

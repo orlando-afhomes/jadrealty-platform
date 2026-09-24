@@ -4,13 +4,13 @@
  */
 
 .formWrap {
-  max-width: 560px;
+  max-width: 680px;
 }
 
 .loading {
   display: grid;
   gap: var(--space-3);
-  max-width: 560px;
+  max-width: 680px;
 }
 
 .actionRow {

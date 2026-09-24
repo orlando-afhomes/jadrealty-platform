@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => {
     program: null as unknown,
     createResult: 'ok' as 'ok' | 'conflict' | 'error',
     registrationRow: null as unknown,
+    province: null as unknown,
+    city: null as unknown,
+    barangay: null as unknown,
   };
   const builder = (table: string) => {
     const b: Record<string, (...a: never[]) => unknown> = {};
@@ -39,6 +42,9 @@ const mocks = vi.hoisted(() => {
       if (table === 'countries') return { data: script.country, error: null };
       if (table === 'Program') return { data: script.program, error: null };
       if (table === 'Registration') return { data: script.registrationRow, error: null };
+      if (table === 'ph_provinces') return { data: script.province, error: null };
+      if (table === 'ph_cities') return { data: script.city, error: null };
+      if (table === 'ph_barangays') return { data: script.barangay, error: null };
       return { data: null, error: null };
     };
     // Bare awaited sponsor scan.
@@ -149,6 +155,9 @@ const VALID_BODY = {
   gender: 'Male',
   countryCode: 'PH',
   address: 'Manila',
+  provinceCode: '0128',
+  cityCode: '012801',
+  barangayCode: '012801001',
   phone: '+639171234567',
   email: 'new.applicant@example.com',
   password: 'S3cure-password',
@@ -176,8 +185,18 @@ describe('POST /api/v1/auth/register', () => {
     mocks.script.existingMembers = [];
     mocks.script.sponsors = [];
     mocks.script.minAge = '18';
-    mocks.script.country = { code: 'PH', name: 'Philippines' };
+    mocks.script.country = {
+      code: 'PH',
+      name: 'Philippines',
+      dial_code: '63',
+      phone_national_min: 10,
+      phone_national_max: 10,
+      phone_pattern: '^9[0-9]{9}$',
+    };
     mocks.script.program = { id: 'prg-domestic', code: 'DOMESTIC' };
+    mocks.script.province = { code: '0128', name: 'Ilocos Norte' };
+    mocks.script.city = { code: '012801', name: 'Laoag City', province_code: '0128' };
+    mocks.script.barangay = { code: '012801001', name: 'Brgy 1', city_code: '012801' };
     mocks.script.createResult = 'ok';
     mocks.script.registrationRow = null;
   });
@@ -228,8 +247,7 @@ describe('POST /api/v1/auth/register', () => {
     expect(badProgram.seen.status).toBe(400);
   });
 
-  it('accepts a qualified-sponsor referral and 201s the application', async () => {
-    mocks.script.sponsors = [
+  it('accepts a qualified-sponsor referral and 201s the application', async () => {    mocks.script.sponsors = [
       {
         id: 'sponsor-uuid',
         referralCode: 'JD-2026-001',
@@ -273,6 +291,62 @@ describe('POST /api/v1/auth/register', () => {
       governmentId: { fileName: 'id.pdf' },
     });
     expect(typeof insert.id === 'string' && (insert.id as string).startsWith('reg-')).toBe(true);
+  });
+
+  it('400s phone numbers with letters or wrong PH length/prefix', async () => {
+    for (const phone of ['0918-CALL-ME', '0918555010', '08185550101', '   ']) {
+      const { res, seen } = capture();
+      await registerHandler(postReq({ ...VALID_BODY, phone }), res);
+      expect(seen.status).toBe(400);
+    }
+    expect(mocks.calls.some((c) => c.op === 'createUser')).toBe(false);
+  });
+
+  it('stores the phone normalized to E.164', async () => {
+    const { res, seen } = capture();
+    await registerHandler(postReq({ ...VALID_BODY, phone: '0918 555 0101' }), res);
+    expect(seen.status).toBe(201);
+    const insert = mocks.calls.find((c) => c.table === 'Registration')?.arg as Record<
+      string,
+      unknown
+    >;
+    expect(insert.phone).toBe('+639185550101');
+  });
+
+  it('400s mismatched or incomplete address hierarchies', async () => {
+    const { barangayCode: _a, ...noBarangay } = VALID_BODY;
+    void _a;
+    const missing = capture();
+    await registerHandler(postReq(noBarangay), missing.res);
+    expect(missing.seen.status).toBe(400);
+
+    mocks.script.city = { code: '133900', name: 'City of Manila', province_code: null };
+    const mismatched = capture();
+    await registerHandler(
+      postReq({ ...VALID_BODY, cityCode: '133900', barangayCode: '133900001' }),
+      mismatched.res,
+    );
+    expect(mismatched.seen.status).toBe(400);
+    expect(mocks.calls.some((c) => c.op === 'createUser')).toBe(false);
+  });
+
+  it('stores resolved hierarchy names, never client-supplied text', async () => {
+    const { res, seen } = capture();
+    await registerHandler(postReq(VALID_BODY), res);
+    expect(seen.status).toBe(201);
+    const insert = mocks.calls.find((c) => c.table === 'Registration')?.arg as Record<
+      string,
+      unknown
+    >;
+    expect(insert).toMatchObject({
+      province_code: '0128',
+      province_name: 'Ilocos Norte',
+      city_code: '012801',
+      city_name: 'Laoag City',
+      barangay_code: '012801001',
+      barangay_name: 'Brgy 1',
+      region_name: null,
+    });
   });
 
   it('replays an in-flight application, refreshes it, and re-sends the code', async () => {

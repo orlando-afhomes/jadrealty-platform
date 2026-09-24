@@ -16,9 +16,22 @@ export const publicConfigSchema = z.object({
   /**
    * Structured country reference (ISO 3166 - DATABASE-DESIGN §7.31). The
    * registration country is a structured, immutable value (BR-REG-010); the
-   * config service supplies the option list (UI-UX §8.8).
+   * config service supplies the option list (UI-UX §8.8). Phone metadata
+   * (when present) drives per-country phone validation; absent metadata
+   * falls back to generic E.164 rules.
    */
-  countries: z.array(z.object({ code: z.string().min(1), name: z.string().min(1) })).optional(),
+  countries: z
+    .array(
+      z.object({
+        code: z.string().min(1),
+        name: z.string().min(1),
+        dialCode: z.string().optional(),
+        phoneMin: z.number().int().positive().optional(),
+        phoneMax: z.number().int().positive().optional(),
+        phonePattern: z.string().optional(),
+      }),
+    )
+    .optional(),
   /**
    * Withdrawal bounds (MIN/MAX_WITHDRAWAL_AMOUNT, exact-decimal strings).
    * Served so the member form can validate inline; the DB function

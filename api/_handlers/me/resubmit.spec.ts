@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => {
   const script = {
     member: null as unknown,
     registrationRow: null as unknown,
+    country: null as unknown,
+    province: null as unknown,
+    city: null as unknown,
+    barangay: null as unknown,
     minAge: '18',
     uploadError: null as string | null,
   };
@@ -25,6 +29,10 @@ const mocks = vi.hoisted(() => {
       if (table === 'Member') return { data: script.member, error: null };
       if (table === 'SystemConfig') return { data: { value: script.minAge }, error: null };
       if (table === 'Registration') return { data: script.registrationRow, error: null };
+      if (table === 'countries') return { data: script.country, error: null };
+      if (table === 'ph_provinces') return { data: script.province, error: null };
+      if (table === 'ph_cities') return { data: script.city, error: null };
+      if (table === 'ph_barangays') return { data: script.barangay, error: null };
       return { data: null, error: null };
     };
     return {
@@ -100,6 +108,16 @@ describe('POST /me/resubmit government ID', () => {
     mocks.calls.length = 0;
     mocks.script.uploadError = null;
     mocks.script.registrationRow = null;
+    mocks.script.country = {
+      code: 'PH',
+      dial_code: '63',
+      phone_national_min: 10,
+      phone_national_max: 10,
+      phone_pattern: '^9[0-9]{9}$',
+    };
+    mocks.script.province = { code: '0128', name: 'Ilocos Norte' };
+    mocks.script.city = { code: '012801', name: 'Laoag City', province_code: '0128' };
+    mocks.script.barangay = { code: '012801001', name: 'Brgy 1', city_code: '012801' };
     mocks.script.member = {
       id: 'mem-uuid-1',
       status: 'REJECTED',
@@ -214,5 +232,70 @@ describe('POST /me/resubmit government ID', () => {
     expect(governmentId.storagePath).not.toBe('reg-001/1756000000-old-id.png');
     const removal = mocks.calls.find((c) => c.table === 'government-ids' && c.op === 'remove');
     expect(removal?.arg).toEqual(['reg-001/1756000000-old-id.png']);
+  });
+
+  it('400s schema-invalid values that previously passed unvalidated', async () => {
+    for (const body of [
+      { firstName: 'Juan3' },
+      { phone: '0918-CALL-ME' },
+      { dateOfBirth: 'not-a-date' },
+      { dateOfBirth: '2030-01-01' },
+      { provinceCode: '0128' },
+      { region: 'California' },
+    ]) {
+      const { res, seen } = capture();
+      await resubmitHandler(
+        { method: 'POST', query: {}, headers: authed, body } as VercelRequest,
+        res,
+      );
+      expect(seen.status).toBe(400);
+    }
+  });
+
+  it('normalizes phone to E.164 and resolves hierarchy names', async () => {
+    const { res, seen } = capture();
+    await resubmitHandler(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: {
+          phone: '0918 555 0101',
+          provinceCode: '0128',
+          cityCode: '012801',
+          barangayCode: '012801001',
+        },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(200);
+    const memberUpdate = mocks.calls.find((c) => c.table === 'Member')?.arg as Record<
+      string,
+      unknown
+    >;
+    expect(memberUpdate.phone).toBe('+639185550101');
+    expect(memberUpdate).toMatchObject({
+      province_code: '0128',
+      province_name: 'Ilocos Norte',
+      city_code: '012801',
+      city_name: 'Laoag City',
+      barangay_code: '012801001',
+      barangay_name: 'Brgy 1',
+    });
+  });
+
+  it('400s a city that does not belong to the selected province', async () => {
+    mocks.script.city = { code: '133900', name: 'City of Manila', province_code: null };
+    const { res, seen } = capture();
+    await resubmitHandler(
+      {
+        method: 'POST',
+        query: {},
+        headers: authed,
+        body: { provinceCode: '0128', cityCode: '133900', barangayCode: '133900001' },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(400);
   });
 });

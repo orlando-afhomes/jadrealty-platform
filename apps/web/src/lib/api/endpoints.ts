@@ -1,14 +1,20 @@
 import {
+  barangayRefSchema,
+  cityRefSchema,
   contactSubmissionResponseSchema,
   policySchema,
   programSchema,
+  provinceRefSchema,
   publicConfigSchema,
 } from '@jad/contracts';
 import type {
+  BarangayRef,
+  CityRef,
   ContactSubmissionRequest,
   ContactSubmissionResponse,
   Policy,
   Program,
+  ProvinceRef,
   PublicConfig,
 } from '@jad/contracts';
 
@@ -27,6 +33,32 @@ export function getPublicConfig(): Promise<PublicConfig> {
 /** GET /programs - Domestic / Abroad program list, public (API-SPECIFICATION #78, FEAT-068). */
 export function getPrograms(): Promise<Program[]> {
   return requestList('/programs', programSchema);
+}
+
+/**
+ * Philippine location reference lists (PUBLIC, seeded from the PSGC
+ * publication). Parent-filtered and cache-friendly - the registration form
+ * pages through them instead of bundling the dataset.
+ */
+export function getProvinces(countryCode: string): Promise<ProvinceRef[]> {
+  return requestList(
+    `/locations/provinces?countryCode=${encodeURIComponent(countryCode)}`,
+    provinceRefSchema,
+  );
+}
+
+export function getCities(provinceCode: string): Promise<CityRef[]> {
+  return requestList(
+    `/locations/cities?provinceCode=${encodeURIComponent(provinceCode)}`,
+    cityRefSchema,
+  );
+}
+
+export function getBarangays(cityCode: string): Promise<BarangayRef[]> {
+  return requestList(
+    `/locations/barangays?cityCode=${encodeURIComponent(cityCode)}`,
+    barangayRefSchema,
+  );
 }
 
 /** GET /policies - policies, guidelines, T&C (API-SPECIFICATION #69, FEAT-062). */

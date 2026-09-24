@@ -192,6 +192,23 @@
   gap: var(--space-6);
 }
 
+/* Step-0 section grouping ("Program" / "Personal") - each section is its
+ * own grid with the panel's rhythm, so heading → fields spacing matches
+ * ungrouped steps exactly. */
+.section {
+  display: grid;
+  gap: var(--space-6);
+  align-content: start;
+  min-width: 0;
+}
+
+/* Visual separation between the step-0 sections (border-subtle token). */
+.sectionDivider {
+  margin: 0;
+  border: none;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
 .stepTitle {
   margin: 0;
   font-size: var(--text-body-l);
@@ -247,6 +264,64 @@
   margin: var(--space-1) 0 0;
   font-size: var(--text-body-s);
   color: var(--color-text-muted);
+}
+
+.naRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-body-s);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.naCheckbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-brand-primary);
+  cursor: pointer;
+}
+
+.dialHint {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+/* Phone field: country-code dropdown beside the national-number input.
+ * Side by side on desktop, stacked full-width on narrow screens. */
+.phoneRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.phoneDial {
+  flex: 0 0 168px;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+
+.phoneNational {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+
+@media (max-width: 480px) {
+  .phoneRow {
+    flex-direction: column;
+  }
+
+  .phoneDial {
+    flex: 1 1 auto;
+    width: 100%;
+  }
 }
 
 .fileMeta {

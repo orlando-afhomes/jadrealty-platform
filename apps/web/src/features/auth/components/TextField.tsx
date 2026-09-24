@@ -18,6 +18,7 @@ export interface TextFieldProps {
   inputRef?: RefObject<HTMLInputElement | null>;
   placeholder?: string;
   maxLength?: number;
+  disabled?: boolean;
 }
 
 /**
@@ -41,6 +42,7 @@ export function TextField({
   inputRef,
   placeholder,
   maxLength,
+  disabled = false,
 }: TextFieldProps) {
   const describedBy =
     [error ? `${id}-error` : null, hint && !error ? `${id}-hint` : null]
@@ -61,6 +63,7 @@ export function TextField({
         inputMode={inputMode}
         placeholder={placeholder}
         maxLength={maxLength}
+        disabled={disabled}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
         required={!optional}

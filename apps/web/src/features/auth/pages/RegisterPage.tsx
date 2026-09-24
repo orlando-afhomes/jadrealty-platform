@@ -39,6 +39,7 @@ export function RegisterPage() {
       brandLead={regCopy.brandLead}
       image={regImage}
       brandMark={brandMark}
+      wide
     >
       <RegistrationForm
         submit={async (payload) => {

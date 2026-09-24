@@ -7,6 +7,12 @@ import {
   stripDocumentData,
   uploadGovernmentId,
 } from '../../_lib/documents.js';
+import type { AddressColumns } from '../../_lib/intake-validation.js';
+import {
+  locationLookupsFor,
+  resolveIntakeAddress,
+  validateIntakePhone,
+} from '../../_lib/intake-validation.js';
 import { removeStorageKeys } from '../../_lib/storage.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { issueVerificationCode } from '../../_lib/verification-code.js';
@@ -118,6 +124,8 @@ async function refreshPendingRegistration(
   input: ReturnType<typeof registerRequestSchema.parse>,
   country: { code: string; name: string },
   program: { id: string; code: string },
+  phone: string,
+  addressColumns: AddressColumns,
 ): Promise<string | null> {
   const now = new Date().toISOString();
   let governmentId = (existing as unknown as { governmentId?: unknown }).governmentId as
@@ -148,12 +156,19 @@ async function refreshPendingRegistration(
     middleInitial: input.middleInitial ?? null,
     lastName: input.lastName,
     nameSuffix: input.nameSuffix ?? null,
-    phone: input.phone,
+    phone,
     dateOfBirth: input.dateOfBirth,
     gender: input.gender,
     countryCode: country.code,
     countryName: country.name,
-    address: input.address ?? null,
+    address: addressColumns.address,
+    province_code: addressColumns.province_code,
+    province_name: addressColumns.province_name,
+    city_code: addressColumns.city_code,
+    city_name: addressColumns.city_name,
+    barangay_code: addressColumns.barangay_code,
+    barangay_name: addressColumns.barangay_name,
+    region_name: addressColumns.region_name,
     programId: program.id,
     programCode: program.code,
     referralCode: input.referralCode?.trim() || null,
@@ -293,10 +308,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const { data: country } = await supabase
     .from('countries')
-    .select('code,name')
+    .select('code, name, dial_code, phone_national_min, phone_national_max, phone_pattern, is_active')
     .eq('code', input.countryCode)
     .maybeSingle();
-  if (!country) {
+  const countryRow = country as {
+    code: string;
+    name: string;
+    dial_code?: unknown;
+    phone_national_min?: unknown;
+    phone_national_max?: unknown;
+    phone_pattern?: unknown;
+    is_active?: unknown;
+  } | null;
+  if (!countryRow || countryRow.is_active === false) {
     const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Select a valid country.', 400);
     res.status(status).json({ error });
     return;
@@ -311,6 +335,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
+  // Per-country phone validation with E.164 normalization - the stored
+  // number is always canonical, never raw input.
+  const phoneCheck = await validateIntakePhone(
+    { country: async () => countryRow },
+    input.countryCode,
+    input.phone,
+  );
+  if (!phoneCheck.ok) {
+    const { error, status } = toErrorEnvelope('VALIDATION_ERROR', phoneCheck.message, 400);
+    res.status(status).json({ error });
+    return;
+  }
+  // Structured address with hierarchy membership checks (PH) - client
+  // selections are never trusted; names resolve server-side.
+  const addressCheck = await resolveIntakeAddress(locationLookupsFor(supabase), input.countryCode, {
+    provinceCode: input.provinceCode,
+    cityCode: input.cityCode,
+    barangayCode: input.barangayCode,
+    region: input.region,
+    city: input.city,
+    street: input.address,
+  });
+  if (!addressCheck.ok) {
+    const { error, status } = toErrorEnvelope('VALIDATION_ERROR', addressCheck.message, 400);
+    res.status(status).json({ error });
+    return;
+  }
+  const normalizedPhone = phoneCheck.normalized;
+  const addressColumns = addressCheck.columns;
   // Idempotent replay: an in-flight (PENDING) application for this email
   // refreshes the existing row with the latest details and re-sends the code.
   const existing = await findRegistrationByEmail(supabase, email);
@@ -322,6 +375,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         input,
         country as { code: string; name: string },
         program as { id: string; code: string },
+        normalizedPhone,
+        addressColumns,
       );
       if (refreshError) {
         const { error, status } = toErrorEnvelope('INTERNAL', refreshError, 500);
@@ -384,12 +439,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     lastName: input.lastName,
     nameSuffix: input.nameSuffix ?? null,
     email,
-    phone: input.phone,
+    phone: normalizedPhone,
     dateOfBirth: input.dateOfBirth,
     gender: input.gender,
     countryCode: (country as { code: string }).code,
     countryName: (country as { name: string }).name,
-    address: input.address ?? null,
+    address: addressColumns.address,
+    province_code: addressColumns.province_code,
+    province_name: addressColumns.province_name,
+    city_code: addressColumns.city_code,
+    city_name: addressColumns.city_name,
+    barangay_code: addressColumns.barangay_code,
+    barangay_name: addressColumns.barangay_name,
+    region_name: addressColumns.region_name,
     programId: (program as { id: string }).id,
     programCode: (program as { code: string }).code,
     referralCode: input.referralCode?.trim() || null,
@@ -416,6 +478,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           input,
           country as { code: string; name: string },
           program as { id: string; code: string },
+          normalizedPhone,
+          addressColumns,
         );
         const emailSent = await sendVerificationOtp(supabase, email, applicantName);
         res.status(200).json(
@@ -476,6 +540,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             input,
             country as { code: string; name: string },
             program as { id: string; code: string },
+            normalizedPhone,
+            addressColumns,
           );
           const emailSent = await sendVerificationOtp(supabase, email, applicantName);
           res.status(200).json(

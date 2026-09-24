@@ -24,6 +24,28 @@ export type {
 } from './schemas/registration.js';
 export { publicConfigSchema } from './schemas/public-config.js';
 export type { PublicConfig } from './schemas/public-config.js';
+export {
+  MAX_NAME_LENGTH,
+  MAX_BIRTH_AGE_YEARS,
+  MAX_STREET_LENGTH,
+  UNICODE_CONTROL_RE,
+  GENERIC_E164_RULE,
+  normalizeName,
+  sanitizePersonName,
+  capitalizePersonName,
+  personNameSchema,
+  normalizeMiddleInitial,
+  sanitizeMiddleInitial,
+  middleInitialSchema,
+  normalizePhoneDigits,
+  validatePhoneNumber,
+  toPhoneRule,
+  parseBirthDate,
+  birthDateSchema,
+  philippineAddressSchema,
+  genericAddressSchema,
+} from './schemas/registration-validation.js';
+export type { PhoneCountryRule, PhoneRuleInput, ParsedBirthDate } from './schemas/registration-validation.js';
 export { systemConfigEntrySchema, PUBLIC_CONFIG_KEYS } from './schemas/system-config.js';
 export type { SystemConfigEntry } from './schemas/system-config.js';
 export {
@@ -403,10 +425,22 @@ export type {
 export {
   locationVerificationRequestSchema,
   locationVerificationResponseSchema,
+  provinceRefSchema,
+  cityRefSchema,
+  barangayRefSchema,
+  provincesQuerySchema,
+  citiesQuerySchema,
+  barangaysQuerySchema,
 } from './schemas/location.js';
 export type {
   LocationVerificationRequest,
   LocationVerificationResponse,
+  ProvinceRef,
+  CityRef,
+  BarangayRef,
+  ProvincesQuery,
+  CitiesQuery,
+  BarangaysQuery,
 } from './schemas/location.js';
 export {
   catalogPropertyStatusSchema,

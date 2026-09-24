@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent, ReactNode } from 'react';
+import type { ChangeEvent, CSSProperties, FormEvent, ReactNode } from 'react';
 import { useBlocker } from 'react-router';
 import { Link } from 'react-router';
 
 import type { IdDocument, RegisterRequest } from '@jad/contracts';
+import { capitalizePersonName, sanitizeMiddleInitial, sanitizePersonName } from '@jad/contracts';
 import { Skeleton } from '@jad/ui';
 
 import { Alert } from '../../../components/Alert';
@@ -16,13 +17,22 @@ import { usePolicyLinks } from '../../../hooks/usePolicyLinks';
 import { getQualificationQuestions } from '../services/auth';
 import { usePersistedDraft, clearPersistedDraft } from '../hooks/usePersistedDraft';
 import { useLocationVerification } from '../hooks/useLocationVerification';
+import { useBarangays, useCities, useProvinces } from '../hooks/useLocationOptions';
 import {
   MAX_FILE_BYTES,
   STEP_FIELD_ORDER,
   answersToQualification,
+  buildPhoneRuleForDial,
+  composeE164Phone,
   cutoffDateForMinAge,
   firstInvalidField,
+  maxNationalLength,
+  sanitizeNationalInput,
+  splitStoredPhone,
+  stepForField,
   validateAccount,
+  validateBirthDateField,
+  validateFullDraft,
   validateIdDocument,
   validateProgramProfile,
   validateQualification,
@@ -31,9 +41,11 @@ import {
 import type { RegistrationDraft } from '../registrationValidation';
 import { DateField } from './DateField';
 import { PasswordField } from './PasswordField';
+import { PhoneField } from './PhoneField';
+import { SearchableSelect } from './SearchableSelect';
 import { SelectField } from './SelectField';
 import { TextField } from './TextField';
-import { FieldError } from './FormField';
+import { FieldError, FormField } from './FormField';
 import { fieldStyles } from './fieldStyles';
 import styles from './RegistrationForm.module.css';
 
@@ -71,6 +83,18 @@ const NAME_SUFFIX_OPTIONS: { value: string; label: string }[] = [
   { value: 'IV', label: 'IV' },
   { value: 'V', label: 'V' },
 ];
+
+/** Inline retry affordance inside Alert bodies (matches the location alerts below). */
+const RETRY_BUTTON_STYLE: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: 'inherit',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  padding: 0,
+  font: 'inherit',
+  fontWeight: 600,
+};
 
 function Control(props: {
   id: string;
@@ -182,6 +206,34 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
   const questions = questionsQuery.data ?? [];
   const lastStep = steps.length - 1;
   const dobMax = cutoffDateForMinAge(minAge);
+  // Verified country's dial - the dropdown default. The dial never mutates
+  // `countryCode`: it only selects the phone rule (server re-validates
+  // against the verified country authoritatively).
+  const verifiedDial = countries.find((country) => country.code === draft.countryCode)?.dialCode;
+
+  // Philippine address hierarchy - each level loads only when its parent is
+  // selected (reference data pages from the server, never bundled).
+  const provincesQuery = useProvinces(draft.countryCode);
+  const citiesQuery = useCities(draft.provinceCode);
+  const barangaysQuery = useBarangays(draft.cityCode);
+  const provinceOptions = (provincesQuery.data ?? []).map((province) => ({
+    value: province.code,
+    label: province.name,
+  }));
+  const selectedTopKind = provincesQuery.data?.find(
+    (province) => province.code === draft.provinceCode,
+  )?.kind;
+  // An independent city selected at the top level parents itself: the city
+  // step is satisfied implicitly and only barangays load beneath it.
+  const cityFixedToTop = selectedTopKind === 'city';
+  const cityOptions = (citiesQuery.data ?? []).map((city) => ({
+    value: city.code,
+    label: city.name,
+  }));
+  const barangayOptions = (barangaysQuery.data ?? []).map((barangay) => ({
+    value: barangay.code,
+    label: barangay.name,
+  }));
 
   // Handle legacy/custom gender values: if stored gender is not in the known list, treat as "Others" with detail
   useEffect(() => {
@@ -195,6 +247,28 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
       }));
     }
   }, [genders, draft.gender]);
+
+  // Phone dial default + legacy migration: drafts stored before the split
+  // (persisted v2 `phone` holding a trunk/E.164 string, resubmit prefills
+  // from the canonical member phone) carry the full value in `phone` with an
+  // empty `phoneDial`. Split once config metadata is available; defaults an
+  // empty field to the verified country's dial. Never truncates overlong
+  // values - those stay invalid so validation flags them.
+  useEffect(() => {
+    if (countries.length === 0 || draft.phoneDial) return;
+    if (!draft.phone) {
+      if (!verifiedDial) return;
+      setDraft((current) => (current.phoneDial ? current : { ...current, phoneDial: verifiedDial }));
+      return;
+    }
+    const split = splitStoredPhone(draft.phone, countries, draft.countryCode);
+    setDraft((current) => {
+      if (current.phoneDial) return current;
+      const nextDial = split.dial || verifiedDial || '';
+      if (nextDial === current.phoneDial && split.national === current.phone) return current;
+      return { ...current, phoneDial: nextDial, phone: split.national };
+    });
+  }, [countries, draft.countryCode, draft.phone, draft.phoneDial, verifiedDial]);
 
   // Location verification - BE authoritative for Program/Country (read-only)
   const locationVerification = useLocationVerification(mode === 'create');
@@ -223,6 +297,14 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
     }
   }, [locationVerification.status, locationVerification.data, mode]);
 
+  // Location reference failures are diagnosable states, not one opaque
+  // message: log the underlying query error in dev consoles.
+  useEffect(() => {
+    if (provincesQuery.error && import.meta.env.DEV) {
+      console.error('[register] provinces failed:', provincesQuery.error);
+    }
+  }, [provincesQuery.error]);
+
   // Always start at top of form when step changes (Continue / Back / Edit)
   useEffect(() => {
     // Defer to next frame so new step content is rendered - instant, no transition
@@ -246,25 +328,113 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
       if (field === 'gender' && value !== 'Others') {
         next.genderOther = '';
       }
+      // The explicit N/A choice owns the middle-initial value
+      if (field === 'noMiddleInitial' && value === true) {
+        next.middleInitial = '';
+      }
       return next;
     });
     setErrors((current) => {
       if (
         current[field] === undefined &&
-        !(field === 'gender' && current['genderOther'] !== undefined)
+        !(field === 'gender' && current['genderOther'] !== undefined) &&
+        !(field === 'noMiddleInitial' && current['middleInitial'] !== undefined)
       )
         return current;
       const next = { ...current };
       delete next[field];
       if (field === 'gender') delete next['genderOther'];
+      if (field === 'noMiddleInitial') delete next['middleInitial'];
       return next;
     });
+  };
+
+  /** Province change resets every dependent selection (never keep a stale city). */
+  const updateProvince = (code: string) => {
+    const topKind = provincesQuery.data?.find((province) => province.code === code)?.kind;
+    setDraft((current) => ({
+      ...current,
+      provinceCode: code,
+      cityCode: topKind === 'city' ? code : '',
+      barangayCode: '',
+    }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next['provinceCode'];
+      delete next['cityCode'];
+      delete next['barangayCode'];
+      return next;
+    });
+  };
+
+  /** City change resets the barangay selection. */
+  const updateCity = (code: string) => {
+    setDraft((current) => ({ ...current, cityCode: code, barangayCode: '' }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next['cityCode'];
+      delete next['barangayCode'];
+      return next;
+    });
+  };
+
+  /** Date of birth validates immediately (past-only, real calendar dates). */
+  const updateDateOfBirth = (value: string) => {
+    update('dateOfBirth', value);
+    const message = value.trim() ? validateBirthDateField(value, minAge) : undefined;
+    setErrors((current) => {
+      const next = { ...current };
+      if (message) next.dateOfBirth = message;
+      else delete next.dateOfBirth;
+      return next;
+    });
+  };
+
+  /** Dial change re-caps the national input at the new country's limit. */
+  const updatePhoneDial = (dial: string) => {
+    const maxLen = maxNationalLength(buildPhoneRuleForDial(countries, dial));
+    setDraft((current) => ({
+      ...current,
+      phoneDial: dial,
+      phone: sanitizeNationalInput(current.phone, dial, maxLen),
+    }));
+    setErrors((current) => {
+      if (current.phone === undefined) return current;
+      const next = { ...current };
+      delete next.phone;
+      return next;
+    });
+  };
+
+  /** National digits arrive sanitized + capped from PhoneField. */
+  const updatePhoneNational = (value: string) => {
+    update('phone', value);
+  };
+
+  /**
+   * Person names shape input as-typed: digits, symbols, and control
+   * characters never enter state, and casing formats to title case
+   * (`orlando dela cruz` → `Orlando Dela Cruz`) while typing and pasting.
+   * Format/length enforcement stays in the shared validators.
+   */
+  const updatePersonName = (field: 'firstName' | 'lastName', value: string) => {
+    update(field, capitalizePersonName(sanitizePersonName(value)));
+  };
+
+  /**
+   * Middle initial shapes input to a single letter as-typed: anything past
+   * the first letter, digits, and symbols never enter state (typing and
+   * paste both flow through onChange; `maxLength` backs it natively).
+   * Single-letter/empty enforcement stays in the shared validators.
+   */
+  const updateMiddleInitial = (value: string) => {
+    update('middleInitial', sanitizeMiddleInitial(value));
   };
 
   const stepErrors = (): Record<string, string> => {
     switch (step) {
       case 0: {
-        const base = validateProgramProfile(draft, minAge);
+        const base = validateProgramProfile(draft, minAge, countries);
         // Without a program catalog the application cannot succeed
         // server-side - block here with a clear message instead of letting a
         // raw id through to submit.
@@ -302,6 +472,23 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
     else document.getElementById(`reg-${first}`)?.focus();
   };
 
+  /** Review-screen address line from server-shaped selections (codes resolve to names). */
+  const formatReviewAddress = (): string => {
+    const street = draft.address.trim();
+    if (draft.countryCode === 'PH') {
+      const provinceName = provinceOptions.find((o) => o.value === draft.provinceCode)?.label;
+      const cityName =
+        cityOptions.find((o) => o.value === draft.cityCode)?.label ??
+        provinceOptions.find((o) => o.value === draft.cityCode)?.label;
+      const barangayName = barangayOptions.find((o) => o.value === draft.barangayCode)?.label;
+      return [street, barangayName, cityName, provinceName].filter(Boolean).join(', ') || '-';
+    }
+    if (draft.countryCode) {
+      return [street, draft.city.trim(), draft.region.trim()].filter(Boolean).join(', ') || '-';
+    }
+    return street || '-';
+  };
+
   const onNext = (event: FormEvent) => {
     event.preventDefault();
     const nextErrors = stepErrors();
@@ -334,19 +521,52 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
     setSubmitting(true);
     setServerError(undefined);
     try {
+      // Final gate: re-validate the whole draft. Step checks can be bypassed
+      // through persisted-draft tampering or devtools edits; on failure jump
+      // back to the earliest failing step instead of submitting.
+      const fullErrors = validateFullDraft(
+        draft,
+        { minAge, countries, questions },
+        mode === 'resubmit' ? { includeAccount: false } : undefined,
+      );
+      if (Object.keys(fullErrors).length > 0) {
+        setErrors(fullErrors);
+        setSubmitting(false);
+        const target = Math.min(...Object.keys(fullErrors).map(stepForField));
+        setStep(target);
+        requestAnimationFrame(() => {
+          if (target === 1) {
+            const unanswered = questions.find((question) => fullErrors[`answer_${question.id}`]);
+            if (unanswered) {
+              document.getElementById(`reg-answer-${unanswered.id}`)?.focus();
+              return;
+            }
+          }
+          const order = STEP_FIELD_ORDER[target] ?? [];
+          const first = firstInvalidField(fullErrors, order);
+          if (first === 'idDocument') idFileRef.current?.focus();
+          else if (first) document.getElementById(`reg-${first}`)?.focus();
+        });
+        return;
+      }
       const effectiveGender = draft.gender === 'Others' ? draft.genderOther.trim() : draft.gender;
       const verificationId = locationVerification.data?.verificationId;
       const base = {
         programId: draft.programId,
         firstName: draft.firstName.trim(),
         lastName: draft.lastName.trim(),
-        middleInitial: draft.middleInitial.trim() || undefined,
+        middleInitial: draft.noMiddleInitial ? undefined : draft.middleInitial.trim() || undefined,
         nameSuffix: draft.nameSuffix.trim() || undefined,
         dateOfBirth: draft.dateOfBirth,
         gender: effectiveGender,
         countryCode: draft.countryCode,
         address: draft.address.trim() || undefined,
-        phone: draft.phone.trim(),
+        provinceCode: draft.provinceCode.trim() || undefined,
+        cityCode: draft.cityCode.trim() || undefined,
+        barangayCode: draft.barangayCode.trim() || undefined,
+        region: draft.region.trim() || undefined,
+        city: draft.city.trim() || undefined,
+        phone: composeE164Phone(draft.phoneDial || verifiedDial || '', draft.phone),
         email: draft.email.trim(),
         password: draft.password,
         referralCode: draft.referralCode.trim() || undefined,
@@ -363,6 +583,11 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
           dateOfBirth: base.dateOfBirth,
           gender: base.gender,
           address: base.address,
+          provinceCode: base.provinceCode,
+          cityCode: base.cityCode,
+          barangayCode: base.barangayCode,
+          region: base.region,
+          city: base.city,
           phone: base.phone,
           qualificationAnswers: base.qualificationAnswers,
           idDocument: base.idDocument,
@@ -443,7 +668,10 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
       <div className={styles.panel}>
         {step === 0 ? (
           <>
-            <h2 className={styles.stepTitle}>Program &amp; personal profile</h2>
+            <section className={styles.section} aria-labelledby="reg-section-program">
+              <h2 id="reg-section-program" className={styles.stepTitle}>
+                Program
+              </h2>
             {/* Program & Country: read-only, derived from BE-verified location (GPS → IP fallback) */}
             {locationVerification.status === 'detecting' ||
             locationVerification.status === 'verifying' ? (
@@ -514,8 +742,7 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 </button>
               </Alert>
             ) : null}
-            <div className={fieldStyles.field}>
-              <span className={fieldStyles.label}>Program</span>
+            <FormField id="reg-programId" label="Program" error={errors.programId}>
               {locationVerification.status === 'detecting' ||
               locationVerification.status === 'verifying' ? (
                 <Skeleton style={{ height: 48 }} />
@@ -530,17 +757,20 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                   {programDisplayName}
                 </div>
               )}
-              {errors.programId ? (
-                <FieldError id="reg-programId-error">{errors.programId}</FieldError>
-              ) : null}
-            </div>
-            <div className={styles.gridTwo}>
-              <TextField
-                id="reg-firstName"
+            </FormField>
+            </section>
+            <hr className={styles.sectionDivider} aria-hidden="true" />
+            <section className={styles.section} aria-labelledby="reg-section-personal">
+              <h2 id="reg-section-personal" className={styles.stepTitle}>
+                Personal
+              </h2>
+              <div className={styles.gridTwo}>
+                <TextField
+                  id="reg-firstName"
                 name="firstName"
                 label="First name"
                 value={draft.firstName}
-                onChange={(value) => update('firstName', value)}
+                onChange={(value) => updatePersonName('firstName', value)}
                 error={errors.firstName}
                 autoComplete="given-name"
                 inputRef={undefined}
@@ -550,61 +780,67 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 name="lastName"
                 label="Last name"
                 value={draft.lastName}
-                onChange={(value) => update('lastName', value)}
+                onChange={(value) => updatePersonName('lastName', value)}
                 error={errors.lastName}
                 autoComplete="family-name"
                 inputRef={undefined}
               />
             </div>
-            <div className={styles.gridTwo}>
+            <div>
               <TextField
                 id="reg-middleInitial"
                 name="middleInitial"
                 label="Middle initial"
                 optional
-                hint="One letter, optional."
-                value={draft.middleInitial}
-                onChange={(value) => update('middleInitial', value)}
-                error={errors.middleInitial}
-                autoComplete="off"
-                inputRef={undefined}
+                  hint="One letter, or select N/A below."
+                  value={draft.middleInitial}
+                  onChange={updateMiddleInitial}
+                  error={errors.middleInitial}
+                  autoComplete="off"
+                  inputRef={undefined}
+                  maxLength={1}
+                  disabled={draft.noMiddleInitial}
               />
-              <SelectField
-                id="reg-nameSuffix"
-                name="nameSuffix"
-                label="Name suffix"
-                optional
-                value={draft.nameSuffix}
-                onChange={(value) => update('nameSuffix', value)}
-                options={NAME_SUFFIX_OPTIONS}
-                error={errors.nameSuffix}
-                hint="Optional"
-              />
+              <label className={styles.naRow} htmlFor="reg-noMiddleInitial">
+                <input
+                  id="reg-noMiddleInitial"
+                  type="checkbox"
+                  className={styles.naCheckbox}
+                  checked={draft.noMiddleInitial}
+                  onChange={(event) => update('noMiddleInitial', event.target.checked)}
+                />
+                <span>I don&apos;t have a middle initial (N/A)</span>
+              </label>
             </div>
+            <SelectField
+              id="reg-nameSuffix"
+              name="nameSuffix"
+              label="Name suffix"
+              optional
+              value={draft.nameSuffix}
+              onChange={(value) => update('nameSuffix', value)}
+              options={NAME_SUFFIX_OPTIONS}
+              error={errors.nameSuffix}
+              hint="Optional"
+            />
+            <PhoneField
+              dial={draft.phoneDial || verifiedDial || ''}
+              national={draft.phone}
+              countries={countries}
+              error={errors.phone}
+              onDialChange={updatePhoneDial}
+              onNationalChange={updatePhoneNational}
+            />
             <div className={styles.gridTwo}>
-              <TextField
-                id="reg-phone"
-                name="phone"
-                type="tel"
-                label="Phone number"
-                value={draft.phone}
-                onChange={(value) => update('phone', value)}
-                error={errors.phone}
-                autoComplete="tel"
-                inputMode="tel"
-                inputRef={undefined}
-              />
               <DateField
                 id="reg-dateOfBirth"
                 name="dateOfBirth"
                 label="Date of birth"
                 value={draft.dateOfBirth}
-                onChange={(value) => update('dateOfBirth', value)}
+                onChange={updateDateOfBirth}
                 error={errors.dateOfBirth}
                 max={dobMax}
               />
-            </div>
-            <div className={styles.gridTwo}>
               <SelectField
                 id="reg-gender"
                 name="gender"
@@ -614,30 +850,26 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 options={genders.map((gender) => ({ value: gender, label: gender }))}
                 error={errors.gender}
               />
-              <div className={fieldStyles.field}>
-                <span className={fieldStyles.label}>Country</span>
-                {locationVerification.status === 'detecting' ||
-                locationVerification.status === 'verifying' ? (
-                  <Skeleton style={{ height: 48 }} />
-                ) : (
-                  <div
-                    className={`${fieldStyles.input} ${fieldStyles.readOnlyInput}`}
-                    id="reg-countryCode"
-                    aria-readonly="true"
-                    role="textbox"
-                    aria-label="Country"
-                  >
-                    {(() => {
-                      const name = countries.find((c) => c.code === draft.countryCode)?.name;
-                      return name ?? (draft.countryCode ? draft.countryCode : '-');
-                    })()}
-                  </div>
-                )}
-                {errors.countryCode ? (
-                  <FieldError id="reg-countryCode-error">{errors.countryCode}</FieldError>
-                ) : null}
-              </div>
             </div>
+            <FormField id="reg-countryCode" label="Country" error={errors.countryCode}>
+              {locationVerification.status === 'detecting' ||
+              locationVerification.status === 'verifying' ? (
+                <Skeleton style={{ height: 48 }} />
+              ) : (
+                <div
+                  className={`${fieldStyles.input} ${fieldStyles.readOnlyInput}`}
+                  id="reg-countryCode"
+                  aria-readonly="true"
+                  role="textbox"
+                  aria-label="Country"
+                >
+                  {(() => {
+                    const name = countries.find((c) => c.code === draft.countryCode)?.name;
+                    return name ?? (draft.countryCode ? draft.countryCode : '-');
+                  })()}
+                </div>
+              )}
+            </FormField>
             {draft.gender === 'Others' ? (
               <TextField
                 id="reg-genderOther"
@@ -653,13 +885,152 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
             <TextField
               id="reg-address"
               name="address"
-              label="Address"
+              label="Street / building / unit"
               optional
+              hint="Optional - house number, street, subdivision or village."
               value={draft.address}
               onChange={(value) => update('address', value)}
+              error={errors.address}
               autoComplete="street-address"
               inputRef={undefined}
             />
+            {draft.countryCode === 'PH' ? (
+              <>
+                {provincesQuery.isPending ? (
+                  <Skeleton style={{ height: 48 }} />
+                ) : provincesQuery.isError ? (
+                  <Alert variant="danger" title="Location list unavailable">
+                    <span>
+                      Province options could not be loaded. Check your connection and{' '}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => provincesQuery.refetch()}
+                      style={RETRY_BUTTON_STYLE}
+                    >
+                      Retry
+                    </button>
+                  </Alert>
+                ) : provinceOptions.length === 0 ? (
+                  <Alert variant="warning" title="Location data not loaded">
+                    <span>
+                      No provinces are available yet - the location reference data has not
+                      been loaded into the database.{' '}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => provincesQuery.refetch()}
+                      style={RETRY_BUTTON_STYLE}
+                    >
+                      Retry
+                    </button>
+                  </Alert>
+                ) : (
+                  <SearchableSelect
+                    id="reg-provinceCode"
+                    name="provinceCode"
+                    label="Province"
+                    value={draft.provinceCode}
+                    options={provinceOptions}
+                    onChange={updateProvince}
+                    error={errors.provinceCode}
+                    hint="Search and select your province."
+                  />
+                )}
+                {!cityFixedToTop && draft.provinceCode ? (
+                  citiesQuery.isPending ? (
+                    <Skeleton style={{ height: 48 }} />
+                  ) : citiesQuery.isError ? (
+                    <Alert variant="danger" title="Location list unavailable">
+                      <span>City options could not be loaded. </span>
+                      <button
+                        type="button"
+                        onClick={() => citiesQuery.refetch()}
+                        style={RETRY_BUTTON_STYLE}
+                      >
+                        Retry
+                      </button>
+                    </Alert>
+                  ) : (
+                    <SearchableSelect
+                      id="reg-cityCode"
+                      name="cityCode"
+                      label="City / municipality"
+                      value={draft.cityCode}
+                      options={cityOptions}
+                      onChange={updateCity}
+                      error={errors.cityCode}
+                      hint="Search and select your city or municipality."
+                    />
+                  )
+                ) : null}
+                {cityFixedToTop ? (
+                  <FormField id="reg-cityFixed" label="City / municipality">
+                    <div
+                      className={`${fieldStyles.input} ${fieldStyles.readOnlyInput}`}
+                      id="reg-cityFixed"
+                      aria-readonly="true"
+                      role="textbox"
+                      aria-label="City / municipality"
+                    >
+                      {provinceOptions.find((option) => option.value === draft.provinceCode)
+                        ?.label ?? draft.provinceCode}
+                    </div>
+                  </FormField>
+                ) : null}
+                {draft.cityCode ? (
+                  barangaysQuery.isPending ? (
+                    <Skeleton style={{ height: 48 }} />
+                  ) : barangaysQuery.isError ? (
+                    <Alert variant="danger" title="Location list unavailable">
+                      <span>Barangay options could not be loaded. </span>
+                      <button
+                        type="button"
+                        onClick={() => barangaysQuery.refetch()}
+                        style={RETRY_BUTTON_STYLE}
+                      >
+                        Retry
+                      </button>
+                    </Alert>
+                  ) : (
+                    <SearchableSelect
+                      id="reg-barangayCode"
+                      name="barangayCode"
+                      label="Barangay"
+                      value={draft.barangayCode}
+                      options={barangayOptions}
+                      onChange={(value) => update('barangayCode', value)}
+                      error={errors.barangayCode}
+                      hint="Search and select your barangay."
+                    />
+                  )
+                ) : null}
+              </>
+            ) : draft.countryCode ? (
+              <div className={styles.gridTwo}>
+                <TextField
+                  id="reg-region"
+                  name="region"
+                  label="Region / state"
+                  value={draft.region}
+                  onChange={(value) => update('region', value)}
+                  error={errors.region}
+                  autoComplete="address-level1"
+                  inputRef={undefined}
+                />
+                <TextField
+                  id="reg-city"
+                  name="city"
+                  label="City"
+                  value={draft.city}
+                  onChange={(value) => update('city', value)}
+                  error={errors.city}
+                  autoComplete="address-level2"
+                  inputRef={undefined}
+                />
+              </div>
+            ) : null}
+            </section>
           </>
         ) : null}
 
@@ -930,7 +1301,12 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                   <div className={styles.reviewRow}>
                     <dt>Name</dt>
                     <dd>
-                      {[draft.firstName, draft.middleInitial, draft.lastName, draft.nameSuffix]
+                      {[
+                        draft.firstName,
+                        draft.noMiddleInitial ? 'N/A' : draft.middleInitial,
+                        draft.lastName,
+                        draft.nameSuffix,
+                      ]
                         .filter(Boolean)
                         .join(' ') || '-'}
                     </dd>
@@ -957,11 +1333,15 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                   </div>
                   <div className={styles.reviewRow}>
                     <dt>Phone</dt>
-                    <dd>{draft.phone || '-'}</dd>
+                    <dd>
+                      {draft.phone
+                        ? composeE164Phone(draft.phoneDial || verifiedDial || '', draft.phone)
+                        : '-'}
+                    </dd>
                   </div>
                   <div className={styles.reviewRow}>
                     <dt>Address</dt>
-                    <dd>{draft.address?.trim() || '-'}</dd>
+                    <dd>{formatReviewAddress()}</dd>
                   </div>
                   <div className={styles.reviewRow}>
                     <dt>Program</dt>

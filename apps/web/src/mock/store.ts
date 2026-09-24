@@ -52,6 +52,11 @@ export interface MockMember {
   age: number;
   gender: string;
   address?: string;
+  provinceCode?: string;
+  cityCode?: string;
+  barangayCode?: string;
+  region?: string;
+  city?: string;
   countryCode: string;
   countryName: string;
   phone: string;
@@ -243,7 +248,14 @@ export interface MockStore {
   minAge: number;
   genders: string[];
   withdrawalLimits: { min: string; max: string };
-  countries: { code: string; name: string }[];
+  countries: {
+    code: string;
+    name: string;
+    dialCode?: string;
+    phoneMin?: number;
+    phoneMax?: number;
+    phonePattern?: string;
+  }[];
   programs: Program[];
   qualificationQuestions: { id: string; questionText: string }[];
   members: MockMember[];
@@ -1350,7 +1362,7 @@ export function createMockStore(): MockStore {
       { code: 'PG', name: 'Papua New Guinea' },
       { code: 'PY', name: 'Paraguay' },
       { code: 'PE', name: 'Peru' },
-      { code: 'PH', name: 'Philippines' },
+      { code: 'PH', name: 'Philippines', dialCode: '63', phoneMin: 10, phoneMax: 10, phonePattern: '^9[0-9]{9}$' },
       { code: 'PN', name: 'Pitcairn' },
       { code: 'PL', name: 'Poland' },
       { code: 'PT', name: 'Portugal' },

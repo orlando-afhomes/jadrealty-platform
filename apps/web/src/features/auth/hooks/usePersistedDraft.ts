@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createEmptyDraft } from '../registrationValidation';
 import type { RegistrationDraft } from '../registrationValidation';
 
-const STORAGE_KEY = 'jad:register:draft:v1';
+const STORAGE_KEY = 'jad:register:draft:v2';
 
 function isDraftEmpty(draft: RegistrationDraft): boolean {
   const empty = createEmptyDraft();
@@ -11,6 +11,7 @@ function isDraftEmpty(draft: RegistrationDraft): boolean {
     draft.programId === empty.programId &&
     draft.firstName === empty.firstName &&
     draft.middleInitial === empty.middleInitial &&
+    draft.noMiddleInitial === empty.noMiddleInitial &&
     draft.lastName === empty.lastName &&
     draft.nameSuffix === empty.nameSuffix &&
     draft.dateOfBirth === empty.dateOfBirth &&
@@ -18,6 +19,12 @@ function isDraftEmpty(draft: RegistrationDraft): boolean {
     draft.genderOther === empty.genderOther &&
     draft.countryCode === empty.countryCode &&
     draft.address === empty.address &&
+    draft.provinceCode === empty.provinceCode &&
+    draft.cityCode === empty.cityCode &&
+    draft.barangayCode === empty.barangayCode &&
+    draft.region === empty.region &&
+    draft.city === empty.city &&
+    draft.phoneDial === empty.phoneDial &&
     draft.phone === empty.phone &&
     draft.referralCode === empty.referralCode &&
     draft.email === empty.email &&
@@ -29,8 +36,57 @@ function isDraftEmpty(draft: RegistrationDraft): boolean {
   );
 }
 
+/**
+ * Shape guard for restored drafts: sessionStorage is attacker-influenced
+ * (XSS/extensions can tamper with it), so only known string/boolean fields
+ * survive - unknown keys and wrong types are dropped before state. Values
+ * are still validated at every step and re-validated on submit.
+ */
+const STRING_FIELDS = [
+  'programId',
+  'firstName',
+  'middleInitial',
+  'lastName',
+  'nameSuffix',
+  'dateOfBirth',
+  'gender',
+  'genderOther',
+  'countryCode',
+  'address',
+  'provinceCode',
+  'cityCode',
+  'barangayCode',
+  'region',
+  'city',
+  'phoneDial',
+  'phone',
+  'referralCode',
+  'email',
+  'password',
+  'confirmPassword',
+] as const;
+
+function sanitizeRestoredDraft(parsed: Record<string, unknown>): Partial<RegistrationDraft> {
+  const clean: Record<string, unknown> = {};
+  for (const field of STRING_FIELDS) {
+    if (typeof parsed[field] === 'string') clean[field] = parsed[field];
+  }
+  if (typeof parsed.noMiddleInitial === 'boolean') clean.noMiddleInitial = parsed.noMiddleInitial;
+  if (typeof parsed.consent === 'boolean') clean.consent = parsed.consent;
+  if (parsed.answers && typeof parsed.answers === 'object' && !Array.isArray(parsed.answers)) {
+    const answers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed.answers)) {
+      if (typeof value === 'string') answers[key] = value;
+    }
+    clean.answers = answers;
+  }
+  return clean as Partial<RegistrationDraft>;
+}
+
 function loadPersistedDraft(): Partial<RegistrationDraft> | null {
   try {
+    // One-time cleanup of the pre-hierarchy draft shape.
+    sessionStorage.removeItem('jad:register:draft:v1');
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<RegistrationDraft>;
@@ -79,7 +135,7 @@ export function usePersistedDraft(
     if (persisted) {
       // persisted draft takes precedence except for explicit initialDraft override (empty)
       // For create mode initialDraft is undefined, so persisted wins
-      return { ...empty, ...persisted } as RegistrationDraft;
+      return { ...empty, ...sanitizeRestoredDraft(persisted) } as RegistrationDraft;
     }
     return base;
   });
