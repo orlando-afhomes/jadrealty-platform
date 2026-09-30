@@ -80,6 +80,14 @@
   background-color: var(--color-brand-deep);
 }
 
+/* Visited links must keep the white label: the global `a:visited` rule
+   (specificity 0,1,1) otherwise beats this single-class rule (0,1,0) and
+   repaints the label brand blue on the brand surface. `.signInLink:visited`
+   (0,2,0) wins. Same guard as Button.module.css `.primary:visited`. */
+.signInLink:visited {
+  color: var(--color-text-on-brand);
+}
+
 .note {
   margin: 0;
   text-align: center;

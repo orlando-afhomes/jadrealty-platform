@@ -81,6 +81,14 @@
   color: var(--color-text-on-brand);
 }
 
+/* Visited method links must keep the white icon: the global `a:visited`
+   rule (0,1,1) otherwise beats `.methodIconFeatured` (0,1,0) and repaints
+   the icon brand blue on the brand surface. Same guard as
+   Button.module.css `.primary:visited`. */
+.methodLink:visited .methodIconFeatured {
+  color: var(--color-text-on-brand);
+}
+
 .methodText {
   display: grid;
   gap: var(--space-1);
