@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
+import { resetRateLimits } from '../../_lib/rate-limit.js';
 
 import handler from './provinces.js';
 
@@ -59,6 +60,7 @@ const getReq = (query: Record<string, unknown> = {}): VercelRequest =>
 
 describe('GET /locations/provinces', () => {
   beforeEach(() => {
+    resetRateLimits();
     vi.stubEnv('SUPABASE_URL', 'https://loc.test.supabase.co');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
     mocks.calls.length = 0;
@@ -86,5 +88,19 @@ describe('GET /locations/provinces', () => {
     await handler(getReq({ countryCode: 'US' }), res2);
     expect(seen2.status).toBe(400);
     expect(mocks.calls.length).toBe(0);
+  });
+
+  it('429s once the per-IP read budget is exceeded', async () => {
+    vi.stubEnv('LOCATIONS_RATE_LIMIT', '2');
+    const { res: res1, seen: seen1 } = capture();
+    await handler(getReq({ countryCode: 'PH' }), res1);
+    expect(seen1.status).toBe(200);
+    const { res: res2, seen: seen2 } = capture();
+    await handler(getReq({ countryCode: 'PH' }), res2);
+    expect(seen2.status).toBe(200);
+    const { res: res3, seen: seen3 } = capture();
+    await handler(getReq({ countryCode: 'PH' }), res3);
+    expect(seen3.status).toBe(429);
+    expect(seen3.body).toMatchObject({ error: { code: 'TOO_MANY_REQUESTS' } });
   });
 });

@@ -83,3 +83,28 @@ export type CitiesQuery = z.infer<typeof citiesQuerySchema>;
 export const barangaysQuerySchema = z.object({ cityCode: z.string().min(1) });
 
 export type BarangaysQuery = z.infer<typeof barangaysQuerySchema>;
+
+/**
+ * International location suggestions - `GET /locations/suggest` (PUBLIC).
+ * Assistive only: suggestions help non-PH applicants fill Region/State +
+ * City, but free text always stays submittable and the server stores the
+ * submitted text verbatim (never provider-trusted). The Philippines keeps
+ * its curated PSGC hierarchy instead.
+ */
+export const locationSuggestQuerySchema = z.object({
+  countryCode: z.string().length(2),
+  q: z.string().trim().min(3).max(100),
+});
+
+export type LocationSuggestQuery = z.infer<typeof locationSuggestQuerySchema>;
+
+export const locationSuggestionSchema = z.object({
+  /** Display label, e.g. 'Los Angeles, California'. */
+  label: z.string().min(1),
+  /** Region/state fill value. */
+  region: z.string().min(1),
+  /** City fill value. */
+  city: z.string().min(1),
+});
+
+export type LocationSuggestion = z.infer<typeof locationSuggestionSchema>;

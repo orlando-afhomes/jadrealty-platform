@@ -16,6 +16,8 @@ export interface PasswordFieldProps {
   optional?: boolean;
   inputRef?: RefObject<HTMLInputElement | null>;
   placeholder?: string;
+  /** Native input cap (login caps at the bcrypt boundary; registration omits it). */
+  maxLength?: number;
 }
 
 const EYE_ICON = (
@@ -81,6 +83,7 @@ export function PasswordField({
   optional = false,
   inputRef,
   placeholder,
+  maxLength,
 }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false);
   const describedBy =
@@ -101,6 +104,7 @@ export function PasswordField({
           onChange={(event) => onChange(event.target.value)}
           autoComplete={autoComplete}
           placeholder={placeholder}
+          maxLength={maxLength}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           required={!optional}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, ConfirmDialog, ErrorState, notifySuccess, PageHeader, Skeleton } from '@jad/ui';
 import { aboutContentSchema, type AboutContent } from '@jad/contracts';
@@ -11,6 +11,7 @@ import { CmsImageField } from '../components/CmsImageField';
 import { CmsSectionCard } from '../components/CmsSectionCard';
 import { useAboutCms, useUpdateAboutCms } from '../hooks/useAboutCms';
 import { useCmsAccordion } from '../hooks/useCmsAccordion';
+import { useCmsHashScroll } from '../hooks/useCmsHashScroll';
 
 import styles from './CmsHomepagePage.module.css';
 
@@ -51,18 +52,16 @@ export function CmsAboutPage() {
     }
   }, [data, draft]);
 
-  useEffect(() => {
-    if (!data || !draft) return;
-    const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
-    if (hash && SECTION_DEFS.some((s) => s.id === hash)) {
-      open(hash);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync hash to active nav state
-      setActiveId(hash);
-      setTimeout(() => {
-        document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  }, [data, draft, open]);
+  // One-shot deep-link scroll on load (see useCmsHashScroll - depending on
+  // `draft` re-fired open(hash) + scrollIntoView(hash) on every keystroke).
+  const handleDeepLink = useCallback(
+    (id: string) => {
+      open(id);
+      setActiveId(id);
+    },
+    [open],
+  );
+  useCmsHashScroll(Boolean(data && draft), SECTION_DEFS, handleDeepLink);
 
   useEffect(() => {
     if (!data || !draft) return;

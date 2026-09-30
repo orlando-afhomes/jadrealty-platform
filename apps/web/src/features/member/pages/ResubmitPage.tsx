@@ -6,6 +6,7 @@ import { useSession } from '../../../lib/session';
 import { notifySuccess, PageHeader, Skeleton } from '@jad/ui';
 
 import { Alert } from '../../../components/Alert';
+import { getRegisterCmsPublic } from '../../../lib/cms';
 import { RegistrationForm } from '../../auth/components/RegistrationForm';
 import type { RegistrationDraft } from '../../auth/registrationValidation';
 import { resubmitApplication } from '../../auth/services/auth';
@@ -26,6 +27,11 @@ export function ResubmitPage() {
     queryKey: ['member-profile', user?.id],
     queryFn: () => getProfile(user!.id),
     enabled: Boolean(user?.id),
+  });
+  const { data: cmsRegister } = useQuery({
+    queryKey: ['cms', 'register'],
+    queryFn: getRegisterCmsPublic,
+    staleTime: 0,
   });
 
   if (user?.status !== 'REJECTED') {
@@ -113,6 +119,17 @@ export function ResubmitPage() {
         <RegistrationForm
           mode="resubmit"
           initialDraft={initialDraft}
+          copy={
+            cmsRegister
+              ? {
+                  stepTitles: cmsRegister.stepTitles,
+                  fields: cmsRegister.fields,
+                  qualification: cmsRegister.qualification,
+                  submitLabel: cmsRegister.submitLabel,
+                  loginPrompt: cmsRegister.loginPrompt,
+                }
+              : undefined
+          }
           submit={async (payload) => {
             await resubmitApplication(payload);
             notifySuccess({

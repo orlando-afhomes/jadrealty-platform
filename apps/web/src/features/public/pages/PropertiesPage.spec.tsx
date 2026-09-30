@@ -1,8 +1,10 @@
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { CMS_PROPERTIES_SEED } from '@jad/contracts';
+
 import { PropertiesPage } from './PropertiesPage';
-import { renderWithProviders } from '../../../test/utils';
+import { mockFetchRoutes, renderWithProviders } from '../../../test/utils';
 
 describe('PropertiesPage', () => {
   it('presents the three specialized property categories, each linking to its listing page', () => {
@@ -71,5 +73,20 @@ describe('PropertiesPage', () => {
     expect(screen.queryByText(/per month/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/per sqm/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/for sale now/i)).not.toBeInTheDocument();
+  });
+
+  it('renders CMS-edited listings instead of static records when the fetch resolves', async () => {
+    const first = CMS_PROPERTIES_SEED.properties[0]!;
+    mockFetchRoutes({
+      '/cms/properties': {
+        ...CMS_PROPERTIES_SEED,
+        properties: [{ ...first, name: 'Edited Listing Name', isFeatured: true }],
+      },
+    });
+    renderWithProviders(<PropertiesPage />);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Edited Listing Name' }),
+    ).toBeInTheDocument();
   });
 });

@@ -35,8 +35,8 @@ export const AUTH = {
       'Sign in to manage your membership, property interests, and account details - in one secure place.',
     fields: {
       identifier: {
-        label: 'Email or phone number',
-        hint: 'Use the email address or phone number you registered with.',
+        label: 'Email address',
+        hint: 'Use the email address you registered with.',
         autocomplete: 'username',
       },
       password: { label: 'Password', autocomplete: 'current-password' },
@@ -51,12 +51,14 @@ export const AUTH = {
       linkLabel: 'Create your account',
       to: '/register',
     },
-    /** Generic authentication failure notice. */
+    /** Generic authentication failure notice (never surfaces server detail). */
     unavailable: {
       title: 'We could not sign you in',
       message:
-        'Check your email or phone number and password, then try again. If the problem continues, contact support.',
+        'Check your email and password, then try again. If the problem continues, contact support.',
     },
+    /** Generic wrong-credentials message - identical for unknown emails and wrong passwords. */
+    invalidCredentials: 'Invalid email or password.',
     /** Successful-authentication transition. */
     success: {
       title: 'Welcome back',

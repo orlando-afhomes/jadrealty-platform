@@ -47,7 +47,26 @@ describe('registerRequestSchema', () => {
     expect(registerRequestSchema.safeParse({ ...PH_BASE, middleInitial }).success).toBe(false);
   });
 
-  it.each(['2026-09-23', '2026-09-24', 'not-a-date', '2026-02-30', '1890-01-01', '  '])(
+  it.each(['S3cure-password', '12345678', 'a'.repeat(72)])(
+    'accepts password %s (8-72 chars)',
+    (password) => {
+      expect(registerRequestSchema.safeParse({ ...PH_BASE, password }).success).toBe(true);
+    },
+  );
+
+  it.each(['short', '', 'a'.repeat(73)])('rejects password %s (server enforces 8-72)', (password) => {
+    expect(registerRequestSchema.safeParse({ ...PH_BASE, password }).success).toBe(false);
+  });
+
+  function localIsoDate(d: Date): string {
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+  }
+  const todayIso = localIsoDate(new Date());
+  const tomorrowIso = localIsoDate(new Date(Date.now() + 86_400_000));
+
+  it.each([todayIso, tomorrowIso, '2030-01-01', 'not-a-date', '2026-02-30', '1890-01-01', '  '])(
     'rejects dateOfBirth %s',
     (dateOfBirth) => {
       expect(registerRequestSchema.safeParse({ ...PH_BASE, dateOfBirth }).success).toBe(false);

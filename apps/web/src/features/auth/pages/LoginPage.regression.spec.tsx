@@ -37,7 +37,7 @@ describe('LoginPage regression - mock fallback preservation', () => {
       { route: '/login' },
     );
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'juan.delacruz@example.com');
+    await user.type(screen.getByLabelText('Email address'), 'juan.delacruz@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
@@ -83,7 +83,7 @@ describe('LoginPage regression - mock fallback preservation', () => {
       { route: '/login' },
     );
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'admin@jad.local');
+    await user.type(screen.getByLabelText('Email address'), 'admin@jad.local');
     await user.type(screen.getByLabelText('Password'), 'Admin123!Local');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
@@ -98,7 +98,7 @@ describe('LoginPage regression - mock fallback preservation', () => {
     });
   });
 
-  it('surfaces API error envelope on failed credentials (no silent fallback)', async () => {
+  it('shows a generic message on failed credentials (envelope detail not leaked)', async () => {
     mockFetchRoutes({
       '/auth/login': {
         body: {
@@ -114,11 +114,12 @@ describe('LoginPage regression - mock fallback preservation', () => {
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />, { route: '/login' });
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'juan.delacruz@example.com');
+    await user.type(screen.getByLabelText('Email address'), 'juan.delacruz@example.com');
     await user.type(screen.getByLabelText('Password'), 'wrong-password');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
-    expect(await screen.findByText('Email or password is incorrect.')).toBeInTheDocument();
+    expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
+    expect(screen.queryByText('Email or password is incorrect.')).not.toBeInTheDocument();
   });
 
   it('unknown role normalizes to user (no escalation)', () => {
@@ -150,7 +151,7 @@ describe('LoginPage regression - mock fallback preservation', () => {
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />, { route: '/login' });
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'superadmin@gmail.com');
+    await user.type(screen.getByLabelText('Email address'), 'superadmin@gmail.com');
     await user.type(screen.getByLabelText('Password'), 'P@ssword');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 

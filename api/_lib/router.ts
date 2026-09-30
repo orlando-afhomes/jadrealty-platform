@@ -109,6 +109,12 @@ export function selectHandler(
       routeKey: 'locations/barangays',
     };
   }
+  if (pathname === '/api/v1/locations/suggest' || pathname === '/api/locations/suggest') {
+    return {
+      handler: lazy(() => import('../_handlers/locations/suggest.js')),
+      routeKey: 'locations/suggest',
+    };
+  }
   if (pathname === '/api/v1/admin/programs' || pathname === '/api/admin/programs') {
     return {
       handler: lazy(() => import('../_handlers/admin/programs.js')),

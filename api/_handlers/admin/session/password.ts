@@ -3,6 +3,7 @@ import { appendAudit } from '../../../_lib/audit.js';
 import { getSupabaseEnv } from '../../../_lib/env.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { methodNotAllowed, readJsonBody, requireService, anonClient } from '../../../_lib/rest.js';
+import { enforceRateLimit } from '../../../_lib/rate-limit.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 import { changeStaffPasswordRequestSchema } from '@jad/contracts';
 
@@ -24,6 +25,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (req.method !== 'POST') {
     methodNotAllowed(res, req.method);
+    return;
+  }
+  // Per-IP attempt brake: every call burns a fresh GoTrue sign-in against
+  // the current password, so unlimited guessing must not reach it.
+  if (
+    !enforceRateLimit(req, res, {
+      scope: 'admin/session/password',
+      max: process.env.SESSION_PASSWORD_RATE_LIMIT
+        ? Number(process.env.SESSION_PASSWORD_RATE_LIMIT)
+        : 10,
+    })
+  ) {
     return;
   }
   const user = await verifyUser(req);

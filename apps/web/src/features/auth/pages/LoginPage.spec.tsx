@@ -24,7 +24,7 @@ describe('LoginPage', () => {
     renderLogin();
 
     expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Email or phone number')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute(
@@ -44,20 +44,20 @@ describe('LoginPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
-    expect(screen.getByText('Enter your email address or phone number.')).toBeInTheDocument();
+    expect(screen.getByText('Enter your email address.')).toBeInTheDocument();
     expect(screen.getByText('Enter your password.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Email or phone number')).toHaveFocus();
+    expect(screen.getByLabelText('Email address')).toHaveFocus();
   });
 
-  it('validates the identifier format (email or phone)', async () => {
+  it('validates the identifier format (email only)', async () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'not-an-email');
+    await user.type(screen.getByLabelText('Email address'), 'not-an-email');
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
-    expect(screen.getByText('Enter a valid email address or phone number.')).toBeInTheDocument();
+    expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
   });
 
   it('toggles password visibility with an accessible show/hide button', async () => {
@@ -84,7 +84,7 @@ describe('LoginPage', () => {
       { route: '/login' },
     );
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'juan.delacruz@example.com');
+    await user.type(screen.getByLabelText('Email address'), 'juan.delacruz@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
@@ -100,7 +100,7 @@ describe('LoginPage', () => {
     });
   });
 
-  it('surfaces the API error envelope on failed credentials', async () => {
+  it('shows a generic message on failed credentials (no server detail leaked)', async () => {
     mockFetchRoutes({
       '/auth/login': {
         body: {
@@ -116,12 +116,39 @@ describe('LoginPage', () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'juan.delacruz@example.com');
+    await user.type(screen.getByLabelText('Email address'), 'juan.delacruz@example.com');
     await user.type(screen.getByLabelText('Password'), 'wrong-password');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
-    expect(await screen.findByText('Email or password is incorrect.')).toBeInTheDocument();
+    expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
+    expect(screen.queryByText('Email or password is incorrect.')).not.toBeInTheDocument();
     expect(screen.getByText('We could not sign you in')).toBeInTheDocument();
+  });
+
+  it('trims a padded identifier before submitting', async () => {
+    const fetchFn = mockFetchRoutes({ '/auth/login': { user: SESSION_USER } });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/member" element={<div>Member home</div>} />
+      </Routes>,
+      { route: '/login' },
+    );
+
+    await user.type(screen.getByLabelText('Email address'), '  juan.delacruz@example.com  ');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    expect(await screen.findByText('Member home')).toBeInTheDocument();
+    const authCall = fetchFn.mock.calls.find(([url]) => String(url).includes('/auth/login')) as
+      [RequestInfo, RequestInit] | undefined;
+    expect(authCall).toBeDefined();
+    const [, init] = authCall!;
+    expect(JSON.parse(String(init.body))).toEqual({
+      identifier: 'juan.delacruz@example.com',
+      password: 'password123',
+    });
   });
 
   it('redirects admin to Admin App via VITE_ADMIN_URL (cross-app, not member route)', async () => {
@@ -159,7 +186,7 @@ describe('LoginPage', () => {
       { route: '/login' },
     );
 
-    await user.type(screen.getByLabelText('Email or phone number'), 'admin@jad.local');
+    await user.type(screen.getByLabelText('Email address'), 'admin@jad.local');
     await user.type(screen.getByLabelText('Password'), 'Admin123!Local');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 

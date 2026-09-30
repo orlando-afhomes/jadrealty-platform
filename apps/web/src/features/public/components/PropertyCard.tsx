@@ -5,13 +5,15 @@ import { formatMoney } from '@jad/shared';
 import { ButtonLink } from '../../../components/ButtonLink';
 import { ImageBlock } from '../../../components/ImageBlock';
 import { getCategoryBySlug, getPropertyHeroPhoto, photoUrl, propertyPath } from '../content';
-import type { Property } from '../content';
+import type { Property, PropertyCategory } from '../content';
 import styles from './PropertyCard.module.css';
 
 export interface PropertyCardProps {
   property: Property;
   /** Heading level; `h3` (default) nests under a page `h2`. */
   headingLevel?: 'h2' | 'h3';
+  /** Categories for the label lookup; defaults to the static catalog. */
+  categories?: PropertyCategory[];
 }
 
 /**
@@ -20,9 +22,11 @@ export interface PropertyCardProps {
  * CTA are semantic links to the property detail route; the card itself is not
  * a clickable div.
  */
-export function PropertyCard({ property, headingLevel = 'h3' }: PropertyCardProps) {
+export function PropertyCard({ property, headingLevel = 'h3', categories }: PropertyCardProps) {
   const Tag = headingLevel;
-  const category = getCategoryBySlug(property.categoryId);
+  const category = categories
+    ? categories.find((c) => c.slug === property.categoryId)
+    : getCategoryBySlug(property.categoryId);
   const detailPath = propertyPath(property.categoryId, property.id);
 
   return (

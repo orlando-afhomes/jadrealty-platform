@@ -365,11 +365,7 @@ export function memberMockHandlers(store: MockStore): MockRoute[] {
       handler: (ctx) => {
         const parsed = loginRequestSchema.safeParse(ctx.body);
         if (!parsed.success)
-          return error(
-            'VALIDATION_ERROR',
-            'Enter your email address or phone number and password.',
-            400,
-          );
+          return error('VALIDATION_ERROR', 'Enter your email address and password.', 400);
         const { identifier, password } = parsed.data;
         const trimmed = identifier.trim().toLowerCase();
         // Dev placeholder alias: allow the placeholder credentials shown in the UI

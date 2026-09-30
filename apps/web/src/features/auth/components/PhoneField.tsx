@@ -19,6 +19,8 @@ export interface PhoneFieldProps {
   onDialChange: (dial: string) => void;
   /** Receives digits-only input already capped at the dial's limit. */
   onNationalChange: (value: string) => void;
+  /** Visible label for the national-number input (CMS-managed, defaults below). */
+  label?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export function PhoneField({
   error,
   onDialChange,
   onNationalChange,
+  label = 'Phone number',
 }: PhoneFieldProps) {
   const options = dialCodeOptions(countries);
   const rule = buildPhoneRuleForDial(countries, dial);
@@ -77,7 +80,7 @@ export function PhoneField({
         </div>
         <div className={styles.phoneNational}>
           <label className={fieldStyles.label} htmlFor="reg-phone">
-            Phone number
+            {label}
           </label>
           <input
             id="reg-phone"

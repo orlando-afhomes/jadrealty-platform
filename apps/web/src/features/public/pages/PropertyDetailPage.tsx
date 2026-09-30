@@ -1,6 +1,8 @@
 import { useParams } from 'react-router';
 
+import { useQuery } from '@tanstack/react-query';
 import { formatMoney } from '@jad/shared';
+import { getPropertiesCmsPublic } from '@/lib/cms';
 
 import { ButtonLink } from '../../../components/ButtonLink';
 import { SectionHeader } from '../../../components/SectionHeader';
@@ -16,6 +18,8 @@ import {
   getCategoryBySlug,
   getPropertyById,
   getRelatedProperties,
+  resolveListingCategories,
+  resolveListingRecords,
 } from '../content';
 import styles from './PropertyDetailPage.module.css';
 
@@ -28,14 +32,21 @@ import styles from './PropertyDetailPage.module.css';
  */
 export function PropertyDetailPage() {
   const { categorySlug = '', propertySlug = '' } = useParams();
-  const category = getCategoryBySlug(categorySlug);
-  const property = getPropertyById(propertySlug);
+  const { data: cms } = useQuery({
+    queryKey: ['cms', 'properties'],
+    queryFn: getPropertiesCmsPublic,
+    staleTime: 0,
+  });
+  const categories = resolveListingCategories(cms);
+  const records = resolveListingRecords(cms);
+  const category = getCategoryBySlug(categorySlug, categories);
+  const property = getPropertyById(propertySlug, records);
 
   if (!category || !property || property.categoryId !== category.slug) {
     return <NotFoundPage />;
   }
 
-  const related = getRelatedProperties(property);
+  const related = getRelatedProperties(property, 3, records);
   const hasKeyFacts = property.keyFacts.length > 0;
 
   return (
@@ -146,7 +157,11 @@ export function PropertyDetailPage() {
             />
             <div className={styles.propertyGrid}>
               {related.map((relatedProperty) => (
-                <PropertyCard key={relatedProperty.id} property={relatedProperty} />
+                <PropertyCard
+                  key={relatedProperty.id}
+                  property={relatedProperty}
+                  categories={categories}
+                />
               ))}
             </div>
           </div>

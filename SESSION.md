@@ -1,6 +1,6 @@
 # SESSION.md - handoff for a new chat session
 
-Date: 2026-09-24 (UTC). This session (plan → build): **registration validation hardening** (names, middle-initial N/A, per-country phone, structured PH/non-PH address, strict DOB, submit re-validation) + **localhost location-list incident** (root-caused to unapplied/unseeded location tables, fixed live). Prior session work (voucher edit/delete, SweetAlert modal, QR stop-on-decode, message auto-scroll, login privacy link, storage sync) is committed as `be541ad` on `develop`. **This session's 45 files are UNCOMMITTED and UNDEPLOYED** - but `pnpm db:migrate` + `seed:locations` were run against the hosted DB (backward-compatible, see below). No `vercel --prod` this session.
+Date: 2026-09-30 (UTC). Since the last handoff the user committed `75ec470 enhance: registration form validation and ui` on `develop` (phone dial-code field, wide-panel single-column layout, name/MI live shaping + auto-capitalization, Program/Personal split - all previously "45 uncommitted files"). **This batch is UNCOMMITTED + UNDEPLOYED (11 files: international location suggestions, code only, no DB writes).** No `vercel --prod` this batch.
 
 ## Deployment - current state (the important part)
 
@@ -22,6 +22,7 @@ Date: 2026-09-24 (UTC). This session (plan → build): **registration validation
 - `GET /locations/provinces?countryCode=PH` (public, provinces + independent cities as top level)
 - `GET /locations/cities?provinceCode=...` (public, children; `[]` for independent-city parents; 404 unknown)
 - `GET /locations/barangays?cityCode=...` (public; 404 unknown city)
+- `GET /locations/suggest?countryCode=US&q=los` (public, non-PH only; Nominatim forward-search proxy, `{label,region,city}` fill values, provider outage → `200 []`; PH → 400)
 - `GET /config/public` countries now carry optional `dialCode/phoneMin/phoneMax/phonePattern`
 - `POST /contact` (public, honeypot + per-IP throttle) - `api/_handlers/contact.ts`
 - `GET /admin/inquiries`, `PATCH /admin/inquiries/:id` (staff `cms` module, audited)
@@ -106,7 +107,7 @@ Date: 2026-09-24 (UTC). This session (plan → build): **registration validation
 
 **Background:** `docs/business/BUSINESS-RULES.md:133` BR-COM-002 now notes fallback ("referrer wins else sponsor").
 
-### What this session built (UNCOMMITTED, 45 files on `develop`; DB writes ARE live)
+### What the validation-hardening session built (COMMITTED as `75ec470`; DB writes were live at the time)
 
 **Registration validation hardening (TDD, user decisions: curated phone table / non-PH text fields / MI N/A→empty / full PSGC seed):**
 - `packages/contracts/src/schemas/registration-validation.ts` (new, single source): normalize-then-validate primitives - Unicode-letter names (`\p{L}\p{M}`, spaces/hyphens/apostrophes, curly-folded, 60 max, control-char reject), MI fold (`A.`→`A`, N/A→empty), E.164 phone engine (`toPhoneRule` kernel + `validatePhoneNumber`), strict DOB parser (YYYY-MM-DD round-trip, past-only, min-age, 120 max), PH/generic address shapes.
@@ -116,6 +117,16 @@ Date: 2026-09-24 (UTC). This session (plan → build): **registration validation
 - `GET /locations/*` handlers + router branches (route-coverage green); `GET /config/public` serves sanitized phone metadata (malformed rows dropped per-row).
 - Web `RegistrationForm`: MI N/A checkbox (disables input), `+dial` hint, `SearchableSelect` combobox (deferred filter, free text reverts on blur - never submitted; keyboard accessible), PH hierarchy with dependent resets vs generic region/city, live DOB validation, **full-draft re-validation on submit** with step jump + focus (closes persisted-draft/devtools bypass), review shows N/A + resolved names; draft key bumped `v1→v2` with shape guard + v1 cleanup (also added to test setup); `ResubmitPage` prefills hierarchy + N/A state.
 - Dev mocks: dial metadata on mock PH, mock `/locations/*` tiny dataset, MockMember hierarchy fields.
+
+### What this batch built (UNCOMMITTED, 11 files on `develop`; NO db writes, code only)
+
+**Committed as `75ec470` since last handoff (no longer pending):** phone dial-code dropdown + per-country digit cap (`PhoneField`, `phoneDial` draft, `composeE164Phone` submit, dial default follows verified country); wide-panel (680px) single-column step 0 with `FormField`-normalized read-only blocks (`AuthLayout wide` prop, `ResubmitPage` wrapper 560→680px); name live shaping (`sanitizePersonName`) + MI single-letter shaping (`sanitizeMiddleInitial`) + title-case auto-format (`capitalizePersonName`, MI uppercased) - all single-sourced in `@jad/contracts`; Program/Personal section split with `sectionDivider`.
+
+**International location suggestions (this batch, uncommitted):**
+- `packages/contracts/.../location.ts`: `locationSuggestQuerySchema` (ISO-2 + `q` 3-100) + `locationSuggestionSchema` (`{label,region,city}`), exported from index.
+- `api/_lib/geocode.ts` (new): shared server-side Nominatim config reusing `REVERSE_GEO_*` env (derives `/search` from reverse URL) + timeout/UA fetch helper. `location-verify.ts` deliberately untouched.
+- `api/_handlers/locations/suggest.ts` (new) + router branch (route-coverage green): per-IP throttle (30/min), PH → 400, provider rows mapped state/county → region, city/town/village/hamlet → city (schema-validated, max 5), outage → `200 []` logged server-side. No migration - `region_name`/`city_name` columns already exist; intake storage semantics unchanged.
+- Web: `getSuggestions()` endpoint, `useLocationSuggest()` hook (350ms debounce, min-3-chars, non-PH gating, `retry: false`), suggestion list under non-PH Region/City (choose fills both + dismisses; edit re-shows; free text always submittable). PH path untouched.
 
 **Localhost location-list incident (user-reported, fixed live):**
 - Root cause: brand-new `ph_*` tables existed only as migration files - never applied or seeded on the hosted DB (localhost points at hosted). Endpoint correctly fail-closed (500/empty → Alert).
@@ -186,7 +197,7 @@ Root: `C:\Users\SSD-ORLANDO\Documents\Project\jad-realty` (pnpm + Turborepo).
 ## Verification status
 
 - `pnpm typecheck`: 8/8 workspaces pass. `pnpm exec turbo run build` + assemble OK. `pnpm dlx vercel build --yes` produces exactly **1 function**, exit 0; check `.vercel/output/config.json` routes. NOTE: the build log prints `SupabaseAuthClient` TS notes (`Property 'admin'/'getUser'/… does not exist`) - verified **pre-existing and non-blocking** (pristine HEAD prints 20 and deploys fine).
-- Tests: api **579/579** (incl. new `intake-validation` (10), `locations` (9), `policies/[id]` (8), register replay/removal, resubmit enforcement, approve cleanup, purge storage); contracts 8 files pass (incl. `registration-validation` (55), `auth` + `location-ref` (26)); web **428/428** (incl. validator unit (33), `SearchableSelect` (5), generic non-PH flow (3), tampered-draft, split location states); admin: all non-CMS suites pass + policies copy updates (known **pre-existing** CMS/policy parallel-load flakes + genealogy timing flake pass in isolation - rerun those if they fail once; proven identical on pristine HEAD via stash comparison).
+- Tests: api **585/585** (incl. new `locations/suggest` (6)); contracts location-ref + index pass, BUT full contracts run has **1 pre-existing failure**: `auth.spec.ts > rejects dateOfBirth 2026-09-23` - hardcoded-date time bomb, proven failing on pristine HEAD via stash comparison on 2026-09-30 (DOB code untouched by this batch); web **451/451** (incl. `PhoneField` (6), suggest form (2), shaping/capitalization); admin: all non-CMS suites pass + policies copy updates (known **pre-existing** CMS/policy parallel-load flakes + genealogy timing flake pass in isolation - rerun those if they fail once; proven identical on pristine HEAD via stash comparison).
 - `pnpm db:migrate` - idempotent; this session applied `policy_privacy_seed` + `phone_country_rules` + `ph_location_tables` + `registration_address_columns` (header queries verified: privacy=1 row, PH/US/GB/SG metadata correct, 0 orphans); `rls_invariants.sql` re-run: #1/#4/#6/#7 empty, #5 only documented `is_staff_user` (+ pre-existing trigger helpers), #2/#3 pre-existing managed grants with new tables matching the baseline pattern (SELECT-only policies, no new exposure).
 - `pnpm seed:locations` - **82 provinces / 1634 cities / 42046 barangays, 0 orphans** (PSA Q4 2024 via transient `@ph-dev-utils` packages - NOT added to package.json; Manila correctly province-null).
 - Live probes (local dev-server + curl): `GET /locations/provinces|cities|barangays` → 200 with real rows, contract shape; web mock + `RegisterPage` full-submit flow (hierarchy select → payload asserts) green.
@@ -206,7 +217,14 @@ Root: `C:\Users\SSD-ORLANDO\Documents\Project\jad-realty` (pnpm + Turborepo).
 
 ## Session notes for the next agent
 
-- **This session is UNCOMMITTED + UNDEPLOYED (45 files, code only).** The hosted DB already has migrations 003-006 + 82/1634/42046 location rows (backward-compatible: nullable columns, additive tables). Commit, then `pnpm dlx vercel --prod` to ship the registration UI + `/locations/*` endpoints.
+- **This batch is UNCOMMITTED + UNDEPLOYED (11 files, code only, no DB writes).** Commit, then `pnpm dlx vercel --prod` to ship `/locations/suggest` + form suggestions. Prior batches are committed as `75ec470` (deploy state unconfirmed - check `vercel ls --prod`).
+- **NEW pre-existing failure (do not chase):** contracts `auth.spec.ts > rejects dateOfBirth 2026-09-23` fails on pristine HEAD (hardcoded date boundary vs wall clock). Needs a relative-date rewrite, not a DOB logic fix.
+- **Input-shaping architecture (registration):** sanitizers live in `@jad/contracts` (`sanitizePersonName`, `sanitizeMiddleInitial`, `capitalizePersonName`), applied in `onChange` (covers typing + paste) with native `maxLength` backup; Zod schemas stay the boundary; persisted/tampered drafts bypass shaping and still hit validator errors (by design - covered by tampered-draft spec). Title-case lowercases non-initials (`McDonald` → `Mcdonald`) - accepted per requirement, flag if product objects.
+- **Phone dial follows verified country** (user decision): dropdown never mutates `countryCode`; server re-validates against verified country, mismatch surfaces verbatim. `sanitizeNationalInput` strips embedded dial/trunk only on overflow (US dial `1` vs nationals starting with `1` - length-gated strip).
+- **react-hooks lint forbids ref reads during render** (v7 `no-ref-during-render` is error): suggestion-chosen state uses `useState`, not a ref. `setDraft`-omitting effects match existing `exhaustive-deps` warning style.
+- **URLSearchParams encodes spaces as `+`** (spec asserted `%20` once - fixed).
+- **`mockFetchRoutes` strips query strings** (pathname-only matching) - suggest specs mock by path.
+- **Prettier `--check` fails repo-wide on untouched files** (CRLF line endings) - do not `--write` (would churn everything).
 - **PSGC refresh:** `seed-ph-locations.ts` is upsert-safe; re-run with a fresh PSA extract quarterly. Provenance this round: `@ph-dev-utils/core@0.5.0` + `@ph-dev-utils/psgc-barangays@0.1.0` (PSA Q4 2024), used transiently - NOT in package.json.
 - **Login account is `jad@admin.com`** (password in root `.env`) on the deployed Supabase.
 - **The `includeFiles` must remain `packages/**`** - narrowing crashes the deployed function.

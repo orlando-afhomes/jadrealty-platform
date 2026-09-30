@@ -32,7 +32,7 @@ const CONFIG_US = {
   ],
 };
 
-function renderForm() {
+function renderForm(extraRoutes: Record<string, unknown> = {}) {
   mockFetchRoutes({
     '/config/public': CONFIG_US,
     '/programs': {
@@ -40,6 +40,7 @@ function renderForm() {
       meta: {},
     },
     '/programs/prg-abroad/qualification-questions': { data: [], meta: {} },
+    ...extraRoutes,
   });
   return renderWithProviders(
     <Routes>
@@ -99,5 +100,74 @@ describe('RegistrationForm non-PH address', () => {
     await user.type(screen.getByLabelText('Phone number'), '415555267');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByText('Enter a valid phone number.')).toBeInTheDocument();
+  });
+
+  it('offers international suggestions that fill region and city', async () => {
+    const user = userEvent.setup();
+    renderForm({
+      '/locations/suggest': {
+        data: [
+          {
+            label: 'Los Angeles, California, United States',
+            region: 'California',
+            city: 'Los Angeles',
+          },
+        ],
+        meta: {},
+      },
+    });
+    const continueButton = await screen.findByRole('button', { name: 'Continue' });
+
+    await user.type(screen.getByLabelText('First name'), 'John');
+    await user.type(screen.getByLabelText('Last name'), 'Doe');
+    await user.click(screen.getByLabelText(/I don't have a middle initial/));
+    await user.type(screen.getByLabelText('Phone number'), '+14155552671');
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: '1990-06-06' } });
+    await user.selectOptions(screen.getByLabelText('Gender'), 'Male');
+    await user.type(screen.getByLabelText('City'), 'Los');
+
+    // Debounced provider suggestions render as choices; picking one fills
+    // both text fields and dismisses the list.
+    const option = await screen.findByRole('button', {
+      name: 'Los Angeles, California, United States',
+    });
+    await user.click(option);
+    expect(screen.getByLabelText('Region / state')).toHaveValue('California');
+    expect(screen.getByLabelText('City')).toHaveValue('Los Angeles');
+    expect(
+      screen.queryByRole('button', { name: 'Los Angeles, California, United States' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(continueButton);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Qualification' })).toBeInTheDocument(),
+    );
+  });
+
+  it('keeps free text submittable when suggestions are unavailable', async () => {
+    const user = userEvent.setup();
+    renderForm({
+      '/locations/suggest': {
+        body: { error: { code: 'INTERNAL', message: 'boom' } },
+        status: 500,
+      },
+    });
+    const continueButton = await screen.findByRole('button', { name: 'Continue' });
+
+    await user.type(screen.getByLabelText('First name'), 'John');
+    await user.type(screen.getByLabelText('Last name'), 'Doe');
+    await user.click(screen.getByLabelText(/I don't have a middle initial/));
+    await user.type(screen.getByLabelText('Phone number'), '+14155552671');
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: '1990-06-06' } });
+    await user.selectOptions(screen.getByLabelText('Gender'), 'Male');
+    await user.type(screen.getByLabelText('Region / state'), 'California');
+    await user.type(screen.getByLabelText('City'), 'Los Angeles');
+    await user.click(continueButton);
+    // Provider outage degrades silently - the typed values still advance.
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Qualification' })).toBeInTheDocument(),
+    );
   });
 });

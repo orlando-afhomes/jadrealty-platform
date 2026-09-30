@@ -373,24 +373,37 @@ export const PROPERTIES = {
  * touching the components.
  * ------------------------------------------------------------------------- */
 
-export function getCategoryBySlug(slug: string): PropertyCategory | undefined {
-  return PROPERTY_CATEGORIES.find((category) => category.slug === slug);
+export function getCategoryBySlug(
+  slug: string,
+  categories: PropertyCategory[] = PROPERTY_CATEGORIES,
+): PropertyCategory | undefined {
+  return categories.find((category) => category.slug === slug);
 }
 
-export function getPropertyById(id: string): Property | undefined {
-  return PROPERTY_RECORDS.find((property) => property.id === id);
+export function getPropertyById(
+  id: string,
+  records: Property[] = PROPERTY_RECORDS,
+): Property | undefined {
+  return records.find((property) => property.id === id);
 }
 
 /** Properties belonging to a category (empty array when the category is unknown). */
-export function getPropertiesByCategory(categoryId: string): Property[] {
-  return PROPERTY_RECORDS.filter((property) => property.categoryId === categoryId);
+export function getPropertiesByCategory(
+  categoryId: string,
+  records: Property[] = PROPERTY_RECORDS,
+): Property[] {
+  return records.filter((property) => property.categoryId === categoryId);
 }
 
 /** One property per category, for featured sections. */
-export function getFeaturedProperties(limit = PROPERTY_CATEGORIES.length): Property[] {
-  const featured = PROPERTY_CATEGORIES.map(
-    (category) => getPropertiesByCategory(category.slug)[0],
-  ).filter((property): property is Property => property !== undefined);
+export function getFeaturedProperties(
+  limit = PROPERTY_CATEGORIES.length,
+  records: Property[] = PROPERTY_RECORDS,
+  categories: PropertyCategory[] = PROPERTY_CATEGORIES,
+): Property[] {
+  const featured = categories
+    .map((category) => getPropertiesByCategory(category.slug, records)[0])
+    .filter((property): property is Property => property !== undefined);
   return featured.slice(0, limit);
 }
 
@@ -398,11 +411,15 @@ export function getFeaturedProperties(limit = PROPERTY_CATEGORIES.length): Prope
  * Related properties for a detail page: peers in the same category first, then
  * other categories to reach `limit`. Never includes the current property.
  */
-export function getRelatedProperties(property: Property, limit = 3): Property[] {
-  const peers = getPropertiesByCategory(property.categoryId).filter(
+export function getRelatedProperties(
+  property: Property,
+  limit = 3,
+  records: Property[] = PROPERTY_RECORDS,
+): Property[] {
+  const peers = getPropertiesByCategory(property.categoryId, records).filter(
     (candidate) => candidate.id !== property.id,
   );
-  const others = PROPERTY_RECORDS.filter(
+  const others = records.filter(
     (candidate) => candidate.categoryId !== property.categoryId && candidate.id !== property.id,
   );
   return [...peers, ...others].slice(0, limit);

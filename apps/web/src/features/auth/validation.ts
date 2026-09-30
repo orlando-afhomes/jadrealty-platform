@@ -8,8 +8,10 @@
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/** Loose phone check: +/digits with common separators, ≥ 7 characters. */
-const PHONE_RE = /^\+?[\d\s().-]{7,}$/;
+/** RFC 5321 mailbox ceiling - overlong input is rejected, never submitted. */
+export const MAX_EMAIL_LENGTH = 254;
+/** bcrypt truncation boundary (mirrors staffPasswordSchema max) - login caps input here. */
+export const MAX_PASSWORD_LENGTH = 72;
 export type LoginField = 'identifier' | 'password';
 
 export interface LoginValues {
@@ -22,26 +24,23 @@ export type LoginErrors = Partial<Record<LoginField, string>>;
 export const LOGIN_FIELD_ORDER: LoginField[] = ['identifier', 'password'];
 
 function isValidEmail(value: string): boolean {
-  return EMAIL_RE.test(value.trim());
+  const trimmed = value.trim();
+  return trimmed.length <= MAX_EMAIL_LENGTH && EMAIL_RE.test(trimmed);
 }
 
-function isValidPhone(value: string): boolean {
-  return PHONE_RE.test(value.trim());
-}
-
-/** A single identifier accepting either an email address or a phone number. */
+/**
+ * Email-only identifier (phone login never worked - GoTrue email auth is the
+ * sole mechanism, so a phone-shaped value can only fail server-side with a
+ * confusing error). Submitted value is trimmed by the caller.
+ */
 export function validateLogin(values: LoginValues): LoginErrors {
   const errors: LoginErrors = {};
 
   const identifier = values.identifier.trim();
   if (!identifier) {
-    errors.identifier = 'Enter your email address or phone number.';
-  } else if (identifier.includes('@')) {
-    if (!isValidEmail(identifier)) {
-      errors.identifier = 'Enter a valid email address or phone number.';
-    }
-  } else if (!isValidPhone(identifier)) {
-    errors.identifier = 'Enter a valid email address or phone number.';
+    errors.identifier = 'Enter your email address.';
+  } else if (!isValidEmail(identifier)) {
+    errors.identifier = 'Enter a valid email address.';
   }
 
   if (!values.password) {

@@ -2,6 +2,7 @@ import { barangayRefSchema, barangaysQuerySchema } from '@jad/contracts';
 
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
+import { enforceRateLimit } from '../../_lib/rate-limit.js';
 import { methodNotAllowed, okList, requireService } from '../../_lib/rest.js';
 
 /**
@@ -18,6 +19,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (req.method !== 'GET') {
     methodNotAllowed(res, req.method);
+    return;
+  }
+  // Per-IP flood brake (API-SPEC 5.2): cheap DB reads, but public and
+  // dropdown-driven - a generous budget that only bites floods.
+  if (
+    !enforceRateLimit(req, res, {
+      scope: 'locations/barangays',
+      max: process.env.LOCATIONS_RATE_LIMIT ? Number(process.env.LOCATIONS_RATE_LIMIT) : 120,
+    })
+  ) {
     return;
   }
   const query = barangaysQuerySchema.safeParse({

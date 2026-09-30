@@ -7,14 +7,15 @@ import type { HomepageContent } from '@jad/contracts';
 
 import { CTASection } from '../components/CTASection';
 import { Hero } from '../components/Hero';
-import { getHomepageCms } from '@/lib/cms';
+import { getHomepageCms, getPropertiesCmsPublic } from '@/lib/cms';
 import { PropertyCard } from '../components/PropertyCard';
 import { PropertyCategoryCard } from '../components/PropertyCategoryCard';
 import {
   HOME,
-  PROPERTY_CATEGORIES,
-  getFeaturedProperties,
   getPropertiesByCategory,
+  resolveFeaturedProperties,
+  resolveListingCategories,
+  resolveListingRecords,
   photoUrl,
 } from '../content';
 import styles from './HomePage.module.css';
@@ -100,7 +101,14 @@ export function HomePage() {
     refetchOnMount: 'always',
   });
   const content = (cms as HomepageContent | undefined) ?? (HOME as unknown as HomepageContent);
-  const featured = getFeaturedProperties(3);
+  const { data: listingsCms } = useQuery({
+    queryKey: ['cms', 'properties'],
+    queryFn: getPropertiesCmsPublic,
+    staleTime: 0,
+  });
+  const categories = resolveListingCategories(listingsCms);
+  const records = resolveListingRecords(listingsCms);
+  const featured = resolveFeaturedProperties(listingsCms, records, categories, 3);
 
   return (
     <>
@@ -141,11 +149,11 @@ export function HomePage() {
             lead={content.categories.lead}
           />
           <div className={styles.categoryGrid}>
-            {PROPERTY_CATEGORIES.map((category) => (
+            {categories.map((category) => (
               <PropertyCategoryCard
                 key={category.slug}
                 category={category}
-                count={getPropertiesByCategory(category.slug).length}
+                count={getPropertiesByCategory(category.slug, records).length}
               />
             ))}
           </div>
@@ -163,7 +171,7 @@ export function HomePage() {
           </div>
           <div className={styles.propertyGrid}>
             {featured.map((property) => (
-              <PropertyCard key={property.id} property={property} />
+              <PropertyCard key={property.id} property={property} categories={categories} />
             ))}
           </div>
           <div className={styles.featuredFooter}>

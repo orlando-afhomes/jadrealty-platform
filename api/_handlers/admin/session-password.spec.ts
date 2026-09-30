@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
+import { resetRateLimits } from '../../_lib/rate-limit.js';
 
 import passwordHandler from './session/password.js';
 
@@ -97,6 +98,7 @@ const GOOD_BODY = { currentPassword: 'old-pass-1', newPassword: 'NewPass12' };
 
 describe('POST /admin/session/password', () => {
   beforeEach(() => {
+    resetRateLimits();
     vi.stubEnv('SUPABASE_URL', 'https://fix.test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
@@ -162,5 +164,20 @@ describe('POST /admin/session/password', () => {
     );
     expect(seen.status).toBe(400);
     expect(mocks.calls.some((c) => c.op === 'updateUserById')).toBe(false);
+  });
+
+  it('429s once the per-IP attempt budget is exceeded', async () => {
+    vi.stubEnv('SESSION_PASSWORD_RATE_LIMIT', '2');
+    const attempt = () => {
+      const { res, seen } = capture();
+      return passwordHandler(
+        { method: 'POST', query: {}, headers: authed, body: GOOD_BODY } as VercelRequest,
+        res,
+      ).then(() => seen.status);
+    };
+    expect(await attempt()).toBe(200);
+    expect(await attempt()).toBe(200);
+    expect(await attempt()).toBe(429);
+    expect(mocks.calls.filter((c) => c.op === 'signInWithPassword')).toHaveLength(2);
   });
 });

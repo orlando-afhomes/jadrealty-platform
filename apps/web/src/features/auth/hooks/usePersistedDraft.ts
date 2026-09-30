@@ -37,6 +37,20 @@ function isDraftEmpty(draft: RegistrationDraft): boolean {
 }
 
 /**
+ * Credentials must never touch storage: sessionStorage is readable by any
+ * script on the origin (XSS, extensions), so a persisted password outlives
+ * the tab's memory and becomes stealable at rest. The account step is
+ * re-entered after restore (validation blocks submit until it is).
+ */
+function stripCredentials(draft: RegistrationDraft): Omit<RegistrationDraft, 'password' | 'confirmPassword'> {
+  // Rest siblings are exempt from unused-var checks; the secrets never serialize.
+  const { password, confirmPassword, ...persistable } = draft;
+  void password;
+  void confirmPassword;
+  return persistable;
+}
+
+/**
  * Shape guard for restored drafts: sessionStorage is attacker-influenced
  * (XSS/extensions can tamper with it), so only known string/boolean fields
  * survive - unknown keys and wrong types are dropped before state. Values
@@ -69,6 +83,8 @@ const STRING_FIELDS = [
 function sanitizeRestoredDraft(parsed: Record<string, unknown>): Partial<RegistrationDraft> {
   const clean: Record<string, unknown> = {};
   for (const field of STRING_FIELDS) {
+    // Credentials are never restored from storage, even if present (tampered).
+    if (field === 'password' || field === 'confirmPassword') continue;
     if (typeof parsed[field] === 'string') clean[field] = parsed[field];
   }
   if (typeof parsed.noMiddleInitial === 'boolean') clean.noMiddleInitial = parsed.noMiddleInitial;
@@ -104,7 +120,7 @@ function savePersistedDraft(draft: RegistrationDraft): void {
       sessionStorage.removeItem(STORAGE_KEY);
       return;
     }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stripCredentials(draft)));
   } catch {
     // storage may be unavailable (e.g., private mode) - ignore
   }

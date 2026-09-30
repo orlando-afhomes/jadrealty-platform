@@ -609,6 +609,42 @@
   }
 }
 
+/* International location suggestions (non-PH region/city) - static list
+ * below the fields; choosing fills both boxes, free text stays valid. */
+.suggestList {
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  background-color: var(--color-bg-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.suggestOption {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--text-body-s);
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestOption:hover {
+  background-color: var(--color-accent-soft);
+}
+
+.suggestOption:focus-visible {
+  outline: 2px solid var(--color-state-focus);
+  outline-offset: -2px;
+}
+
 /* Step navigation */
 .nav {
   display: flex;
@@ -679,4 +715,11 @@
   margin: 0;
   font-size: var(--text-body-s);
   color: var(--color-text-muted);
+}
+
+.loginPrompt {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-body-s);
+  color: var(--color-text-muted);
+  text-align: center;
 }

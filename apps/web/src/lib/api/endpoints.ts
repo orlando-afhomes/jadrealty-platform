@@ -2,6 +2,7 @@ import {
   barangayRefSchema,
   cityRefSchema,
   contactSubmissionResponseSchema,
+  locationSuggestionSchema,
   policySchema,
   programSchema,
   provinceRefSchema,
@@ -12,6 +13,7 @@ import type {
   CityRef,
   ContactSubmissionRequest,
   ContactSubmissionResponse,
+  LocationSuggestion,
   Policy,
   Program,
   ProvinceRef,
@@ -58,6 +60,18 @@ export function getBarangays(cityCode: string): Promise<BarangayRef[]> {
   return requestList(
     `/locations/barangays?cityCode=${encodeURIComponent(cityCode)}`,
     barangayRefSchema,
+  );
+}
+
+/**
+ * International location suggestions (PUBLIC, non-PH only). Assistive:
+ * failures resolve to an empty list via the query's `retry: false` so the
+ * region/city text fields always stay submittable as free text.
+ */
+export function getSuggestions(countryCode: string, q: string): Promise<LocationSuggestion[]> {
+  return requestList(
+    `/locations/suggest?countryCode=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(q)}`,
+    locationSuggestionSchema,
   );
 }
 

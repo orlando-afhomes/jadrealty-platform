@@ -79,7 +79,10 @@ type Row = Record<string, unknown> | null;
  * fail-closed - never as a pass).
  */
 export function locationLookupsFor(client: ServiceClient): LocationLookups {
-  const from = client.from as unknown as (table: string) => LookupChain;
+  // Bound: SupabaseClient.from reads `this.rest`, so a detached reference
+  // throws `TypeError: Cannot read properties of undefined (reading 'rest')`
+  // (live incident: every PH registration 500d). Same pattern as auth.ts.
+  const from = client.from.bind(client) as unknown as (table: string) => LookupChain;
   const single = async (
     table: string,
     columns: string,

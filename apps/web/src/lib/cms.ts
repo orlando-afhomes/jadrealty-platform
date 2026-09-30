@@ -26,6 +26,7 @@ import type {
   RegisterContent,
 } from '@jad/contracts';
 import { request } from './api/client';
+import { ApiNetworkError, ApiParseError } from './api/errors';
 
 // Public CMS fetchers with static fallback per Q6.
 // If API is unavailable or returns 404, the static site content is used so marketing pages never blank.
@@ -151,7 +152,21 @@ export async function getLoginCmsPublic(): Promise<LoginContent> {
 export async function getRegisterCmsPublic(): Promise<RegisterContent> {
   try {
     return await request('/cms/register', registerContentSchema);
-  } catch {
+  } catch (error) {
+    // Visible fallback cause (dev only): a stored row that drifts from the
+    // schema silently pins the public form to static copy while the admin
+    // panel looks saved. Distinguish transport failure from shape mismatch.
+    if (import.meta.env.DEV) {
+      const cause =
+        error instanceof ApiParseError
+          ? 'schema mismatch - stored /cms/register content failed validation'
+          : error instanceof ApiNetworkError
+            ? 'network failure'
+            : error instanceof Error
+              ? error.message
+              : 'unknown error';
+      console.warn(`[cms] /cms/register falling back to static copy (${cause}).`);
+    }
     // Fallback - shape matches MOCK_REGISTER_SEED minimal; keeps public functional without API
     return {
       image: AUTH.images.register,

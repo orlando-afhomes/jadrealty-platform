@@ -440,7 +440,7 @@ describe('RegisterPage', () => {
     // Step 3 - government ID (metadata only).
     expect(await screen.findByRole('heading', { name: 'Government ID' })).toBeInTheDocument();
     const idFile = new File(['id-copy'], 'id-copy.pdf', { type: 'application/pdf' });
-    fireEvent.change(screen.getByLabelText('Government ID copy'), {
+    fireEvent.change(screen.getByLabelText('Government ID'), {
       target: { files: [idFile] },
     });
     // File bytes load async via FileReader - wait before continuing.

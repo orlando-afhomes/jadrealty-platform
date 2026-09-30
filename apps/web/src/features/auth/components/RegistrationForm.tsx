@@ -4,7 +4,8 @@ import type { ChangeEvent, CSSProperties, FormEvent, ReactNode } from 'react';
 import { useBlocker } from 'react-router';
 import { Link } from 'react-router';
 
-import type { IdDocument, RegisterRequest } from '@jad/contracts';
+import type { IdDocument, LocationSuggestion, RegisterRequest } from '@jad/contracts';
+import type { RegisterContent } from '@jad/contracts';
 import { capitalizePersonName, sanitizeMiddleInitial, sanitizePersonName } from '@jad/contracts';
 import { Skeleton } from '@jad/ui';
 
@@ -17,6 +18,7 @@ import { usePolicyLinks } from '../../../hooks/usePolicyLinks';
 import { getQualificationQuestions } from '../services/auth';
 import { usePersistedDraft, clearPersistedDraft } from '../hooks/usePersistedDraft';
 import { useLocationVerification } from '../hooks/useLocationVerification';
+import { useLocationSuggest } from '../hooks/useLocationSuggest';
 import { useBarangays, useCities, useProvinces } from '../hooks/useLocationOptions';
 import {
   MAX_FILE_BYTES,
@@ -39,6 +41,7 @@ import {
   validateReferralCode,
 } from '../registrationValidation';
 import type { RegistrationDraft } from '../registrationValidation';
+import { MAX_PASSWORD_LENGTH } from '../validation';
 import { DateField } from './DateField';
 import { PasswordField } from './PasswordField';
 import { PhoneField } from './PhoneField';
@@ -56,24 +59,61 @@ export interface RegistrationFormProps {
   mode?: RegistrationMode;
   /** Prefill (member resubmit) - profile + referral code from the member record. */
   initialDraft?: Partial<RegistrationDraft>;
+  /**
+   * CMS-managed copy (`GET /cms/register` sections). Every label/title falls
+   * back to the built-in strings below, so the form renders identically with
+   * or without CMS data (Q6). Previously these strings were hard-coded and
+   * admin CMS edits never reached the public site.
+   */
+  copy?: Partial<
+    Pick<RegisterContent, 'stepTitles' | 'fields' | 'qualification' | 'submitLabel' | 'loginPrompt'>
+  >;
 }
 
-const STEPS_CREATE: { title: string }[] = [
-  { title: 'Program & profile' },
-  { title: 'Qualification' },
-  { title: 'Referral code' },
-  { title: 'Government ID' },
-  { title: 'Account' },
-  { title: 'Review' },
-];
+type FormFieldCopy = { label: string; hint?: string };
 
-const STEPS_RESUBMIT: { title: string }[] = [
-  { title: 'Program & profile' },
-  { title: 'Qualification' },
-  { title: 'Referral code' },
-  { title: 'Government ID' },
-  { title: 'Review' },
-];
+/** Built-in copy - matches the pre-CMS hard-coded strings field-for-field. */
+const DEFAULT_STEP_TITLES = {
+  programProfile: 'Program & profile',
+  qualification: 'Qualification',
+  referral: 'Referral code',
+  governmentId: 'Government ID',
+  account: 'Account',
+};
+
+const DEFAULT_FIELD_COPY: Record<keyof RegisterContent['fields'], FormFieldCopy> = {
+  programId: { label: 'Program' },
+  firstName: { label: 'First name' },
+  middleInitial: { label: 'Middle initial', hint: 'One letter, or select N/A below.' },
+  lastName: { label: 'Last name' },
+  nameSuffix: { label: 'Name suffix', hint: 'Optional' },
+  dateOfBirth: { label: 'Date of birth' },
+  gender: { label: 'Gender' },
+  countryCode: { label: 'Country' },
+  address: { label: 'Address' },
+  phone: { label: 'Phone number' },
+  email: { label: 'Email address' },
+  password: { label: 'Password', hint: 'At least 8 characters.' },
+  confirmPassword: { label: 'Confirm password' },
+  referralCode: {
+    label: 'Sponsor / referral code',
+    hint: 'Optional - leave blank if you were not referred by a member. The code is validated against active members.',
+  },
+  idDocument: { label: 'Government ID copy' },
+  consent: { label: 'I agree to the JA&D member terms and privacy policy.' },
+};
+
+const DEFAULT_SUBMIT_LABEL = 'Create My Account';
+const DEFAULT_LOGIN_PROMPT = { text: 'Already have a JA&D account?', linkLabel: 'Sign in' };
+
+const REVIEW_STEP_TITLE = 'Review';
+
+function resolveFieldCopy(
+  input: { label?: string; hint?: string } | undefined,
+  fallback: FormFieldCopy,
+): FormFieldCopy {
+  return { label: input?.label ?? fallback.label, hint: input?.hint ?? fallback.hint };
+}
 
 const NAME_SUFFIX_OPTIONS: { value: string; label: string }[] = [
   { value: 'Jr.', label: 'Jr.' },
@@ -154,7 +194,12 @@ function ConsentLinks() {
   );
 }
 
-export function RegistrationForm({ submit, mode = 'create', initialDraft }: RegistrationFormProps) {
+export function RegistrationForm({
+  submit,
+  mode = 'create',
+  initialDraft,
+  copy,
+}: RegistrationFormProps) {
   const [step, setStep] = useState(0);
   const [draft, setDraft, clearDraft, isDirty] = usePersistedDraft(mode, initialDraft);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -199,7 +244,45 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
     enabled: draft.programId.length > 0,
   });
 
-  const steps = mode === 'resubmit' ? STEPS_RESUBMIT : STEPS_CREATE;
+  const stepTitles = { ...DEFAULT_STEP_TITLES, ...copy?.stepTitles };
+  const fieldCopy = (
+    Object.keys(DEFAULT_FIELD_COPY) as (keyof typeof DEFAULT_FIELD_COPY)[]
+  ).reduce(
+    (acc, key) => {
+      acc[key] = resolveFieldCopy(copy?.fields?.[key], DEFAULT_FIELD_COPY[key]);
+      return acc;
+    },
+    {} as Record<keyof typeof DEFAULT_FIELD_COPY, FormFieldCopy>,
+  );
+  const submitLabel = copy?.submitLabel ?? DEFAULT_SUBMIT_LABEL;
+  const loginPrompt = { ...DEFAULT_LOGIN_PROMPT, ...copy?.loginPrompt };
+  // CMS qualification text overrides the API question text by question id
+  // (ids are shared: qual-dom-1 etc.). Answers stay keyed by the API
+  // question id, so an unmatched CMS entry can never break submission.
+  const cmsQuestionText = new Map<string, string>();
+  for (const q of [...(copy?.qualification?.domestic ?? []), ...(copy?.qualification?.abroad ?? [])]) {
+    cmsQuestionText.set(q.id, q.question);
+  }
+  const displayQuestionText = (id: string, fallback: string): string =>
+    cmsQuestionText.get(id) ?? fallback;
+
+  const steps =
+    mode === 'resubmit'
+      ? [
+          { title: stepTitles.programProfile },
+          { title: stepTitles.qualification },
+          { title: stepTitles.referral },
+          { title: stepTitles.governmentId },
+          { title: REVIEW_STEP_TITLE },
+        ]
+      : [
+          { title: stepTitles.programProfile },
+          { title: stepTitles.qualification },
+          { title: stepTitles.referral },
+          { title: stepTitles.governmentId },
+          { title: stepTitles.account },
+          { title: REVIEW_STEP_TITLE },
+        ];
   const minAge = config.data?.minimumAge ?? 18;
   const genders = config.data?.genders ?? [];
   const countries = config.data?.countries ?? [];
@@ -216,7 +299,16 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
   const provincesQuery = useProvinces(draft.countryCode);
   const citiesQuery = useCities(draft.provinceCode);
   const barangaysQuery = useBarangays(draft.cityCode);
-  const provinceOptions = (provincesQuery.data ?? []).map((province) => ({
+  // International suggestions (non-PH only, driven by the city text).
+  // Assistive: the region/city fields always stay submittable as free text.
+  // The list hides once a suggestion is chosen and reappears when the city
+  // text moves on.
+  const suggestQuery = useLocationSuggest(draft.countryCode, draft.city);
+  const [chosenSuggestCity, setChosenSuggestCity] = useState('');
+  const suggestions =
+    chosenSuggestCity !== '' && chosenSuggestCity === draft.city.trim()
+      ? []
+      : (suggestQuery.data ?? []);  const provinceOptions = (provincesQuery.data ?? []).map((province) => ({
     value: province.code,
     label: province.name,
   }));
@@ -374,6 +466,18 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
       const next = { ...current };
       delete next['cityCode'];
       delete next['barangayCode'];
+      return next;
+    });
+  };
+
+  /** Suggestion choice fills both non-PH text fields; free text stays valid. */
+  const chooseSuggestion = (suggestion: LocationSuggestion) => {
+    setChosenSuggestCity(suggestion.city);
+    setDraft((current) => ({ ...current, region: suggestion.region, city: suggestion.city }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next['region'];
+      delete next['city'];
       return next;
     });
   };
@@ -742,7 +846,12 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 </button>
               </Alert>
             ) : null}
-            <FormField id="reg-programId" label="Program" error={errors.programId}>
+            <FormField
+              id="reg-programId"
+              label={fieldCopy.programId.label}
+              hint={fieldCopy.programId.hint}
+              error={errors.programId}
+            >
               {locationVerification.status === 'detecting' ||
               locationVerification.status === 'verifying' ? (
                 <Skeleton style={{ height: 48 }} />
@@ -765,10 +874,11 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 Personal
               </h2>
               <div className={styles.gridTwo}>
-                <TextField
-                  id="reg-firstName"
+              <TextField
+                id="reg-firstName"
                 name="firstName"
-                label="First name"
+                label={fieldCopy.firstName.label}
+                hint={fieldCopy.firstName.hint}
                 value={draft.firstName}
                 onChange={(value) => updatePersonName('firstName', value)}
                 error={errors.firstName}
@@ -778,7 +888,8 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
               <TextField
                 id="reg-lastName"
                 name="lastName"
-                label="Last name"
+                label={fieldCopy.lastName.label}
+                hint={fieldCopy.lastName.hint}
                 value={draft.lastName}
                 onChange={(value) => updatePersonName('lastName', value)}
                 error={errors.lastName}
@@ -790,9 +901,9 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
               <TextField
                 id="reg-middleInitial"
                 name="middleInitial"
-                label="Middle initial"
+                label={fieldCopy.middleInitial.label}
                 optional
-                  hint="One letter, or select N/A below."
+                  hint={fieldCopy.middleInitial.hint}
                   value={draft.middleInitial}
                   onChange={updateMiddleInitial}
                   error={errors.middleInitial}
@@ -815,13 +926,13 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
             <SelectField
               id="reg-nameSuffix"
               name="nameSuffix"
-              label="Name suffix"
+              label={fieldCopy.nameSuffix.label}
               optional
               value={draft.nameSuffix}
               onChange={(value) => update('nameSuffix', value)}
               options={NAME_SUFFIX_OPTIONS}
               error={errors.nameSuffix}
-              hint="Optional"
+              hint={fieldCopy.nameSuffix.hint}
             />
             <PhoneField
               dial={draft.phoneDial || verifiedDial || ''}
@@ -830,12 +941,14 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
               error={errors.phone}
               onDialChange={updatePhoneDial}
               onNationalChange={updatePhoneNational}
+              label={fieldCopy.phone.label}
             />
             <div className={styles.gridTwo}>
               <DateField
                 id="reg-dateOfBirth"
                 name="dateOfBirth"
-                label="Date of birth"
+                label={fieldCopy.dateOfBirth.label}
+                hint={fieldCopy.dateOfBirth.hint}
                 value={draft.dateOfBirth}
                 onChange={updateDateOfBirth}
                 error={errors.dateOfBirth}
@@ -844,14 +957,20 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
               <SelectField
                 id="reg-gender"
                 name="gender"
-                label="Gender"
+                label={fieldCopy.gender.label}
+                hint={fieldCopy.gender.hint}
                 value={draft.gender}
                 onChange={(value) => update('gender', value)}
                 options={genders.map((gender) => ({ value: gender, label: gender }))}
                 error={errors.gender}
               />
             </div>
-            <FormField id="reg-countryCode" label="Country" error={errors.countryCode}>
+            <FormField
+              id="reg-countryCode"
+              label={fieldCopy.countryCode.label}
+              hint={fieldCopy.countryCode.hint}
+              error={errors.countryCode}
+            >
               {locationVerification.status === 'detecting' ||
               locationVerification.status === 'verifying' ? (
                 <Skeleton style={{ height: 48 }} />
@@ -1007,28 +1126,45 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 ) : null}
               </>
             ) : draft.countryCode ? (
-              <div className={styles.gridTwo}>
-                <TextField
-                  id="reg-region"
-                  name="region"
-                  label="Region / state"
-                  value={draft.region}
-                  onChange={(value) => update('region', value)}
-                  error={errors.region}
-                  autoComplete="address-level1"
-                  inputRef={undefined}
-                />
-                <TextField
-                  id="reg-city"
-                  name="city"
-                  label="City"
-                  value={draft.city}
-                  onChange={(value) => update('city', value)}
-                  error={errors.city}
-                  autoComplete="address-level2"
-                  inputRef={undefined}
-                />
-              </div>
+              <>
+                <div className={styles.gridTwo}>
+                  <TextField
+                    id="reg-region"
+                    name="region"
+                    label="Region / state"
+                    value={draft.region}
+                    onChange={(value) => update('region', value)}
+                    error={errors.region}
+                    autoComplete="address-level1"
+                    inputRef={undefined}
+                  />
+                  <TextField
+                    id="reg-city"
+                    name="city"
+                    label="City"
+                    value={draft.city}
+                    onChange={(value) => update('city', value)}
+                    error={errors.city}
+                    autoComplete="address-level2"
+                    inputRef={undefined}
+                  />
+                </div>
+                {suggestions.length > 0 ? (
+                  <ul className={styles.suggestList} aria-label="Location suggestions">
+                    {suggestions.map((suggestion) => (
+                      <li key={`${suggestion.region}|${suggestion.city}`}>
+                        <button
+                          type="button"
+                          className={styles.suggestOption}
+                          onClick={() => chooseSuggestion(suggestion)}
+                        >
+                          {suggestion.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
             ) : null}
             </section>
           </>
@@ -1059,7 +1195,7 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                 {questions.map((question, index) => (
                   <div key={question.id}>
                     <label className={styles.questionLabel} htmlFor={`reg-answer-${question.id}`}>
-                      {index + 1}. {question.questionText}
+                      {index + 1}. {displayQuestionText(question.id, question.questionText)}
                     </label>
                     <select
                       id={`reg-answer-${question.id}`}
@@ -1095,9 +1231,9 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
             <TextField
               id="reg-referralCode"
               name="referralCode"
-              label="Sponsor / referral code"
+              label={fieldCopy.referralCode.label}
               optional
-              hint="Optional - leave blank if you were not referred by a member. The code is validated against active members."
+              hint={fieldCopy.referralCode.hint}
               value={draft.referralCode}
               onChange={(value) => update('referralCode', value)}
               error={errors.referralCode}
@@ -1119,8 +1255,11 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
             </p>
             <Control
               id="reg-idDocument"
-              label="Government ID copy"
-              hint={`JPG, PNG, WebP or PDF - max ${(MAX_FILE_BYTES / 1024 / 1024).toFixed(0)} MB`}
+              label={fieldCopy.idDocument.label}
+              hint={
+                fieldCopy.idDocument.hint ??
+                `JPG, PNG, WebP or PDF - max ${(MAX_FILE_BYTES / 1024 / 1024).toFixed(0)} MB`
+              }
               error={errors.idDocument}
             >
               <div
@@ -1233,7 +1372,8 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
               id="reg-email"
               name="email"
               type="email"
-              label="Email address"
+              label={fieldCopy.email.label}
+              hint={fieldCopy.email.hint}
               value={draft.email}
               onChange={(value) => update('email', value)}
               error={errors.email}
@@ -1243,16 +1383,18 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
             />
             <PasswordField
               id="reg-password"
-              label="Password"
-              hint="At least 8 characters."
+              label={fieldCopy.password.label}
+              hint={fieldCopy.password.hint}
               value={draft.password}
               onChange={(value) => update('password', value)}
               autoComplete="new-password"
               error={errors.password}
+              maxLength={MAX_PASSWORD_LENGTH}
             />
             <PasswordField
               id="reg-confirmPassword"
-              label="Confirm password"
+              label={fieldCopy.confirmPassword.label}
+              hint={fieldCopy.confirmPassword.hint}
               value={draft.confirmPassword}
               onChange={(value) => update('confirmPassword', value)}
               autoComplete="new-password"
@@ -1363,7 +1505,7 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
                   <dl className={styles.reviewList}>
                     {questions.map((q) => (
                       <div key={q.id} className={styles.reviewRow}>
-                        <dt>{q.questionText}</dt>
+                        <dt>{displayQuestionText(q.id, q.questionText)}</dt>
                         <dd>{draft.answers[q.id]?.trim() || '-'}</dd>
                       </div>
                     ))}
@@ -1476,10 +1618,13 @@ export function RegistrationForm({ submit, mode = 'create', initialDraft }: Regi
             : step === lastStep
               ? mode === 'resubmit'
                 ? 'Resubmit Application'
-                : 'Create My Account'
+                : submitLabel
               : 'Continue'}
         </Button>
       </div>
+      <p className={styles.loginPrompt}>
+        {loginPrompt.text} <Link to="/login">{loginPrompt.linkLabel}</Link>
+      </p>
     </form>
   );
 }

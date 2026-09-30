@@ -42,6 +42,17 @@ export function RegisterPage() {
       wide
     >
       <RegistrationForm
+        copy={
+          cmsRegister
+            ? {
+                stepTitles: cmsRegister.stepTitles,
+                fields: cmsRegister.fields,
+                qualification: cmsRegister.qualification,
+                submitLabel: cmsRegister.submitLabel,
+                loginPrompt: cmsRegister.loginPrompt,
+              }
+            : undefined
+        }
         submit={async (payload) => {
           const response = await registerApplication(payload as RegisterRequest);
           const emailValue = response.application.email;

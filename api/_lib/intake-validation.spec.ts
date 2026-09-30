@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPhoneRule, resolveIntakeAddress, validateIntakePhone } from './intake-validation.js';
+import {
+  buildPhoneRule,
+  locationLookupsFor,
+  resolveIntakeAddress,
+  validateIntakePhone,
+} from './intake-validation.js';
 
 /**
  * Shared registration-intake guards (register + resubmit): country-rule
@@ -178,6 +183,68 @@ describe('resolveIntakeAddress', () => {
         barangay_code: null,
         barangay_name: null,
         region_name: 'California',
+      },
+    });
+  });
+});
+
+describe('locationLookupsFor', () => {
+  /**
+   * Fake client whose `from` requires its receiver - like the real
+   * SupabaseClient.from, which reads `this.rest`. A detached call throws
+   * `TypeError: Cannot read properties of undefined (reading 'rest')`
+   * (live incident: every PH registration 500d).
+   */
+  class ReceiverClient {
+    rest: unknown = {};
+    private rows: Record<string, Record<string, unknown>[]>;
+
+    constructor(rows: Record<string, Record<string, unknown>[]>) {
+      this.rows = rows;
+    }
+
+    from(table: string) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- receiver check is the point
+      this.rest;
+      const tableRows = this.rows[table] ?? [];
+      const chain: Record<string, (...args: never[]) => unknown> = {};
+      chain.select = () => chain;
+      chain.eq = () => chain;
+      chain.is = () => chain;
+      chain.maybeSingle = async () => ({ data: tableRows[0] ?? null, error: null });
+      return chain;
+    }
+  }
+
+  const client = () =>
+    new ReceiverClient({
+      countries: [{ ...PH_ROW }],
+      ph_provinces: [{ code: '0128', name: 'Ilocos Norte' }],
+      ph_cities: [{ code: '012801', name: 'Laoag City', province_code: '0128' }],
+      ph_barangays: [{ code: '012801001', name: 'Brgy 1', city_code: '012801' }],
+    }) as never;
+
+  it('resolves lookups through a receiver-dependent client', async () => {
+    const lookups = locationLookupsFor(client());
+    const country = await lookups.country('PH');
+    expect(country).toMatchObject({ code: 'PH' });
+    const result = await resolveIntakeAddress(lookups, 'PH', {
+      provinceCode: '0128',
+      cityCode: '012801',
+      barangayCode: '012801001',
+      street: '123 Main St',
+    });
+    expect(result).toEqual({
+      ok: true as const,
+      columns: {
+        address: '123 Main St',
+        province_code: '0128',
+        province_name: 'Ilocos Norte',
+        city_code: '012801',
+        city_name: 'Laoag City',
+        barangay_code: '012801001',
+        barangay_name: 'Brgy 1',
+        region_name: null,
       },
     });
   });

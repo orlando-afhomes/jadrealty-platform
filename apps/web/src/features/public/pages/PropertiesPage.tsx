@@ -7,9 +7,10 @@ import { PropertyCard } from '../components/PropertyCard';
 import { PropertyCategoryCard } from '../components/PropertyCategoryCard';
 import {
   PROPERTIES,
-  PROPERTY_CATEGORIES,
-  getFeaturedProperties,
   getPropertiesByCategory,
+  resolveFeaturedProperties,
+  resolveListingCategories,
+  resolveListingRecords,
 } from '../content';
 import styles from './PropertiesPage.module.css';
 
@@ -45,7 +46,11 @@ export function PropertiesPage() {
     }
     return cms as unknown as typeof PROPERTIES;
   })();
-  const featured = getFeaturedProperties();
+  // Listing records come from the live CMS content when the fetch resolved;
+  // the static catalog is the silent fallback (Q6).
+  const categories = resolveListingCategories(cms);
+  const records = resolveListingRecords(cms);
+  const featured = resolveFeaturedProperties(cms, records, categories);
 
   return (
     <div className={styles.page}>
@@ -66,11 +71,11 @@ export function PropertiesPage() {
             lead={content.intro.lead}
           />
           <div className={styles.categoryGrid}>
-            {PROPERTY_CATEGORIES.map((category) => (
+            {categories.map((category) => (
               <PropertyCategoryCard
                 key={category.slug}
                 category={category}
-                count={getPropertiesByCategory(category.slug).length}
+                count={getPropertiesByCategory(category.slug, records).length}
               />
             ))}
           </div>
@@ -86,7 +91,7 @@ export function PropertiesPage() {
           />
           <div className={styles.propertyGrid}>
             {featured.map((property) => (
-              <PropertyCard key={property.id} property={property} />
+              <PropertyCard key={property.id} property={property} categories={categories} />
             ))}
           </div>
         </div>

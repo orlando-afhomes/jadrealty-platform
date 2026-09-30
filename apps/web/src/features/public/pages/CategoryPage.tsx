@@ -1,5 +1,7 @@
 import { useParams } from 'react-router';
 
+import { useQuery } from '@tanstack/react-query';
+import { getPropertiesCmsPublic } from '@/lib/cms';
 import { ButtonLink } from '../../../components/ButtonLink';
 import { EmptyState } from '../../../components/EmptyState';
 import { SectionHeader } from '../../../components/SectionHeader';
@@ -8,7 +10,13 @@ import { Hero } from '../components/Hero';
 import { PropertyBreadcrumbs } from '../components/PropertyBreadcrumbs';
 import { PropertyCard } from '../components/PropertyCard';
 import { NotFoundPage } from './NotFoundPage';
-import { PROPERTIES_PATH, getCategoryBySlug, getPropertiesByCategory } from '../content';
+import {
+  PROPERTIES_PATH,
+  getCategoryBySlug,
+  getPropertiesByCategory,
+  resolveListingCategories,
+  resolveListingRecords,
+} from '../content';
 import styles from './CategoryPage.module.css';
 
 /**
@@ -19,13 +27,20 @@ import styles from './CategoryPage.module.css';
  */
 export function CategoryPage() {
   const { categorySlug = '' } = useParams();
-  const category = getCategoryBySlug(categorySlug);
+  const { data: cms } = useQuery({
+    queryKey: ['cms', 'properties'],
+    queryFn: getPropertiesCmsPublic,
+    staleTime: 0,
+  });
+  const categories = resolveListingCategories(cms);
+  const records = resolveListingRecords(cms);
+  const category = getCategoryBySlug(categorySlug, categories);
 
   if (!category) {
     return <NotFoundPage />;
   }
 
-  const properties = getPropertiesByCategory(category.slug);
+  const properties = getPropertiesByCategory(category.slug, records);
   const count = properties.length;
 
   return (
@@ -53,7 +68,7 @@ export function CategoryPage() {
           {count > 0 ? (
             <div className={styles.propertyGrid}>
               {properties.map((property) => (
-                <PropertyCard key={property.id} property={property} />
+                <PropertyCard key={property.id} property={property} categories={categories} />
               ))}
             </div>
           ) : (

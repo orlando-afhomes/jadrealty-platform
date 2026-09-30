@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
 import {
@@ -30,6 +30,7 @@ import { CmsFormActions } from '../components/CmsFormActions';
 import { CmsImageField } from '../components/CmsImageField';
 import { CmsSectionCard } from '../components/CmsSectionCard';
 import { useCmsAccordion } from '../hooks/useCmsAccordion';
+import { useCmsHashScroll } from '../hooks/useCmsHashScroll';
 import { usePropertiesCms, useUpdatePropertiesCms } from '../hooks/usePropertiesCms';
 // Catalog system-of-record for link-by-reference: CMS owns presentation,
 // the catalog owns identity/price/status/counts. Reads only - CMS never
@@ -87,18 +88,16 @@ export function CmsPropertiesPage() {
     }
   }, [data, draft]);
 
-  useEffect(() => {
-    if (!data || !draft) return;
-    const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
-    if (hash && SECTION_DEFS.some((s) => s.id === hash)) {
-      open(hash);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync hash to active nav state
-      setActiveId(hash);
-      setTimeout(() => {
-        document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  }, [data, draft, open]);
+  // One-shot deep-link scroll on load (see useCmsHashScroll - depending on
+  // `draft` re-fired open(hash) + scrollIntoView(hash) on every keystroke).
+  const handleDeepLink = useCallback(
+    (id: string) => {
+      open(id);
+      setActiveId(id);
+    },
+    [open],
+  );
+  useCmsHashScroll(Boolean(data && draft), SECTION_DEFS, handleDeepLink);
 
   useEffect(() => {
     if (!data || !draft) return;

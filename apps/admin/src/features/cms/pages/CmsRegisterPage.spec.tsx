@@ -177,4 +177,29 @@ describe('CmsRegisterPage - Register CMS module', () => {
     expect(await screen.findByText('Title is required')).toBeInTheDocument();
     expect(screen.getByText('Save')).toBeDisabled();
   });
+
+  it('typing in a deep-linked section does not re-scroll on every keystroke', async () => {
+    const scrollSpy = vi.fn();
+    const originalScroll = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = scrollSpy;
+    window.location.hash = '#fields';
+    try {
+      const user = userEvent.setup();
+      renderRegister();
+      const labelInput = (await screen.findByDisplayValue('First name')) as HTMLInputElement;
+      // Let the one-shot deep-link scroll settle, then isolate keystroke behavior.
+      await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+      scrollSpy.mockClear();
+
+      await user.type(labelInput, ' Given');
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      expect(scrollSpy).not.toHaveBeenCalled();
+      expect(labelInput).toHaveFocus();
+      expect(screen.getByDisplayValue('First name Given')).toBeInTheDocument();
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = originalScroll;
+      window.location.hash = '';
+    }
+  });
 });

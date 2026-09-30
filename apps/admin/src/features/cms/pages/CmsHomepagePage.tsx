@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, ConfirmDialog, ErrorState, notifySuccess, PageHeader, Skeleton } from '@jad/ui';
 import { homepageContentSchema, type HomepageContent } from '@jad/contracts';
@@ -10,6 +10,7 @@ import { CmsFormActions } from '../components/CmsFormActions';
 import { CmsImageField } from '../components/CmsImageField';
 import { CmsSectionCard } from '../components/CmsSectionCard';
 import { useCmsAccordion } from '../hooks/useCmsAccordion';
+import { useCmsHashScroll } from '../hooks/useCmsHashScroll';
 import { useHomepageCms, useUpdateHomepageCms } from '../hooks/useHomepageCms';
 import { usePropertiesCms } from '../hooks/usePropertiesCms';
 
@@ -54,19 +55,16 @@ export function CmsHomepagePage() {
     }
   }, [data, draft]);
 
-  // Deep-link: expand and scroll to hash on initial load
-  useEffect(() => {
-    if (!data || !draft) return;
-    const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
-    if (hash && SECTION_DEFS.some((s) => s.id === hash)) {
-      open(hash);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync hash to active nav state
-      setActiveId(hash);
-      setTimeout(() => {
-        document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  }, [data, draft, open]);
+  // Deep-link: expand and scroll to hash on initial load only (see
+  // useCmsHashScroll - depending on `draft` re-scrolled on every keystroke).
+  const handleDeepLink = useCallback(
+    (id: string) => {
+      open(id);
+      setActiveId(id);
+    },
+    [open],
+  );
+  useCmsHashScroll(Boolean(data && draft), SECTION_DEFS, handleDeepLink);
 
   // Scrollspy: highlight nav link for section in viewport
   useEffect(() => {

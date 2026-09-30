@@ -25,7 +25,13 @@ import { AuthLayout } from '../components/AuthLayout';
 import { PasswordField } from '../components/PasswordField';
 import { TextField } from '../components/TextField';
 import { login, resolveLoginRole } from '../services/auth';
-import { LOGIN_FIELD_ORDER, firstInvalidField, validateLogin } from '../validation';
+import {
+  LOGIN_FIELD_ORDER,
+  MAX_EMAIL_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  firstInvalidField,
+  validateLogin,
+} from '../validation';
 import type { LoginErrors, LoginValues } from '../validation';
 import styles from './LoginPage.module.css';
 
@@ -161,15 +167,19 @@ export function LoginPage() {
         };
       } | null;
       if (!supaClient) return null;
+      // Trimmed: leading/trailing spaces are never part of an email, and an
+      // untrimmed value fails auth with a confusing error.
+      const identifier = values.identifier.trim();
       const { data, error } = await supaClient.auth.signInWithPassword({
-        email: values.identifier,
+        email: identifier,
         password: values.password,
       });
       if (error || !data.user) {
-        // Surface real Supabase error - do not fallback to mock
+        // Generic message - GoTrue text can distinguish account states
+        // (unconfirmed, unknown) and must not reach the user (enumeration).
         throw new ApiError({
           code: 'UNAUTHORIZED',
-          message: error?.message ?? 'Email or password is incorrect.',
+          message: AUTH.login.invalidCredentials,
           status: 401,
         });
       }
@@ -302,7 +312,9 @@ export function LoginPage() {
         }
         user = supaUser;
       } else {
-        user = (await login({ identifier: values.identifier, password: values.password })).user;
+        user = (
+          await login({ identifier: values.identifier.trim(), password: values.password })
+        ).user;
       }
       loginAs({
         id: user.id,
@@ -330,7 +342,13 @@ export function LoginPage() {
       // into the next login in the same tab.
       navigate('/member', { replace: true });
     } catch (error) {
-      setServerError(apiErrorMessage(error, 'Sign-in failed. Please try again shortly.'));
+      // Credential failures stay generic (unknown email vs wrong password are
+      // indistinguishable); anything else keeps the safe envelope message.
+      const message =
+        error instanceof ApiError && error.status === 401
+          ? AUTH.login.invalidCredentials
+          : apiErrorMessage(error, 'Sign-in failed. Please try again shortly.');
+      setServerError(message);
       setSubmitting(false);
     }
   };
@@ -361,9 +379,10 @@ export function LoginPage() {
           value={values.identifier}
           onChange={(value) => setValue('identifier', value)}
           autoComplete={AUTH.login.fields.identifier.autocomplete}
-          inputMode="text"
+          inputMode="email"
           inputRef={identifierRef}
           placeholder="username@gmail.com"
+          maxLength={MAX_EMAIL_LENGTH}
         />
 
         <PasswordField
@@ -375,6 +394,7 @@ export function LoginPage() {
           error={errors.password}
           inputRef={passwordRef}
           placeholder="Password"
+          maxLength={MAX_PASSWORD_LENGTH}
         />
 
         <div className={styles.utilityRow}>

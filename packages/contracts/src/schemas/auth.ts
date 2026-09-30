@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { memberStatusSchema } from './member.js';
 import { roleSchema } from './role.js';
+import { staffPasswordSchema } from './staff-role.js';
 import {
   birthDateSchema,
   MAX_NAME_LENGTH,
@@ -32,7 +33,7 @@ export const sessionUserSchema = z.object({
 
 export type SessionUser = z.infer<typeof sessionUserSchema>;
 
-/** `POST /auth/login` request - identifier accepts email or phone (FR-AUTH-004). */
+/** `POST /auth/login` request - email identifier (mock only; real login is Supabase Auth). */
 export const loginRequestSchema = z.object({
   identifier: z.string().min(1),
   password: z.string().min(1),
@@ -168,7 +169,10 @@ const registerBaseSchema = z.object({
   ...addressFields,
   phone: z.string().trim().min(1).max(25).regex(PHONE_BASE_RE),
   email: z.string().email(),
-  password: z.string().min(1),
+  // Shared password rule (min 8 per ASSUMPTION 1, max 72 = bcrypt truncation
+  // boundary - longer inputs would silently compare equal). Inherited by
+  // resubmitRequestSchema via registerBaseSchema.partial().
+  password: staffPasswordSchema,
   referralCode: z.string().optional(),
   qualificationAnswers: z.array(qualificationAnswerSchema),
   idDocument: idDocumentSchema,

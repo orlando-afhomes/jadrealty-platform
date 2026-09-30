@@ -431,6 +431,8 @@ export {
   provincesQuerySchema,
   citiesQuerySchema,
   barangaysQuerySchema,
+  locationSuggestQuerySchema,
+  locationSuggestionSchema,
 } from './schemas/location.js';
 export type {
   LocationVerificationRequest,
@@ -441,6 +443,8 @@ export type {
   ProvincesQuery,
   CitiesQuery,
   BarangaysQuery,
+  LocationSuggestQuery,
+  LocationSuggestion,
 } from './schemas/location.js';
 export {
   catalogPropertyStatusSchema,

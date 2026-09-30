@@ -41,6 +41,14 @@ async function sendVerificationOtp(
   return result.sent;
 }
 
+/**
+ * Accepted enumeration trade-off (reviewed 2026-09-30): the 409 +
+ * 200-replayed / 201 distinction lets anyone probe whether an email is
+ * registered. Uniform responses were rejected - the 409 tells real applicants
+ * to sign in instead of re-applying, and the replay path prevents duplicate
+ * rows. Login itself stays generic (GoTrue "invalid credentials"), so a
+ * confirmed email alone grants nothing. Revisit if threat model changes.
+ */
 function duplicateAccount() {
   return toErrorEnvelope('CONFLICT', 'An account with this email address already exists.', 409);
 }
