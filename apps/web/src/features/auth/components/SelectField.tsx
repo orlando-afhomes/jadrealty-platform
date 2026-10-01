@@ -17,6 +17,9 @@ export interface SelectFieldProps {
   hint?: string;
   optional?: boolean;
   placeholder?: string;
+  disabled?: boolean;
+  /** Hide the leading empty placeholder option (for selects that must always hold a real value). */
+  hidePlaceholder?: boolean;
 }
 
 /**
@@ -35,6 +38,8 @@ export function SelectField({
   hint,
   optional = false,
   placeholder = 'Select\u2026',
+  disabled = false,
+  hidePlaceholder = false,
 }: SelectFieldProps) {
   return (
     <FormField id={id} label={label} hint={hint} error={error} optional={optional}>
@@ -47,8 +52,9 @@ export function SelectField({
         aria-invalid={error ? true : undefined}
         aria-describedby={`${id}-error ${id}-hint`}
         required={!optional}
+        disabled={disabled}
       >
-        <option value="">{placeholder}</option>
+        {hidePlaceholder ? null : <option value="">{placeholder}</option>}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

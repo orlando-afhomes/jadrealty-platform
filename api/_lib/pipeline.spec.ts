@@ -24,6 +24,7 @@ import {
   mapVoucherRow,
   mapVoucherTemplateRow,
   prefixedId,
+  saleReferenceId,
   validateSaleTransition,
 } from './pipeline.js';
 
@@ -114,6 +115,10 @@ describe('calculateAge / prefixedId', () => {
 
   it('prefixes timestamp ids', () => {
     expect(prefixedId('sal')).toMatch(/^sal-[a-z0-9]+$/);
+  });
+
+  it('issues human-readable sale references', () => {
+    expect(saleReferenceId()).toMatch(/^JAD-SAL-[0-9A-Z]+$/);
   });
 });
 

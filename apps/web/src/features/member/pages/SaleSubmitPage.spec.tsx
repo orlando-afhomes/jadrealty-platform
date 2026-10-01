@@ -54,6 +54,12 @@ const SALE_RESPONSE = {
   submittedAt: '2026-08-20T10:00:00.000Z',
 };
 
+const COMMISSION_PREVIEW = {
+  propertyId: 'igp-250-sqm-farm-lot',
+  directRate: '0.0800',
+  referralRate: '0.0400',
+};
+
 function SaleDetailProbe() {
   return <div>sale detail page</div>;
 }
@@ -74,7 +80,8 @@ describe('member SaleSubmitPage (SCR-MEM-006, FR-SAL-002)', () => {
     renderSubmit();
 
     await screen.findByLabelText('Customer');
-    expect(screen.getByLabelText('Catalog property')).toBeInTheDocument();
+    expect(screen.getByLabelText('Category')).toBeInTheDocument();
+    expect(screen.getByLabelText('Property Listings')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit sale' })).toBeInTheDocument();
     expect(
       screen.getByLabelText('Customer').querySelector('option[value="cus-001"]'),
@@ -90,7 +97,7 @@ describe('member SaleSubmitPage (SCR-MEM-006, FR-SAL-002)', () => {
     await user.click(screen.getByRole('button', { name: 'Submit sale' }));
 
     expect(screen.getByText('Select a customer or add a new one.')).toBeInTheDocument();
-    expect(screen.getByText('Select a property from the catalog.')).toBeInTheDocument();
+    expect(screen.getByText('Select a property category first.')).toBeInTheDocument();
   });
 
   it('submits a sale with an existing customer and navigates to the new sale', async () => {
@@ -100,7 +107,11 @@ describe('member SaleSubmitPage (SCR-MEM-006, FR-SAL-002)', () => {
 
     await screen.findByLabelText('Customer');
     await user.selectOptions(screen.getByLabelText('Customer'), 'cus-001');
-    await user.selectOptions(screen.getByLabelText('Catalog property'), 'igp-250-sqm-farm-lot');
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'income-generating-properties',
+    );
+    await user.selectOptions(screen.getByLabelText('Property Listings'), 'igp-250-sqm-farm-lot');
     await user.click(screen.getByRole('button', { name: 'Submit sale' }));
 
     expect(await screen.findByText('sale detail page')).toBeInTheDocument();
@@ -125,7 +136,11 @@ describe('member SaleSubmitPage (SCR-MEM-006, FR-SAL-002)', () => {
 
     await screen.findByLabelText('Customer');
     await user.selectOptions(screen.getByLabelText('Customer'), 'cus-001');
-    await user.selectOptions(screen.getByLabelText('Catalog property'), 'igp-250-sqm-farm-lot');
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'income-generating-properties',
+    );
+    await user.selectOptions(screen.getByLabelText('Property Listings'), 'igp-250-sqm-farm-lot');
     await user.click(screen.getByRole('button', { name: 'Submit sale' }));
 
     expect(
@@ -166,7 +181,11 @@ describe('member SaleSubmitPage (SCR-MEM-006, FR-SAL-002)', () => {
 
     await screen.findByLabelText('Customer');
     await user.selectOptions(screen.getByLabelText('Customer'), 'cus-001');
-    await user.selectOptions(screen.getByLabelText('Catalog property'), 'igp-250-sqm-farm-lot');
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'income-generating-properties',
+    );
+    await user.selectOptions(screen.getByLabelText('Property Listings'), 'igp-250-sqm-farm-lot');
     await user.selectOptions(screen.getByRole('combobox', { name: /Referrer/ }), 'mem-002');
     await user.click(screen.getByRole('button', { name: 'Submit sale' }));
 
@@ -179,5 +198,92 @@ describe('member SaleSubmitPage (SCR-MEM-006, FR-SAL-002)', () => {
     expect(createCall).toBeTruthy();
     const body = JSON.parse(String((createCall?.[1] as RequestInit | undefined)?.body));
     expect(body.referrerId).toBe('mem-002');
+  });
+
+  it('gates properties behind their category', async () => {
+    mockFetchRoutes({ '/customers': CUSTOMERS });
+    const user = userEvent.setup();
+    renderSubmit();
+
+    await screen.findByLabelText('Category');
+    const property = screen.getByLabelText('Property Listings') as HTMLSelectElement;
+    expect(property.disabled).toBe(true);
+
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'income-generating-properties',
+    );
+    expect(property.disabled).toBe(false);
+    expect(property.querySelector('option[value="igp-250-sqm-farm-lot"]')).not.toBeNull();
+
+    // Switching category clears a property from the previous one.
+    await user.selectOptions(property, 'igp-250-sqm-farm-lot');
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'tenanted-condo-resales',
+    );
+    expect(property.value).toBe('');
+  });
+
+  it('shows the seller and referrer commission preview for the picked property', async () => {
+    mockFetchRoutes({
+      '/customers': CUSTOMERS,
+      '/me/direct-referrals': DIRECT_REFERRALS,
+      '/sales/commission-preview': COMMISSION_PREVIEW,
+    });
+    const user = userEvent.setup();
+    renderSubmit();
+
+    await screen.findByLabelText('Category');
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'income-generating-properties',
+    );
+    await user.selectOptions(screen.getByLabelText('Property Listings'), 'igp-250-sqm-farm-lot');
+    await user.selectOptions(screen.getByRole('combobox', { name: /Referrer/ }), 'mem-002');
+
+    // 1,200,000.00 × 0.0800 = 96,000.00 seller · × 0.0400 = 48,000.00 referrer.
+    const preview = await screen.findByLabelText('Sale value and commission preview');
+    expect(preview.textContent).toContain('₱1,200,000.00');
+    expect(preview.textContent).toContain('locked at submission');
+    expect(preview.textContent).toContain('₱96,000.00');
+    expect(preview.textContent).toContain('your commission (8%)');
+    expect(preview.textContent).toContain('₱48,000.00');
+    expect(preview.textContent).toContain('Maria Santos’s commission (4%)');
+  });
+
+  it('shows the generic referral row when no referrer is picked yet', async () => {
+    mockFetchRoutes({
+      '/customers': CUSTOMERS,
+      '/me/direct-referrals': DIRECT_REFERRALS,
+      '/sales/commission-preview': COMMISSION_PREVIEW,
+    });
+    const user = userEvent.setup();
+    renderSubmit();
+
+    await screen.findByLabelText('Category');
+    await user.selectOptions(screen.getByLabelText('Category'), 'income-generating-properties');
+    await user.selectOptions(screen.getByLabelText('Property Listings'), 'igp-250-sqm-farm-lot');
+
+    const preview = await screen.findByLabelText('Sale value and commission preview');
+    expect(preview.textContent).toContain('your commission (8%)');
+    expect(preview.textContent).toContain('referral commission (4%)');
+  });
+
+  it('disables the referrer picker with no empty option when there is nobody to pick', async () => {
+    mockFetchRoutes({
+      '/customers': CUSTOMERS,
+      '/me/direct-referrals': { data: [], meta: {} },
+      '/me/genealogy': { data: [], meta: {} },
+    });
+    renderSubmit();
+
+    await screen.findByLabelText('Category');
+    const referrer = screen.getByRole('combobox', { name: /Referrer/ }) as HTMLSelectElement;
+    expect(referrer.disabled).toBe(true);
+    expect(referrer.querySelector('option[value=""]')).toBeNull();
+    expect(
+      await screen.findByText(/no referral share applies to this sale/i),
+    ).toBeInTheDocument();
   });
 });

@@ -3,20 +3,32 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 
-import { formatMoney } from '@jad/shared';
+import { formatMoney, multiplyMoney } from '@jad/shared';
 import { ErrorState, PageHeader, Skeleton } from '@jad/ui';
 
 import { Alert } from '../../../components/Alert';
 import { Button } from '../../../components/Button';
 import { apiErrorMessage } from '../../../lib/api/errorMessage';
-import { PROPERTY_RECORDS } from '../../public/content/properties';
-import { useCustomers, useDirectReferrals, useGenealogy } from '../hooks/useMember';
+import { PROPERTY_CATEGORIES, PROPERTY_RECORDS } from '../../public/content/properties';
+import {
+  useCommissionPreview,
+  useCustomers,
+  useDirectReferrals,
+  useGenealogy,
+} from '../hooks/useMember';
 import { createCustomer, submitSale } from '../services/member';
 import { SelectField } from '../../auth/components/SelectField';
 import { TextField } from '../../auth/components/TextField';
 import styles from './SaleSubmitPage.module.css';
 
 const PHONE_RE = /^\+?[\d\s().-]{7,}$/;
+
+/** Compact percent label for an exact-decimal rate string ('0.0800' → '8%'). */
+function percentLabel(rate: string): string {
+  const num = Number(rate);
+  if (!Number.isFinite(num)) return rate;
+  return `${Number((num * 100).toFixed(2))}%`;
+}
 
 /** Fixed-value catalog units eligible for sale submission (OD-003 pending; mock baseline). */
 function submittableProperties() {
@@ -39,6 +51,7 @@ export function SaleSubmitPage() {
   const [customerId, setCustomerId] = useState('');
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ fullName: '', phone: '', email: '' });
+  const [categoryId, setCategoryId] = useState('');
   const [propertyId, setPropertyId] = useState('');
   // Referrer: sponsor (default when linked) or a direct referral; None is explicit opt-out.
   const [referrerId, setReferrerId] = useState('');
@@ -50,17 +63,30 @@ export function SaleSubmitPage() {
   );
 
   const properties = useMemo(() => submittableProperties(), []);
+  const categoryOptions = useMemo(
+    () =>
+      PROPERTY_CATEGORIES.filter((category) =>
+        properties.some((property) => property.categoryId === category.slug),
+      ).map((category) => ({ value: category.slug, label: category.title })),
+    [properties],
+  );
+  const visibleProperties = useMemo(
+    () =>
+      categoryId ? properties.filter((property) => property.categoryId === categoryId) : [],
+    [properties, categoryId],
+  );
   const selectedProperty = useMemo(
     () => properties.find((property) => property.id === propertyId),
     [properties, propertyId],
   );
+  const previewQuery = useCommissionPreview(propertyId);
 
   const sponsor = genealogyQuery.data?.sponsor ?? null;
 
   const referrerOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [{ value: '', label: 'None' }];
+    const opts: { value: string; label: string }[] = [];
     if (sponsor) {
-      opts.push({ value: sponsor.id, label: `${sponsor.name} — Sponsor` });
+      opts.push({ value: sponsor.id, label: `${sponsor.name} (Sponsor)` });
     }
     for (const referral of referralsQuery.data ?? []) {
       if (sponsor && referral.id === sponsor.id) continue;
@@ -68,6 +94,9 @@ export function SaleSubmitPage() {
     }
     return opts;
   }, [sponsor, referralsQuery.data]);
+  const hasReferrerChoices = referrerOptions.length > 0;
+  const selectedReferrerName =
+    referrerOptions.find((option) => option.value === referrerId)?.label ?? null;
 
   // Auto-select sponsor when the member has one and the field is still pristine.
   useEffect(() => {
@@ -130,6 +159,24 @@ export function SaleSubmitPage() {
     setServerError(undefined);
   };
 
+  const onCategoryChange = (value: string) => {
+    setCategoryId(value);
+    setPropertyId((current) => {
+      if (!current) return current;
+      const stillValid = properties.some(
+        (property) => property.id === current && property.categoryId === value,
+      );
+      return stillValid ? current : '';
+    });
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.categoryId;
+      delete next.propertyId;
+      return next;
+    });
+    setServerError(undefined);
+  };
+
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
@@ -150,9 +197,11 @@ export function SaleSubmitPage() {
     } else if (!customerId) {
       nextErrors.customerId = 'Select a customer or add a new one.';
     }
+    if (!categoryId) nextErrors.categoryId = 'Select a property category first.';
     if (!propertyId) nextErrors.propertyId = 'Select a property from the catalog.';
     setErrors(nextErrors);
     if (nextErrors.customerId) document.getElementById('sale-customerId')?.focus();
+    else if (nextErrors.categoryId) document.getElementById('sale-categoryId')?.focus();
     else if (nextErrors.propertyId) document.getElementById('sale-propertyId')?.focus();
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -205,7 +254,7 @@ export function SaleSubmitPage() {
     label: `${customer.fullName} · ${customer.phone}`,
   }));
 
-  const propertyOptions = properties.map((property) => ({
+  const propertyOptions = visibleProperties.map((property) => ({
     value: property.id,
     label: `${property.name} - ${formatMoney(property.price!)}`,
   }));
@@ -279,20 +328,61 @@ export function SaleSubmitPage() {
         <fieldset className={styles.fieldset}>
           <legend className={styles.legend}>Property</legend>
           <SelectField
+            id="sale-categoryId"
+            name="categoryId"
+            label="Category"
+            value={categoryId}
+            onChange={onCategoryChange}
+            options={categoryOptions}
+            error={errors.categoryId}
+            hint="Choose a category to see the properties available in it."
+          />
+          <SelectField
             id="sale-propertyId"
             name="propertyId"
-            label="Catalog property"
+            label="Property Listings"
             value={propertyId}
             onChange={(value) => setField('propertyId', value)}
             options={propertyOptions}
             error={errors.propertyId}
-            hint="The property value is snapshotted by JA&D at submission and never changes (BI-006)."
+            hint={
+              categoryId
+                ? 'Only properties in the selected category are listed.'
+                : 'Select a category above to list its properties.'
+            }
+            disabled={!categoryId}
           />
           {selectedProperty ? (
-            <div className={styles.snapshotPreview} role="status" aria-live="polite">
-              Snapshot value:{' '}
-              <span className={styles.snapshotValue}>{formatMoney(selectedProperty.price!)}</span> -
-              this amount will be recorded and never changes.
+            <div
+              className={styles.snapshotPreview}
+              role="status"
+              aria-live="polite"
+              aria-label="Sale value and commission preview"
+            >
+              Sale value:{' '}
+              <span className={styles.snapshotValue}>{formatMoney(selectedProperty.price!)}</span>{' '}
+              (locked at submission)
+              {previewQuery.data ? (
+                <>
+                  <br />
+                  <span className={styles.snapshotValue}>
+                    {formatMoney(
+                      multiplyMoney(selectedProperty.price!, previewQuery.data.directRate),
+                    )}
+                  </span>{' '}
+                  your commission ({percentLabel(previewQuery.data.directRate)})
+                  <br />
+                  <span className={styles.snapshotValue}>
+                    {formatMoney(
+                      multiplyMoney(selectedProperty.price!, previewQuery.data.referralRate),
+                    )}
+                  </span>{' '}
+                  {selectedReferrerName
+                    ? `${selectedReferrerName.split(' (')[0]}’s commission`
+                    : 'referral commission'}{' '}
+                  ({percentLabel(previewQuery.data.referralRate)})
+                </>
+              ) : null}
             </div>
           ) : null}
         </fieldset>
@@ -308,10 +398,14 @@ export function SaleSubmitPage() {
             onChange={onReferrerChange}
             options={referrerOptions}
             error={errors.referrerId}
+            hidePlaceholder
+            disabled={!hasReferrerChoices}
             hint={
-              sponsor
-                ? 'Your sponsor is pre-selected. You can keep it, choose one of your direct referrals, or select None.'
-                : 'Pick the member who referred this customer - your direct referrals are listed. Leave as None for no referral share.'
+              !hasReferrerChoices
+                ? 'You don’t have a sponsor or direct referrals yet, so no referral share applies to this sale.'
+                : sponsor
+                  ? 'Your sponsor is pre-selected. You can keep it or choose one of your direct referrals instead.'
+                  : 'Choose the member who referred this customer from your direct referrals.'
             }
           />
           {referralsQuery.isError ? (
@@ -331,7 +425,8 @@ export function SaleSubmitPage() {
             Submit sale
           </Button>
           <p className={styles.note}>
-            Submissions are checked for duplicates with the Idempotency-Key for this attempt.
+            Your sale is recorded once. If your connection drops, you can safely submit
+            again.
           </p>
         </div>
       </form>

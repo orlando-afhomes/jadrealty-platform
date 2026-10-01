@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { exactDecimalStringSchema } from './money.js';
+import { exactDecimalRateSchema, exactDecimalStringSchema } from './money.js';
 
 /**
  * Sales resources (API-SPECIFICATION §6.6, FEAT-027..032, FR-SAL-001..007).
@@ -97,6 +97,22 @@ export type SubmitSaleResponse = z.infer<typeof submitSaleResponseSchema>;
 export const resubmitSaleRequestSchema = submitSaleRequestSchema;
 
 export type ResubmitSaleRequest = z.infer<typeof resubmitSaleRequestSchema>;
+
+/**
+ * `GET /sales/commission-preview?propertyId=` - pre-submission commission
+ * estimate for the member submit form. Rates resolve per-category with
+ * global fallback (same source as sale_qualify); the client multiplies by
+ * the catalog price locally. Exact-decimal rate strings, up to 4 places -
+ * globals are not range-capped, so this stays looser than the 0..1 category
+ * schema on purpose.
+ */
+export const commissionPreviewSchema = z.object({
+  propertyId: z.string().min(1),
+  directRate: exactDecimalRateSchema,
+  referralRate: exactDecimalRateSchema,
+});
+
+export type CommissionPreview = z.infer<typeof commissionPreviewSchema>;
 
 /**
  * `POST /me/sales/:id/reopen-request` response - the member's request that a

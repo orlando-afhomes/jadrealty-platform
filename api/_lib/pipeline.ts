@@ -89,6 +89,16 @@ export function prefixedId(prefix: string): string {
 }
 
 /**
+ * Human-readable sale reference (`JAD-SAL-MUP4L0KH`) - the Sale PK itself,
+ * mirroring the Member (`JAD-MEM-XXXX`) and Registration (`JAD-REG-XXXX`)
+ * conventions. Legacy `sal-*` rows keep working (the contract stays lenient);
+ * only newly created sales take this shape.
+ */
+export function saleReferenceId(): string {
+  return `JAD-SAL-${Date.now().toString(36).toUpperCase()}`;
+}
+
+/**
  * Resolve a catalog listing from CMS `properties` content. Returns null when
  * the listing is missing or has no usable price (mirrors the mock catalog
  * guard; INACTIVE enforcement arrives with the B5 Property table).

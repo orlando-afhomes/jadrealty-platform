@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { MOCK_ADMIN } from '@jad/mock';
 
@@ -25,6 +25,15 @@ const SUBMITTED_SALE = {
 vi.mock('../hooks/useSale', () => ({
   useSale: () => ({
     data: SUBMITTED_SALE,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+}));
+
+vi.mock('../../members/hooks/useMember', () => ({
+  useMember: () => ({
+    data: { id: 'mem-001', memberCode: 'JAD-MEM-0001' },
     isPending: false,
     isError: false,
     error: null,
@@ -66,7 +75,7 @@ describe('SaleDetailPage transitions', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the commission estimate from the configured rates (BR-CFG-001)', async () => {
+  it('renders the commission estimate on two rows from the configured rates (BR-CFG-001)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => jsonResponse({ ...SUBMITTED_SALE }, 200)),
@@ -75,9 +84,26 @@ describe('SaleDetailPage transitions', () => {
 
     // 1,200,000.00 × 0.0800 = 96,000.00 · × 0.0400 = 48,000.00.
     expect(await screen.findByText('Est. commission')).toBeInTheDocument();
-    expect(screen.getByText('₱96,000.00')).toBeInTheDocument();
-    expect(screen.getByText('₱48,000.00')).toBeInTheDocument();
-    expect(screen.getByText(/\(estimated, 8\.00%\/4\.00%\)/)).toBeInTheDocument();
+    expect(screen.getByText(/₱96,000\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/Direct \(8%\)/)).toBeInTheDocument();
+    expect(screen.getByText(/₱48,000\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/Referral \(4%\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/estimated/)).not.toBeInTheDocument();
+  });
+
+  it('keeps Edit and Delete inside the Actions card, out of the header', async () => {
+    renderDetail();
+    await screen.findByText('Actions');
+    const banner = screen.getByRole('banner');
+    expect(within(banner).queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit sale' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete sale' })).toBeInTheDocument();
+  });
+
+  it('shows the seller member code instead of the raw member id', async () => {
+    renderDetail();
+    expect(await screen.findByText('JAD-MEM-0001')).toBeInTheDocument();
+    expect(screen.queryByText('mem-001')).not.toBeInTheDocument();
   });
 
   it('renders the referrer snapshot when present', async () => {

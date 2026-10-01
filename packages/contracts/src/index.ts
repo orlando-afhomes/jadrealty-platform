@@ -265,6 +265,7 @@ export {
   submitSaleRequestSchema,
   submitSaleResponseSchema,
   resubmitSaleRequestSchema,
+  commissionPreviewSchema,
   reopenSaleRequestResponseSchema,
 } from './schemas/sales.js';
 export type {
@@ -275,6 +276,7 @@ export type {
   SubmitSaleRequest,
   SubmitSaleResponse,
   ResubmitSaleRequest,
+  CommissionPreview,
   ReopenSaleRequestResponse,
 } from './schemas/sales.js';
 export {

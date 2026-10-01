@@ -4,6 +4,7 @@ import { useSession } from '../../../lib/session';
 
 import {
   getBroadcasts,
+  getCommissionPreview,
   getCommissions,
   getContentLibrary,
   getCustomers,
@@ -207,6 +208,21 @@ export function useSale(saleId: string) {
     queryKey: ['member', 'sales', saleId],
     queryFn: () => getSale(saleId),
     enabled: saleId.length > 0,
+  });
+}
+
+/**
+ * `GET /sales/commission-preview` - rates for the submit-form estimate.
+ * Disabled until a property is picked; a failed preview hides the estimate
+ * but never blocks submission (the server remains the source of truth).
+ */
+export function useCommissionPreview(propertyId: string) {
+  return useQuery({
+    queryKey: ['member', 'commission-preview', propertyId],
+    queryFn: () => getCommissionPreview(propertyId),
+    enabled: propertyId.length > 0,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

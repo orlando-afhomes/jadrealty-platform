@@ -3,7 +3,7 @@ import { submitSaleRequestSchema } from '@jad/contracts';
 import { verifyUser } from '../_lib/auth.js';
 import { appendAudit } from '../_lib/audit.js';
 import type { VercelRequest, VercelResponse } from '../_lib/http.js';
-import { findCatalogPrice, isValidSaleRow, mapSaleRow, prefixedId } from '../_lib/pipeline.js';
+import { findCatalogPrice, isValidSaleRow, mapSaleRow, saleReferenceId } from '../_lib/pipeline.js';
 import { methodNotAllowed, okList, readJsonBody, requireService } from '../_lib/rest.js';
 import { toErrorEnvelope } from '../_lib/envelope.js';
 
@@ -201,7 +201,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     referrerId = r.id;
   }
   const sale = {
-    id: prefixedId('sal'),
+    id: saleReferenceId(),
     status: 'SUBMITTED',
     propertyId: parsed.data.propertyId,
     propertyName: property.name,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  commissionPreviewSchema,
   commissionSchema,
   conversationSummarySchema,
   customerSchema,
@@ -25,6 +26,7 @@ import {
 } from '@jad/contracts';
 import type {
   Commission,
+  CommissionPreview,
   ConversationSummary,
   CreateCustomerRequest,
   CreateMessageRequest,
@@ -162,6 +164,18 @@ export function getSales(): Promise<Sale[]> {
 /** `GET /sales/:id` - one of the member's own sales (API-SPECIFICATION #32). */
 export function getSale(saleId: string): Promise<Sale> {
   return request(`/sales/${saleId}`, saleSchema);
+}
+
+/**
+ * `GET /sales/commission-preview?propertyId=` - commission rates for the
+ * pre-submission estimate on the submit form. Read-only; resolved
+ * per-category with global fallback, the same source qualifying uses.
+ */
+export function getCommissionPreview(propertyId: string): Promise<CommissionPreview> {
+  return request(
+    `/sales/commission-preview?propertyId=${encodeURIComponent(propertyId)}`,
+    commissionPreviewSchema,
+  );
 }
 
 /**

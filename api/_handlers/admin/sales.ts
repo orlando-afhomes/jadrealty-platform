@@ -8,6 +8,7 @@ import {
   isValidSaleRow,
   mapSaleRow,
   prefixedId,
+  saleReferenceId,
   validateSaleTransition,
 } from '../../_lib/pipeline.js';
 import { methodNotAllowed, okList, readJsonBody, requireService } from '../../_lib/rest.js';
@@ -141,7 +142,7 @@ export async function createSale(req: VercelRequest, res: VercelResponse) {
     referrerName = input.referrerName.trim();
   }
   const sale = {
-    id: prefixedId('sal'),
+    id: saleReferenceId(),
     status: 'SUBMITTED',
     propertyId,
     propertyName,

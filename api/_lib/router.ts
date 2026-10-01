@@ -527,6 +527,12 @@ export function selectHandler(
       };
     }
   }
+  if (pathname === '/api/v1/sales/commission-preview' || pathname === '/api/sales/commission-preview') {
+    return {
+      handler: lazy(() => import('../_handlers/sales/commission-preview.js')),
+      routeKey: 'sales/commission-preview',
+    };
+  }
   if (pathname.startsWith('/api/v1/sales/') || pathname.startsWith('/api/sales/')) {
     const resubmit = pathname.match(/\/sales\/([^/]+)\/resubmit$/);
     if (resubmit) {

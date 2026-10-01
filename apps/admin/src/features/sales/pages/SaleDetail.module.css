@@ -192,6 +192,46 @@
   color: white;
 }
 
+.editBtn {
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-brand-primary);
+  color: white;
+  font-weight: 600;
+  font-size: var(--text-body-s);
+  cursor: pointer;
+}
+
+.editBtn:hover:not(:disabled) {
+  background-color: var(--color-brand-primary-hover);
+}
+
+.editBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.deleteBtn {
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-danger);
+  color: white;
+  font-weight: 600;
+  font-size: var(--text-body-s);
+  cursor: pointer;
+}
+
+.deleteBtn:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-danger) 85%, black);
+}
+
+.deleteBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .rejectForm {
   display: grid;
   gap: var(--space-3);
@@ -334,4 +374,14 @@
   font-size: var(--text-caption);
   color: var(--color-text-muted);
   font-weight: 400;
+}
+
+.commissionRow {
+  display: block;
+}
+
+.sellerCode {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
 }

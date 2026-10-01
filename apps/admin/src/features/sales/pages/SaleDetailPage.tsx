@@ -16,6 +16,7 @@ import { formatMoney } from '@jad/shared';
 
 import { useSale } from '../hooks/useSale';
 import { useDeleteSale } from '../hooks/useDeleteSale';
+import { useMember } from '../../members/hooks/useMember';
 import { transitionSale } from '../services/sales';
 import { SALE_STATUS_LABEL, SALE_STATUS_TONE } from '../status';
 import { SaleFormDialog } from '../components/SaleFormDialog';
@@ -42,11 +43,12 @@ function estimateCommission(value: string, rate: string): string {
   }
 }
 
-/** Configured rate string → percent label (e.g. '0.0800' → '8.00%'). */
+/** Configured rate string → compact percent label (e.g. '0.0800' → '8%'). */
 function rateLabel(rate: string): string {
   const num = Number(rate);
-  if (Number.isNaN(num)) return rate;
-  return `${(num * 100).toFixed(2)}%`;
+  if (!Number.isFinite(num)) return rate;
+  const pct = num * 100;
+  return `${Number(pct.toFixed(2))}%`;
 }
 
 /** Sale detail - status progression, approve/reject/verify actions (SCR-ADM-009).
@@ -60,6 +62,9 @@ export function SaleDetailPage() {
   const queryClient = useQueryClient();
   const deleteMut = useDeleteSale();
   const { data, isPending, isError, error } = useSale(id!);
+  const { data: seller } = useMember(data?.sellerId ?? '');
+  const sellerMemberCode =
+    seller && typeof seller.memberCode === 'string' ? seller.memberCode : null;
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
@@ -169,36 +174,9 @@ export function SaleDetailPage() {
         title="Sale Detail"
         description="Review sale submission and manage approval workflow"
         actions={
-          <span
-            style={{
-              display: 'inline-flex',
-              gap: 'var(--space-2)',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
-            {data ? (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => setShowEdit(true)}
-                  aria-label="Edit sale"
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  aria-label="Delete sale"
-                >
-                  Delete
-                </Button>
-              </>
-            ) : null}
-            <Link className={styles.backLink} to="/admin/sales">
-              Back to queue
-            </Link>
-          </span>
+          <Link className={styles.backLink} to="/admin/sales">
+            Back to queue
+          </Link>
         }
       />
 
@@ -245,21 +223,17 @@ export function SaleDetailPage() {
                   <dd className={styles.money}>
                     {data.commissionRates ? (
                       <>
-                        <span>
+                        <span className={styles.commissionRow}>
                           {formatMoney(
                             estimateCommission(data.propertyValue, data.commissionRates.direct),
-                          )}
-                        </span>{' '}
-                        Direct ·{' '}
-                        <span>
+                          )}{' '}
+                          Direct ({rateLabel(data.commissionRates.direct)})
+                        </span>
+                        <span className={styles.commissionRow}>
                           {formatMoney(
                             estimateCommission(data.propertyValue, data.commissionRates.referral),
-                          )}
-                        </span>{' '}
-                        Referral{' '}
-                        <span className={styles.commissionNote}>
-                          (estimated, {rateLabel(data.commissionRates.direct)}/
-                          {rateLabel(data.commissionRates.referral)})
+                          )}{' '}
+                          Referral ({rateLabel(data.commissionRates.referral)})
                         </span>
                       </>
                     ) : (
@@ -281,16 +255,12 @@ export function SaleDetailPage() {
                   <dt>Submitted by</dt>
                   <dd>
                     <span style={{ fontWeight: 600 }}>{data.sellerName}</span>
-                    <br />
-                    <span
-                      style={{
-                        fontSize: 'var(--text-caption)',
-                        color: 'var(--color-text-muted)',
-                        fontFamily: 'var(--font-mono)',
-                      }}
-                    >
-                      {data.sellerId}
-                    </span>
+                    {sellerMemberCode ? (
+                      <>
+                        <br />
+                        <span className={styles.sellerCode}>{sellerMemberCode}</span>
+                      </>
+                    ) : null}
                   </dd>
                 </div>
                 <div className={styles.field}>
@@ -424,11 +394,27 @@ export function SaleDetailPage() {
                       </button>
                       <button
                         type="button"
+                        className={styles.editBtn}
+                        onClick={() => setShowEdit(true)}
+                        aria-label="Edit sale"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
                         className={styles.rejectBtn}
                         onClick={() => setShowRejectForm(true)}
                         disabled={actionPending}
                       >
                         Reject
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.deleteBtn}
+                        onClick={() => setShowDeleteConfirm(true)}
+                        aria-label="Delete sale"
+                      >
+                        Delete
                       </button>
                     </>
                   )}
@@ -444,11 +430,27 @@ export function SaleDetailPage() {
                       </button>
                       <button
                         type="button"
+                        className={styles.editBtn}
+                        onClick={() => setShowEdit(true)}
+                        aria-label="Edit sale"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
                         className={styles.rejectBtn}
                         onClick={() => setShowRejectForm(true)}
                         disabled={actionPending}
                       >
                         Reject
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.deleteBtn}
+                        onClick={() => setShowDeleteConfirm(true)}
+                        aria-label="Delete sale"
+                      >
+                        Delete
                       </button>
                     </>
                   )}
@@ -464,11 +466,27 @@ export function SaleDetailPage() {
                       </button>
                       <button
                         type="button"
+                        className={styles.editBtn}
+                        onClick={() => setShowEdit(true)}
+                        aria-label="Edit sale"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
                         className={styles.rejectBtn}
                         onClick={() => setShowRejectForm(true)}
                         disabled={actionPending}
                       >
                         Reject
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.deleteBtn}
+                        onClick={() => setShowDeleteConfirm(true)}
+                        aria-label="Delete sale"
+                      >
+                        Delete
                       </button>
                     </>
                   )}
@@ -589,6 +607,24 @@ export function SaleDetailPage() {
                       Back to sales queue
                     </Button>
                   )}
+                  <div className={styles.actions} style={{ marginTop: 'var(--space-3)' }}>
+                    <button
+                      type="button"
+                      className={styles.editBtn}
+                      onClick={() => setShowEdit(true)}
+                      aria-label="Edit sale"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.deleteBtn}
+                      onClick={() => setShowDeleteConfirm(true)}
+                      aria-label="Delete sale"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               )}
           </div>

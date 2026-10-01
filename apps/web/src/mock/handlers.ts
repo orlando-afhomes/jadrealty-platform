@@ -1488,6 +1488,22 @@ export function memberMockHandlers(store: MockStore): MockRoute[] {
       },
     },
     {
+      path: '/sales/commission-preview',
+      method: 'GET',
+      handler: (ctx) => {
+        const member = currentMember(store);
+        if (!member) return unauthorized();
+        const propertyId =
+          new URL(ctx.url, 'http://mock.local').searchParams.get('propertyId') ?? '';
+        // Demo rates mirror the sale-detail mock below.
+        return ok({
+          propertyId,
+          directRate: '0.0800',
+          referralRate: '0.0400',
+        });
+      },
+    },
+    {
       path: '/sales/',
       method: 'GET',
       match: 'prefix',
