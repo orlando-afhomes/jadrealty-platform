@@ -31,7 +31,7 @@ vi.mock('../hooks/useRegistration', () => ({
 
 function registration(governmentId: Record<string, unknown>) {
   return {
-    id: 'reg-001',
+    id: 'JAD-REG-0001',
     status: 'PENDING',
     firstName: 'Juan',
     lastName: 'Dela Cruz',
@@ -53,7 +53,7 @@ function renderDetail() {
     <Routes>
       <Route path="/admin/registrations/:id" element={<RegistrationDetailPage />} />
     </Routes>,
-    { route: '/admin/registrations/reg-001' },
+    { route: '/admin/registrations/JAD-REG-0001' },
   );
 }
 
@@ -87,7 +87,7 @@ describe('RegistrationDetailPage government ID preview', () => {
         fileName: 'id.png',
         mimeType: 'image/png',
         sizeBytes: 70,
-        storagePath: 'reg-001/id.png',
+        storagePath: 'JAD-REG-0001/id.png',
       }),
     );
     mockGetGovernmentIdUrl.mockResolvedValue('https://signed.test/id.png');
@@ -97,7 +97,7 @@ describe('RegistrationDetailPage government ID preview', () => {
     const img = (await screen.findByAltText('Government ID id.png')) as HTMLImageElement;
     expect(img.tagName).toBe('IMG');
     expect(img.src).toBe('https://signed.test/id.png');
-    expect(mockGetGovernmentIdUrl).toHaveBeenCalledWith('reg-001');
+    expect(mockGetGovernmentIdUrl).toHaveBeenCalledWith('JAD-REG-0001');
   });
 
   it('embeds PDFs with a new-tab fallback', async () => {
@@ -106,7 +106,7 @@ describe('RegistrationDetailPage government ID preview', () => {
         fileName: 'id.pdf',
         mimeType: 'application/pdf',
         sizeBytes: 80,
-        storagePath: 'reg-001/id.pdf',
+        storagePath: 'JAD-REG-0001/id.pdf',
       }),
     );
     mockGetGovernmentIdUrl.mockResolvedValue('https://signed.test/id.pdf');
@@ -155,7 +155,7 @@ describe('RegistrationDetailPage government ID preview', () => {
         fileName: 'id.png',
         mimeType: 'image/png',
         sizeBytes: 70,
-        storagePath: 'reg-001/id.png',
+        storagePath: 'JAD-REG-0001/id.png',
       }),
     );
     mockGetGovernmentIdUrl.mockRejectedValueOnce(new Error('Bucket gone'));

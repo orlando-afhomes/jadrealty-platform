@@ -54,9 +54,18 @@ const mocks = vi.hoisted(() => {
     };
     return {
       ...b,
-      insert: async (row: unknown) => {
+      // Mirrors PostgREST `.insert(row).select(cols).single()`: the DB
+      // trigger assigns the `JAD-REG-XXXX` PK, which is read back here.
+      insert: (row: unknown) => {
         calls.push({ table, op: 'insert', arg: row });
-        return { error: null };
+        return {
+          select: () => ({
+            single: async () => ({
+              data: { id: 'JAD-REG-0001', status: 'PENDING' },
+              error: null,
+            }),
+          }),
+        };
       },
       upsert: async (row: unknown) => {
         calls.push({ table, op: 'upsert', arg: row });
@@ -290,7 +299,12 @@ describe('POST /api/v1/auth/register', () => {
       referralCode: 'jd-2026-001',
       governmentId: { fileName: 'id.pdf' },
     });
-    expect(typeof insert.id === 'string' && (insert.id as string).startsWith('reg-')).toBe(true);
+    // The PK is trigger-assigned (`JAD-REG-XXXX`) - never generated here, so
+    // the insert row carries no id and the response echoes the assigned one.
+    expect('id' in insert).toBe(false);
+    expect(seen.body).toMatchObject({
+      application: { id: 'JAD-REG-0001', status: 'PENDING' },
+    });
   });
 
   it('400s phone numbers with letters or wrong PH length/prefix', async () => {
@@ -459,6 +473,8 @@ describe('POST /api/v1/auth/register', () => {
     expect(seen.status).toBe(201);
     const upload = mocks.calls.find((c) => c.table === 'government-ids')?.arg as string;
     expect(typeof upload === 'string' && upload.length > 0).toBe(true);
+    // The file lands under the trigger-assigned registration id.
+    expect(upload.startsWith('JAD-REG-0001/')).toBe(true);
     const update = mocks.calls.find((c) => c.table === 'Registration' && c.op === 'update')
       ?.arg as Record<string, unknown>;
     const governmentId = update.governmentId as Record<string, unknown>;

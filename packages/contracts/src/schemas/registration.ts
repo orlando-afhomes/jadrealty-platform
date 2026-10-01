@@ -25,6 +25,22 @@ export const registrationStatusSchema = z.enum(['PENDING', 'REJECTED']);
 export type RegistrationStatus = z.infer<typeof registrationStatusSchema>;
 
 /**
+ * Human-readable registration identifier (`JAD-REG-0001` style).
+ *
+ * `Registration.id` is TEXT PRIMARY KEY (not a uuid) and already the
+ * identifier every URL, lookup, display, storage prefix, and
+ * `Member.registrationId` link uses - so the PK itself carries this shape,
+ * assigned by the `registration_id_seq` sequence + trigger. `id` below stays
+ * lenient (`min(1)`) so historic payloads (audit, legacy rows) still parse;
+ * use this schema to assert the new shape in tests and new-code paths.
+ */
+export const registrationIdSchema = z
+  .string()
+  .regex(/^JAD-REG-[0-9]{4,}$/, 'Registration ID must look like JAD-REG-0001');
+
+export type RegistrationId = z.infer<typeof registrationIdSchema>;
+
+/**
  * Canonical mock registration entity - database-ready, ID + ISO country, no display-name duplication.
  * Governed by BR-AUTH-002 / BR-REG-004 / BR-REG-010.
  */

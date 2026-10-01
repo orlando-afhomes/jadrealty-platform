@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { archivedMemberSchema, registrationSchema, registrationStatusSchema } from './registration';
+import {
+  archivedMemberSchema,
+  registrationIdSchema,
+  registrationSchema,
+  registrationStatusSchema,
+} from './registration';
 
 const BASE = {
-  id: 'reg-001',
+  id: 'JAD-REG-0001',
   firstName: 'Juan',
   lastName: 'Dela Cruz',
   phone: '+639171234567',
@@ -39,6 +44,22 @@ describe('registrationSchema', () => {
     expect(registrationSchema.safeParse({ ...BASE, status: 'APPROVED_ACTIVE' }).success).toBe(
       false,
     );
+  });
+});
+
+describe('registrationIdSchema', () => {
+  it('accepts JAD-REG-0001 style IDs and rejects the legacy format', () => {
+    expect(registrationIdSchema.safeParse('JAD-REG-0001').success).toBe(true);
+    expect(registrationIdSchema.safeParse('JAD-REG-12345').success).toBe(true);
+    expect(registrationIdSchema.safeParse('JAD-REG-001').success).toBe(false);
+    expect(registrationIdSchema.safeParse('reg-muowzfzy').success).toBe(false);
+    expect(registrationIdSchema.safeParse('reg-001').success).toBe(false);
+  });
+
+  it('keeps registration id lenient so legacy rows still parse', () => {
+    expect(
+      registrationSchema.safeParse({ ...BASE, id: 'reg-muowzfzy', status: 'PENDING' }).success,
+    ).toBe(true);
   });
 });
 

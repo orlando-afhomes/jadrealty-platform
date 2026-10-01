@@ -26,7 +26,7 @@ const now = '2026-08-18T09:12:00.000Z';
 
 export const initialRegistrations: Registration[] = [
   {
-    id: 'reg-001',
+    id: 'JAD-REG-0001',
     status: 'PENDING',
     firstName: 'Juan',
     middleInitial: 'D',
@@ -51,7 +51,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: now,
   },
   {
-    id: 'reg-002',
+    id: 'JAD-REG-0002',
     status: 'PENDING',
     firstName: 'Maria',
     lastName: 'Santos',
@@ -70,7 +70,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-17T16:20:00.000Z',
   },
   {
-    id: 'reg-003',
+    id: 'JAD-REG-0003',
     status: 'PENDING',
     firstName: 'Ahmed',
     lastName: 'Al Maktoum',
@@ -94,7 +94,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-17T10:15:00.000Z',
   },
   {
-    id: 'reg-004',
+    id: 'JAD-REG-0004',
     status: 'PENDING',
     firstName: 'Sarah',
     lastName: 'Johnson',
@@ -113,7 +113,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-16T14:50:00.000Z',
   },
   {
-    id: 'reg-005',
+    id: 'JAD-REG-0005',
     status: 'PENDING',
     firstName: 'Li',
     lastName: 'Wei',
@@ -132,7 +132,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-16T09:45:00.000Z',
   },
   {
-    id: 'reg-006',
+    id: 'JAD-REG-0006',
     status: 'PENDING',
     firstName: 'Carlos',
     lastName: 'Mendoza',
@@ -151,7 +151,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-15T17:25:00.000Z',
   },
   {
-    id: 'reg-007',
+    id: 'JAD-REG-0007',
     status: 'REJECTED',
     firstName: 'Ramon',
     lastName: 'Garcia',
@@ -177,7 +177,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-16T08:00:00.000Z',
   },
   {
-    id: 'reg-008',
+    id: 'JAD-REG-0008',
     status: 'PENDING',
     firstName: 'Elena',
     lastName: 'Navarro',
@@ -198,7 +198,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-15T10:00:00.000Z',
   },
   {
-    id: 'reg-009',
+    id: 'JAD-REG-0009',
     status: 'PENDING',
     firstName: 'Ramon',
     lastName: 'Reyes',
@@ -219,7 +219,7 @@ export const initialRegistrations: Registration[] = [
     updatedAt: '2026-08-14T09:00:00.000Z',
   },
   {
-    id: 'reg-010',
+    id: 'JAD-REG-0010',
     status: 'PENDING',
     firstName: 'Kevin',
     lastName: 'Kintanar',
@@ -264,7 +264,7 @@ export const initialMembers: AdminMember[] = [
     program: { id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' },
     accountStatus: 'ACTIVE',
     registeredAt: '2026-08-18T09:12:00.000Z',
-    registrationId: 'reg-001',
+    registrationId: 'JAD-REG-0001',
   },
   {
     id: 'mem-002',
@@ -285,7 +285,7 @@ export const initialMembers: AdminMember[] = [
     program: { id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' },
     accountStatus: 'ACTIVE',
     registeredAt: '2026-08-17T16:20:00.000Z',
-    registrationId: 'reg-002',
+    registrationId: 'JAD-REG-0002',
   },
   {
     id: 'mem-005',
@@ -306,7 +306,7 @@ export const initialMembers: AdminMember[] = [
     program: { id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' },
     accountStatus: 'ACTIVE',
     registeredAt: '2026-08-13T10:00:00.000Z',
-    registrationId: 'reg-009',
+    registrationId: 'JAD-REG-0009',
   },
   {
     id: 'mem-007',
@@ -327,7 +327,7 @@ export const initialMembers: AdminMember[] = [
     program: { id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' },
     accountStatus: 'INACTIVE',
     registeredAt: '2026-08-12T10:00:00.000Z',
-    registrationId: 'reg-010',
+    registrationId: 'JAD-REG-0010',
   },
 ];
 

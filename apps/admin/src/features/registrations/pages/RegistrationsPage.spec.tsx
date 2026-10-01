@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import { MOCK_ADMIN } from '@jad/mock';
 import { createMockServer } from '@jad/mock';
 
@@ -51,6 +52,19 @@ describe('RegistrationsPage', () => {
     expect(values).toContain('PENDING');
     expect(values).toContain('REJECTED');
     expect(values).not.toContain('APPROVED_ACTIVE');
+  });
+
+  it('displays sequential JAD-REG registration IDs and finds rows by ID search', async () => {
+    renderWithProviders(<RegistrationsPage />, { user: MOCK_ADMIN });
+    await screen.findByText(/Juan/);
+    expect(screen.getByText('JAD-REG-0001')).toBeInTheDocument();
+
+    const searchInput = screen.getByLabelText('Search registrations');
+    await userEvent.type(searchInput, 'JAD-REG-0002');
+
+    expect(screen.queryByText(/Juan/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Maria/)).toBeInTheDocument();
+    expect(screen.getByText('JAD-REG-0002')).toBeInTheDocument();
   });
 
   it('renders the error state when the queue cannot be fetched', async () => {

@@ -46,7 +46,8 @@ export function RegistrationsPage() {
         if (
           !name.includes(q) &&
           !r.countryName.toLowerCase().includes(q) &&
-          !(r.referralCode ?? '').toLowerCase().includes(q)
+          !(r.referralCode ?? '').toLowerCase().includes(q) &&
+          !r.id.toLowerCase().includes(q)
         )
           return false;
       }
@@ -115,7 +116,7 @@ export function RegistrationsPage() {
         <div className={styles.searchWrap}>
           <input
             type="search"
-            placeholder="Search applicant, country or referral…"
+            placeholder="Search applicant, country, referral or ID…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -177,6 +178,7 @@ export function RegistrationsPage() {
             <Table>
               <TableHead>
                 <TableRow>
+                  <TableHeaderCell>Registration ID</TableHeaderCell>
                   <TableHeaderCell>Applicant</TableHeaderCell>
                   <TableHeaderCell>Country</TableHeaderCell>
                   <TableHeaderCell>Program</TableHeaderCell>
@@ -200,6 +202,13 @@ export function RegistrationsPage() {
                     }}
                     aria-label={`View registration for ${row.firstName} ${row.lastName}`}
                   >
+                    <TableCell label="Registration ID">
+                      <span
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-body-s)' }}
+                      >
+                        {row.id}
+                      </span>
+                    </TableCell>
                     <TableCell label="Applicant">
                       <span style={{ fontWeight: 600 }}>
                         {row.firstName} {row.middleInitial ? `${row.middleInitial}. ` : ''}

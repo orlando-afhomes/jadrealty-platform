@@ -12,6 +12,7 @@ export {
   rejectionNoteSchema,
   registrationSchema,
   registrationStatusSchema,
+  registrationIdSchema,
   accountStatusSchema,
   archivedMemberSchema,
 } from './schemas/registration.js';
@@ -19,6 +20,7 @@ export type {
   RejectionNote,
   Registration,
   RegistrationStatus,
+  RegistrationId,
   AccountStatus,
   ArchivedMember,
 } from './schemas/registration.js';

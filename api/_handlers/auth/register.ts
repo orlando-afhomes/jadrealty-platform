@@ -16,7 +16,7 @@ import {
 import { removeStorageKeys } from '../../_lib/storage.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { issueVerificationCode } from '../../_lib/verification-code.js';
-import { calculateAge, prefixedId } from '../../_lib/pipeline.js';
+import { calculateAge } from '../../_lib/pipeline.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../_lib/rest.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 import { enforceRateLimit } from '../../_lib/rate-limit.js';
@@ -439,8 +439,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
   const createdUserId = (created.data as { user?: { id?: string } } | null)?.user?.id ?? null;
   const applicantName = `${input.firstName} ${input.lastName}`.trim();
+  // The PK is assigned by the `registration_id_fill` trigger
+  // (`JAD-REG-0001` from `registration_id_seq`) - never generated here, so
+  // concurrent submits cannot collide.
   const buildRegistrationRow = (now: string) => ({
-    id: prefixedId('reg'),
     status: 'PENDING',
     firstName: input.firstName,
     middleInitial: input.middleInitial ?? null,
@@ -474,8 +476,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const insertRegistration = async (): Promise<boolean> => {
     const now = new Date().toISOString();
     const registration = buildRegistrationRow(now);
-    const { error: insertError } = await supabase.from('Registration').insert(registration);
-    if (insertError) {
+    // Read back the trigger-assigned `JAD-REG-XXXX` id: the document upload
+    // and the response both key off it.
+    const { data: inserted, error: insertError } = await supabase
+      .from('Registration')
+      .insert(registration)
+      .select('id,status')
+      .single();
+    if (insertError || !inserted) {
       // Lost race with a concurrent submit for the same email: refresh the
       // winner's PENDING row with the latest details and replay it.
       const replay = await findRegistrationByEmail(supabase, email);
@@ -504,7 +512,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         );
         return true;
       }
-      const { error, status } = toErrorEnvelope('INTERNAL', insertError.message, 500);
+      const { error, status } = toErrorEnvelope(
+        'INTERNAL',
+        insertError?.message ?? 'Registration insert failed',
+        500,
+      );
+      res.status(status).json({ error });
+      return true;
+    }
+    const assignedId = String((inserted as { id?: unknown }).id ?? '');
+    if (!assignedId) {
+      const { error, status } = toErrorEnvelope('INTERNAL', 'Registration insert failed', 500);
       res.status(status).json({ error });
       return true;
     }
@@ -512,7 +530,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // upload 500s so the retry replays the row and re-attempts the file.
     const attachError = await attachDocument(
       supabase,
-      { id: registration.id, status: registration.status },
+      { id: assignedId, status: registration.status },
       input.idDocument,
     );
     if (attachError) {
@@ -523,7 +541,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const emailSent = await sendVerificationOtp(supabase, email, applicantName, createdUserId);
     res.status(201).json({
       application: {
-        id: registration.id,
+        id: assignedId,
         email,
         status: 'PENDING',
         emailVerified: false,
