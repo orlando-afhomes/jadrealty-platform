@@ -157,6 +157,89 @@
   flex-wrap: wrap;
 }
 
+/*
+ * Action-card colors - one distinct hue per functionality (color psychology):
+ * - Edit (blue): trust, safe constructive change.
+ * - Grant (green): growth, approval.
+ * - Revoke (amber): caution, reversible warning.
+ * - Activate (navy): authority, restoration of access.
+ * - Deactivate (burnt orange): pause/suspend, caution without destruction.
+ * - Archive (slate): dormancy, neutral storage - not destruction.
+ * - Delete keeps the shared `danger` red (irreversible destruction).
+ * Scoped under `.actions` so hover states beat the base Button variant
+ * hover rules. Disabled state still falls back to the shared grey
+ * (`.button:disabled` outranks these single-class rules by design).
+ */
+.actions .actionEdit {
+  background-color: var(--color-brand-primary);
+  border-color: transparent;
+  color: var(--color-text-on-brand);
+}
+
+.actions .actionEdit:hover:not(:disabled) {
+  background-color: var(--color-brand-primary-hover);
+}
+
+.actions .actionGrant {
+  background-color: var(--color-success);
+  border-color: transparent;
+  color: var(--color-text-on-brand);
+}
+
+.actions .actionGrant:hover:not(:disabled) {
+  background-color: var(--color-success-strong);
+}
+
+.actions .actionRevoke {
+  background-color: var(--color-warning);
+  border-color: transparent;
+  color: var(--color-text-on-brand);
+}
+
+.actions .actionRevoke:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.actions .actionActivate {
+  background-color: var(--color-brand-deep);
+  border-color: transparent;
+  color: var(--color-text-on-brand);
+}
+
+.actions .actionActivate:hover:not(:disabled) {
+  background-color: var(--color-brand-deep-hover);
+}
+
+.actions .actionDeactivate {
+  background-color: #b3541e;
+  border-color: transparent;
+  color: var(--color-text-on-brand);
+}
+
+.actions .actionDeactivate:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.actions .actionArchive {
+  background-color: #5b6b7a;
+  border-color: transparent;
+  color: var(--color-text-on-brand);
+}
+
+.actions .actionArchive:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.actions .actionEdit:focus-visible,
+.actions .actionGrant:focus-visible,
+.actions .actionRevoke:focus-visible,
+.actions .actionActivate:focus-visible,
+.actions .actionDeactivate:focus-visible,
+.actions .actionArchive:focus-visible {
+  outline: 3px solid color-mix(in srgb, currentColor 35%, transparent);
+  outline-offset: 2px;
+}
+
 @media (max-width: 767px) {
   .actionsCard {
     order: -1;

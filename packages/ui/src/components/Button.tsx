@@ -21,14 +21,18 @@ export function Button({
   variant = 'primary',
   loading = false,
   disabled,
+  className,
   children,
   ...rest
 }: ButtonProps) {
   const isDisabled = disabled || loading;
+  // Merge caller classes (same pattern as ButtonLink) so page-level action
+  // colors compose with the base button instead of replacing it.
+  const classes = `${styles.button} ${styles[variant]}${className ? ` ${className}` : ''}`;
   return (
     <button
       type="button"
-      className={`${styles.button} ${styles[variant]}`}
+      className={classes}
       disabled={isDisabled}
       aria-disabled={isDisabled || undefined}
       aria-busy={loading || undefined}

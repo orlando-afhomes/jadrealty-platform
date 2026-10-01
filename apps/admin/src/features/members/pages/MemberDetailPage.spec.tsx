@@ -8,6 +8,7 @@ import { MOCK_STAFF_ADMIN, MOCK_SUPER_ADMIN } from '@jad/mock';
 import type { SessionUser } from '../../../lib/session';
 import { renderWithProviders } from '../../../test/utils';
 import { MemberDetailPage } from './MemberDetailPage';
+import styles from './MemberDetail.module.css';
 
 const { mockUseMember, mockUseMemberRegistration, mockGetGovernmentIdUrl } = vi.hoisted(() => ({
   mockUseMember: vi.fn(),
@@ -157,6 +158,59 @@ describe('MemberDetailPage application card', () => {
     const { container } = renderDetail();
     await screen.findByText('Application Details');
     expect(container.textContent).not.toContain('sponsor-uuid-9');
+  });
+});
+
+describe('MemberDetailPage header', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    primeMemberMocks();
+  });
+
+  it('shows only the member name in the header (status line lives in the cards)', async () => {
+    renderDetailAs(MOCK_STAFF_ADMIN as SessionUser);
+    await screen.findByText('Actions');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Juan Dela Cruz');
+    // The old header meta line (program · email · date) is gone; the email
+    // still appears once in the Member Details card.
+    expect(screen.queryByText(/Domestic Program ·/)).not.toBeInTheDocument();
+  });
+});
+
+describe('MemberDetailPage action colors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    primeMemberMocks();
+  });
+
+  it('gives each action button its own color class', async () => {
+    renderDetailAs(MOCK_SUPER_ADMIN as SessionUser);
+    await screen.findByText('Actions');
+
+    const edit = screen.getByRole('button', { name: 'Edit member' });
+    const qualification = screen.getByRole('button', { name: 'Revoke qualification' });
+    const active = screen.getByRole('button', { name: 'Deactivate member' });
+    const archive = screen.getByRole('button', { name: 'Archive member' });
+    const purge = screen.getByRole('button', { name: 'Delete member permanently' });
+
+    // Edit=blue, Revoke=amber, Deactivate=orange, Archive=slate, Delete=red.
+    // (CSS-module keys type as possibly undefined under noUncheckedIndexedAccess.)
+    const has = (el: HTMLElement, cls: string | undefined) =>
+      el.classList.contains(cls ?? '');
+    expect(has(edit, styles.actionEdit)).toBe(true);
+    expect(has(qualification, styles.actionRevoke)).toBe(true);
+    expect(has(active, styles.actionDeactivate)).toBe(true);
+    expect(has(archive, styles.actionArchive)).toBe(true);
+    // Delete keeps the shared danger red - it must not reuse any action color.
+    const actionClasses = [
+      styles.actionEdit,
+      styles.actionGrant,
+      styles.actionRevoke,
+      styles.actionActivate,
+      styles.actionDeactivate,
+      styles.actionArchive,
+    ];
+    expect(actionClasses.every((c) => !has(purge, c))).toBe(true);
   });
 });
 

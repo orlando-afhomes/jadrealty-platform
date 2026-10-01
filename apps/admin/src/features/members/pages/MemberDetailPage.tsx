@@ -324,33 +324,6 @@ export function MemberDetailPage() {
     <section>
       <PageHeader
         title={memberName}
-        description={
-          <span
-            style={{
-              display: 'inline-flex',
-              gap: 'var(--space-2)',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
-            <StatusChip
-              label={MEMBER_STATUS_LABEL[data.status]}
-              tone={MEMBER_STATUS_TONE[data.status]}
-            />
-            <StatusChip
-              label={data.accountStatus}
-              tone={data.accountStatus === 'ACTIVE' ? 'success' : 'danger'}
-            />
-            {data.isQualified ? (
-              <StatusChip label="Qualified" tone="success" />
-            ) : data.status === 'APPROVED_ACTIVE' ? (
-              <StatusChip label="Not Qualified" tone="neutral" />
-            ) : null}
-            <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-body-s)' }}>
-              {data.program.name} · {data.email} · {formatDate(data.registeredAt)}
-            </span>
-          </span>
-        }
         actions={
           <Link className={styles.backLink} to="/admin/members">
             Back to list
@@ -788,13 +761,19 @@ export function MemberDetailPage() {
           ) : null}
           <div className={styles.actions}>
             {!isEditing ? (
-              <Button variant="secondary" onClick={startEdit} aria-label="Edit member">
+              <Button
+                variant="secondary"
+                className={styles.actionEdit}
+                onClick={startEdit}
+                aria-label="Edit member"
+              >
                 Edit
               </Button>
             ) : null}
             {data.status === 'APPROVED_ACTIVE' ? (
               <Button
                 variant="secondary"
+                className={data.isQualified ? styles.actionRevoke : styles.actionGrant}
                 onClick={() => setShowQualifyConfirm(true)}
                 aria-label={data.isQualified ? 'Revoke qualification' : 'Grant qualification'}
               >
@@ -802,14 +781,18 @@ export function MemberDetailPage() {
               </Button>
             ) : null}
             <Button
-              variant={data.accountStatus === 'ACTIVE' ? 'danger' : 'secondary'}
+              variant="secondary"
+              className={
+                data.accountStatus === 'ACTIVE' ? styles.actionDeactivate : styles.actionActivate
+              }
               onClick={() => setShowDeactivateConfirm(true)}
               aria-label={data.accountStatus === 'ACTIVE' ? 'Deactivate member' : 'Activate member'}
             >
               {data.accountStatus === 'ACTIVE' ? 'Deactivate' : 'Activate'}
             </Button>
             <Button
-              variant="danger"
+              variant="secondary"
+              className={styles.actionArchive}
               onClick={() => setShowArchiveConfirm(true)}
               aria-label="Archive member"
             >
