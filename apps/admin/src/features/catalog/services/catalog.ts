@@ -14,6 +14,9 @@ import { ApiError } from '../../../lib/api/errors';
 export type PropertyCategory = CmsPropertyCategory & {
   /** Number of listings referencing this category (derived server-side). */
   listingCount: number;
+  /** Per-category commission decimals (exact 0..1, 4dp); absent pre-migration. */
+  directRate?: string;
+  referralRate?: string;
 };
 
 export type CreatePropertyInput = {
@@ -37,6 +40,9 @@ export type CreateCategoryInput = {
   description: string;
   image: { id: string; alt: string };
   isFeatured?: boolean;
+  /** Exact decimals 0..1 (4dp); omitted = server defaults to live globals. */
+  directRate?: string;
+  referralRate?: string;
 };
 
 export type UpdateCategoryInput = {
@@ -45,6 +51,9 @@ export type UpdateCategoryInput = {
   description?: string;
   image?: { id: string; alt: string };
   isFeatured?: boolean;
+  /** Exact decimals 0..1 (4dp); omitted fields are left untouched. */
+  directRate?: string;
+  referralRate?: string;
 };
 
 /** Property catalog item - transactional system-of-record (ID, category, price, status). */
@@ -62,6 +71,8 @@ const categorySchema = z.object({
   image: z.object({ id: z.string(), alt: z.string() }).passthrough(),
   isFeatured: z.boolean(),
   listingCount: z.number(),
+  directRate: z.string().optional(),
+  referralRate: z.string().optional(),
 });
 
 const deleteResultSchema = z.object({ id: z.string(), deleted: z.boolean() });

@@ -5,6 +5,7 @@ import { verifyStaffModule } from '../../../_lib/auth.js';
 import { appendAudit } from '../../../_lib/audit.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { mapSaleRow, validateSaleTransition } from '../../../_lib/pipeline.js';
+import { resolveCategoryRates } from '../../../_lib/category-rates.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 
@@ -63,21 +64,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     // Configured rates for the estimate preview (never hard-code 8%/4%).
-    const { data: rateRows } = await supabase
-      .from('SystemConfig')
-      .select('key,value')
-      .in('key', ['COMMISSION_DIRECT_RATE', 'COMMISSION_REFERRAL_RATE']);
-    const rateByKey: Record<string, string> = {};
-    for (const r of (rateRows as { key: string; value: string }[] | null) ?? []) {
-      rateByKey[r.key] = r.value;
-    }
+    // Per-category first, global fallback - mirrors sale_qualify.
+    const mapped = mapSaleRow(current);
+    const salePropertyId = typeof mapped.propertyId === 'string' ? mapped.propertyId : null;
+    const resolved = await resolveCategoryRates(
+      supabase,
+      salePropertyId ? [salePropertyId] : [],
+    ).catch(
+      () => new Map<string, { directRate: string | null; referralRate: string | null }>(),
+    );
+    const preview = salePropertyId ? resolved.get(salePropertyId) : undefined;
     const withRates = {
-      ...mapSaleRow(current),
-      ...(rateByKey.COMMISSION_DIRECT_RATE && rateByKey.COMMISSION_REFERRAL_RATE
+      ...mapped,
+      ...(preview?.directRate && preview?.referralRate
         ? {
             commissionRates: {
-              direct: rateByKey.COMMISSION_DIRECT_RATE,
-              referral: rateByKey.COMMISSION_REFERRAL_RATE,
+              direct: preview.directRate,
+              referral: preview.referralRate,
             },
           }
         : {}),

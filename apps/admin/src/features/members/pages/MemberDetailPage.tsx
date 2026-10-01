@@ -511,7 +511,7 @@ export function MemberDetailPage() {
               </div>
               <div className={styles.field}>
                 <dt>Member ID</dt>
-                <dd className={styles.mono}>{data.id}</dd>
+                <dd className={styles.mono}>{data.memberCode ?? '—'}</dd>
               </div>
               <div className={styles.field}>
                 <dt>Email</dt>
@@ -547,7 +547,7 @@ export function MemberDetailPage() {
                 <dt>Sponsor</dt>
                 <dd>
                   {data.sponsorReferralCode || data.sponsorId
-                    ? `${data.sponsorName ?? 'Sponsor'} (${data.sponsorReferralCode ?? data.sponsorId})`
+                    ? `${data.sponsorName ?? 'Sponsor'}${data.sponsorReferralCode ? ` (${data.sponsorReferralCode})` : ''}`
                     : 'No sponsor linked'}
                 </dd>
               </div>

@@ -6,14 +6,18 @@ import {
   calculateAge,
   findCatalogPrice,
   isValidAdjustmentRow,
+  isValidAdminMemberRow,
   isValidCustomerRow,
+  isValidMemberRow,
   isValidPayoutAccountRow,
   isValidPropertyRow,
   isValidSaleRow,
   isValidVoucherRow,
   isValidVoucherTemplateRow,
   mapAdjustmentRow,
+  mapAdminMemberRow,
   mapCustomerRow,
+  mapMemberRow,
   mapPayoutAccountRow,
   mapPropertyRow,
   mapSaleRow,
@@ -110,6 +114,41 @@ describe('calculateAge / prefixedId', () => {
 
   it('prefixes timestamp ids', () => {
     expect(prefixedId('sal')).toMatch(/^sal-[a-z0-9]+$/);
+  });
+});
+
+describe('member row mapping', () => {
+  const base = {
+    id: 'e61f929c-4f78-4dbe-8d28-43c40d55164a',
+    firstName: 'Juan',
+    lastName: 'Cruz',
+    dateOfBirth: '1990-01-01',
+    gender: 'Male',
+    countryCode: 'PH',
+    countryName: 'Philippines',
+    phone: '+639171234567',
+    email: 'juan@example.com',
+    referralCode: 'JAD-JUAN01',
+    status: 'APPROVED_ACTIVE',
+    isQualified: true,
+    programId: 'prg-domestic',
+    accountStatus: 'ACTIVE',
+    createdAt: '2026-08-18T00:00:00.000Z',
+  };
+
+  it('passes the human-readable code through and stays valid', () => {
+    const mapped = mapMemberRow({ ...base, memberCode: 'JAD-MEM-0001' });
+    expect(mapped.memberCode).toBe('JAD-MEM-0001');
+    expect(isValidMemberRow({ ...base, memberCode: 'JAD-MEM-0001' })).toBe(true);
+    expect(isValidAdminMemberRow({ ...base, memberCode: 'JAD-MEM-0001' })).toBe(true);
+    expect(mapAdminMemberRow({ ...base, memberCode: 'JAD-MEM-0042' }).memberCode).toBe(
+      'JAD-MEM-0042',
+    );
+  });
+
+  it('omits the code for legacy rows instead of failing validation', () => {
+    expect(mapMemberRow(base).memberCode).toBeUndefined();
+    expect(isValidMemberRow(base)).toBe(true);
   });
 });
 

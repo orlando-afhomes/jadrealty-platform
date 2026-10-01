@@ -435,6 +435,7 @@ export const adminMockHandlers: MockRoute[] = [
           memberId: member.id,
           originalData: {
             id: member.id,
+            memberCode: member.memberCode,
             firstName: member.firstName,
             lastName: member.lastName,
             dateOfBirth: member.dateOfBirth,

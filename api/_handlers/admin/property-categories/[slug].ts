@@ -1,4 +1,4 @@
-import { cmsPropertyCategorySchema } from '@jad/contracts';
+import { categoryCommissionRateSchema, cmsPropertyCategorySchema } from '@jad/contracts';
 
 import { ADMIN_STAFF } from '../../../_lib/access.js';
 import { appendAudit } from '../../../_lib/audit.js';
@@ -56,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!supabase) return;
   const { data: found, error: readError } = await supabase
     .from('PropertyCategory')
-    .select('slug,title')
+    .select('slug,title,direct_rate,referral_rate')
     .eq('slug', slug)
     .maybeSingle();
   if (readError || !found) {
@@ -64,7 +64,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  const current = found as { slug: string; title: string };
+  const current = found as {
+    slug: string;
+    title: string;
+    direct_rate?: unknown;
+    referral_rate?: unknown;
+  };
   const cms = await readCmsCategories(supabase);
   if (!cms) {
     const { error, status } = toErrorEnvelope('INTERNAL', 'Catalog CMS content unavailable.', 500);
@@ -136,7 +141,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(status).json({ error });
     return;
   }
-  if (Object.values(parsed.data).every((value) => value === undefined)) {
+  // Per-category rates ride the same body but live on the transactional row,
+  // never in CMS. Each rate updates independently of the other.
+  const body = (parsedBody.body ?? {}) as Record<string, unknown>;
+  const ratePatch: { direct_rate?: string; referral_rate?: string } = {};
+  for (const [field, column] of [
+    ['directRate', 'direct_rate'],
+    ['referralRate', 'referral_rate'],
+  ] as const) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !categoryCommissionRateSchema.safeParse(value).success) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Commission rates must be decimals between 0 and 1 (e.g. 0.0800 for 8%).',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    ratePatch[column] = value;
+  }
+  if (Object.values(parsed.data).every((value) => value === undefined) && Object.keys(ratePatch).length === 0) {
     const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Nothing to update.', 400);
     res.status(status).json({ error });
     return;
@@ -153,6 +179,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     title = parsed.data.title;
+  }
+  let directRate: string | undefined;
+  let referralRate: string | undefined;
+  if (Object.keys(ratePatch).length > 0) {
+    const { error } = await supabase
+      .from('PropertyCategory')
+      .update(ratePatch)
+      .eq('slug', slug);
+    if (error) {
+      const { error: env, status } = toErrorEnvelope('INTERNAL', error.message, 500);
+      res.status(status).json({ error: env });
+      return;
+    }
+    const { data: rated } = await supabase
+      .from('PropertyCategory')
+      .select('direct_rate,referral_rate')
+      .eq('slug', slug)
+      .maybeSingle();
+    const ratedRow = (rated ?? {}) as { direct_rate?: unknown; referral_rate?: unknown };
+    directRate = typeof ratedRow.direct_rate === 'string' ? ratedRow.direct_rate : undefined;
+    referralRate = typeof ratedRow.referral_rate === 'string' ? ratedRow.referral_rate : undefined;
   }
   const existing = cms.categories.find((c) => c.slug === slug) ?? { slug };
   const next = { ...existing };
@@ -194,11 +241,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     targetType: 'PropertyCategory',
     targetId: slug,
     targetName: title,
-    detail: `Updated category ${title}`,
+    detail:
+      Object.keys(ratePatch).length > 0
+        ? `Updated category ${title} (rates ${JSON.stringify(ratePatch)})`
+        : `Updated category ${title}`,
   });
   const { count } = await supabase
     .from('Property')
     .select('id', { count: 'exact', head: true })
     .eq('categorySlug', slug);
-  res.status(200).json(mergeCategory(slug, title, next, count ?? 0));
+  res.status(200).json(
+    mergeCategory(slug, title, next, count ?? 0, {
+      directRate:
+        directRate ??
+        (typeof current.direct_rate === 'string' ? current.direct_rate : undefined),
+      referralRate:
+        referralRate ??
+        (typeof current.referral_rate === 'string' ? current.referral_rate : undefined),
+    }),
+  );
 }

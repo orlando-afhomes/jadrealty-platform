@@ -43,6 +43,7 @@ vi.mock('../repositories/memberRepository', () => ({
 
 const MEMBER = {
   id: 'mem-uuid-1',
+  memberCode: 'JAD-MEM-0001',
   firstName: 'Juan',
   lastName: 'Dela Cruz',
   email: 'juan@example.com',
@@ -137,6 +138,25 @@ describe('MemberDetailPage application card', () => {
     renderDetail();
     expect(await screen.findByText(/removed from the queue/i)).toBeInTheDocument();
     expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+  });
+
+  it('displays the human-readable member code instead of the uuid', async () => {
+    const { container } = renderDetail();
+    await screen.findByText('Application Details');
+    expect(screen.getByText('JAD-MEM-0001')).toBeInTheDocument();
+    expect(container.textContent).not.toContain('mem-uuid-1');
+  });
+
+  it('never renders a sponsor uuid when the referral code is missing', async () => {
+    mockUseMember.mockReturnValue({
+      data: { ...MEMBER, sponsorId: 'sponsor-uuid-9', sponsorReferralCode: undefined },
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+    const { container } = renderDetail();
+    await screen.findByText('Application Details');
+    expect(container.textContent).not.toContain('sponsor-uuid-9');
   });
 });
 

@@ -449,13 +449,21 @@ export type {
 export {
   catalogPropertyStatusSchema,
   catalogPropertySchema,
+  categoryCommissionRateSchema,
+  createCategoryRequestSchema,
   createPropertyRequestSchema,
+  propertyCategorySchema,
+  updateCategoryRequestSchema,
   updatePropertyRequestSchema,
 } from './schemas/catalog.js';
 export type {
   CatalogProperty,
   CatalogPropertyStatus,
+  CategoryCommissionRate,
+  CreateCategoryRequest,
   CreatePropertyRequest,
+  PropertyCategory,
+  UpdateCategoryRequest,
   UpdatePropertyRequest,
 } from './schemas/catalog.js';
 export {

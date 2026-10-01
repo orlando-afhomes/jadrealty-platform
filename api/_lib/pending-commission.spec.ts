@@ -87,4 +87,32 @@ describe('sumPendingCommission', () => {
       sumPendingCommission({ ownSales: [], referredSales: [], downlineSales: [], ...rates }),
     ).toBe('0.00');
   });
+
+  it('uses per-sale category rates ahead of the batch globals', () => {
+    expect(
+      sumPendingCommission({
+        ownSales: [
+          { status: 'SUBMITTED', propertyValue: '1000000.00', directRate: '0.1000' },
+          { status: 'SUBMITTED', propertyValue: '1000000.00', directRate: '0.1500' },
+          { status: 'SUBMITTED', propertyValue: '1000000.00' },
+        ],
+        referredSales: [{ status: 'SUBMITTED', propertyValue: '1000000.00', referralRate: '0.0500' }],
+        downlineSales: [],
+        ...rates,
+      }),
+      // 100000 + 150000 + 80000 (global fallback) + 50000.
+    ).toBe('380000.00');
+  });
+
+  it('a per-sale rate rescues its slice when the batch global is malformed', () => {
+    expect(
+      sumPendingCommission({
+        ownSales: [{ status: 'SUBMITTED', propertyValue: '1000000.00', directRate: '0.1000' }],
+        referredSales: [],
+        downlineSales: [],
+        directRate: 'bogus',
+        referralRate: '0.0400',
+      }),
+    ).toBe('100000.00');
+  });
 });

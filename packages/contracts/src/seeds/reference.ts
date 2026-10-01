@@ -60,6 +60,12 @@ export type ConfigSeed = { key: string; label: string; value: string; category: 
 
 /** Mirrors admin MOCK_CONFIG plus the public GENDERS row. */
 export const CONFIG_SEEDS: ConfigSeed[] = [
+  // Fallback-only since per-category rates (PropertyCategory.direct_rate /
+  // referral_rate): sale_qualify, the wallet pending estimate, and the sale
+  // previews use the sale's category rates first and read these keys only
+  // when the property/category row is missing. Kept editable as the safety
+  // net for legacy dangling propertyIds. Values here are example defaults,
+  // never hardcoded into calculations.
   {
     key: 'COMMISSION_DIRECT_RATE',
     label: 'Direct Commission Rate',

@@ -10,6 +10,20 @@ export const memberStatusSchema = z.enum(['PENDING', 'APPROVED_ACTIVE', 'REJECTE
 export type MemberStatus = z.infer<typeof memberStatusSchema>;
 
 /**
+ * Human-readable member identifier (`JAD-MEM-0001` style).
+ *
+ * Distinct from the internal `Member.id` uuid (auth.users.id, PK/FK). Unique,
+ * stable after creation, persisted in `"Member"."memberCode"`, assigned by the
+ * `member_code` sequence + trigger. Displayed in admin list/detail; the uuid
+ * stays internal for queries/relations/routing/auth.
+ */
+export const memberCodeSchema = z
+  .string()
+  .regex(/^JAD-MEM-[0-9]{4,}$/, 'Member code must look like JAD-MEM-0001');
+
+export type MemberCode = z.infer<typeof memberCodeSchema>;
+
+/**
  * Member account (registration queue item) - PROPOSED baseline. No SSOT defines
  * the API field list for a member/registration resource yet; `registeredAt` is
  * the account creation timestamp (ISO-8601). Replaced by the real contract when
@@ -42,6 +56,8 @@ export type ProgramRef = z.infer<typeof programRefSchema>;
  */
 export const memberProfileSchema = z.object({
   id: z.string().min(1),
+  /** Admin-facing identifier; absent only for legacy rows predating the migration. */
+  memberCode: memberCodeSchema.optional(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   middleInitial: z.string().max(1).optional(),

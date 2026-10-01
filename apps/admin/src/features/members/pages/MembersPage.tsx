@@ -46,6 +46,16 @@ function archivedProgramCode(a: ArchivedMember): string {
   return '';
 }
 
+/**
+ * Admin-facing identifier for an archived snapshot. The snapshot is the
+ * member row itself (memberProfile shape carries memberCode); registration
+ * snapshots predate the code and render as unassigned - never the uuid.
+ */
+function archivedMemberCode(a: ArchivedMember): string {
+  const d = a.originalData as { memberCode?: unknown };
+  return typeof d.memberCode === 'string' && d.memberCode ? d.memberCode : '—';
+}
+
 export function MembersPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
@@ -105,7 +115,7 @@ export function MembersPage() {
         m.firstName.toLowerCase().includes(q) ||
         m.lastName.toLowerCase().includes(q) ||
         m.email.toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q)
+        (m.memberCode?.toLowerCase().includes(q) ?? false)
       );
     });
   }, [members, search, tab, programFilter, countryFilter, membershipFilter, accountFilter]);
@@ -122,7 +132,8 @@ export function MembersPage() {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return (
-        a.memberId.toLowerCase().includes(q) || a.originalData.firstName.toLowerCase().includes(q)
+        archivedMemberCode(a).toLowerCase().includes(q) ||
+        a.originalData.firstName.toLowerCase().includes(q)
       );
     });
   }, [archived, search, tab, programFilter, countryFilter, membershipFilter, accountFilter]);
@@ -375,10 +386,9 @@ export function MembersPage() {
                     >
                       <TableCell label="Member ID">
                         <span
-                          title={row.id}
                           style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-body-s)' }}
                         >
-                          {row.id.slice(0, 8)}
+                          {row.memberCode ?? '—'}
                         </span>
                       </TableCell>
                       <TableCell label="Name">
@@ -466,7 +476,7 @@ export function MembersPage() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell>Archive ID</TableHeaderCell>
+                  <TableHeaderCell>Member ID</TableHeaderCell>
                   <TableHeaderCell>Member</TableHeaderCell>
                   <TableHeaderCell>Previous Status</TableHeaderCell>
                   <TableHeaderCell>Archived</TableHeaderCell>
@@ -487,11 +497,11 @@ export function MembersPage() {
                 ) : (
                   archivedRows.map((a) => (
                     <TableRow key={a.id}>
-                      <TableCell label="Archive ID">
+                      <TableCell label="Member ID">
                         <span
                           style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-body-s)' }}
                         >
-                          {a.id}
+                          {archivedMemberCode(a)}
                         </span>
                       </TableCell>
                       <TableCell label="Member">
@@ -505,7 +515,7 @@ export function MembersPage() {
                             color: 'var(--color-text-muted)',
                           }}
                         >
-                          {a.memberId}
+                          {archivedMemberCode(a)}
                         </span>
                       </TableCell>
                       <TableCell label="Previous">

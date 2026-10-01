@@ -12,6 +12,27 @@ type Props = {
   category?: PropertyCategory;
 };
 
+/**
+ * Percent <-> exact-decimal helpers (display % in, 4dp decimal out).
+ * Blank means "leave unchanged" (edit) or "server defaults to the live
+ * globals" (create) - never an implicit 0%. `false` signals invalid input.
+ */
+export function decimalToPercent(value: string | undefined): string {
+  if (value === undefined || value.trim() === '') return '';
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '';
+  return String(Number((num * 100).toFixed(4)));
+}
+
+export function percentToDecimal(value: string): string | null | false {
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  if (!/^\d+(\.\d{1,4})?$/.test(trimmed)) return false;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num < 0 || num > 100) return false;
+  return (num / 100).toFixed(4);
+}
+
 export function CategoryFormDialog({ open, onClose, category }: Props) {
   const isEdit = Boolean(category);
   const createMutation = useCreateCategory();
@@ -23,6 +44,8 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
   const [shortDescription, setShortDescription] = useState('');
   const [description, setDescription] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
+  const [directPercent, setDirectPercent] = useState('');
+  const [referralPercent, setReferralPercent] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -33,12 +56,16 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
       setShortDescription(category.shortDescription);
       setDescription(category.description);
       setIsFeatured(category.isFeatured ?? false);
+      setDirectPercent(decimalToPercent(category.directRate));
+      setReferralPercent(decimalToPercent(category.referralRate));
     } else {
       setSlug('');
       setTitle('');
       setShortDescription('');
       setDescription('');
       setIsFeatured(false);
+      setDirectPercent('');
+      setReferralPercent('');
     }
     setErrors({});
   }, [open, category]);
@@ -54,6 +81,10 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
     if (!title.trim()) e.title = 'Title is required.';
     if (!shortDescription.trim()) e.shortDescription = 'Short description is required.';
     if (!description.trim()) e.description = 'Description is required.';
+    if (percentToDecimal(directPercent) === false)
+      e.directPercent = 'Enter a percentage between 0 and 100.';
+    if (percentToDecimal(referralPercent) === false)
+      e.referralPercent = 'Enter a percentage between 0 and 100.';
     return e;
   };
 
@@ -63,6 +94,11 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
     if (Object.keys(e).length > 0) return;
 
     try {
+      const directRate = percentToDecimal(directPercent);
+      const referralRate = percentToDecimal(referralPercent);
+      // Unreachable: validate() blocks invalid input above. Guards the
+      // spread types below against `false` slipping into the payload.
+      if (directRate === false || referralRate === false) return;
       if (isEdit && category) {
         await updateMutation.mutateAsync({
           slug: category.slug,
@@ -71,6 +107,8 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
             shortDescription: shortDescription.trim(),
             description: description.trim(),
             isFeatured,
+            ...(directRate !== null && { directRate }),
+            ...(referralRate !== null && { referralRate }),
           },
         });
       } else {
@@ -81,6 +119,8 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
           description: description.trim(),
           image: { id: 'photo-placeholder', alt: title.trim() },
           isFeatured,
+          ...(directRate !== null && { directRate }),
+          ...(referralRate !== null && { referralRate }),
         });
       }
       onClose();
@@ -258,6 +298,71 @@ export function CategoryFormDialog({ open, onClose, category }: Props) {
             </span>
           ) : null}
         </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+          <label htmlFor="category-direct-rate" style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontSize: 'var(--text-body-s)', fontWeight: 600 }}>
+              Direct commission (%)
+            </span>
+            <input
+              id="category-direct-rate"
+              value={directPercent}
+              onChange={(e) => setDirectPercent(e.target.value)}
+              placeholder="e.g. 8"
+              inputMode="decimal"
+              aria-invalid={Boolean(errors.directPercent)}
+              aria-describedby={errors.directPercent ? 'category-direct-rate-error' : undefined}
+              style={{
+                padding: '10px 12px',
+                border: `1px solid ${errors.directPercent ? 'var(--color-danger)' : 'var(--color-border-default)'}`,
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--text-body-s)',
+              }}
+            />
+            {errors.directPercent ? (
+              <span
+                id="category-direct-rate-error"
+                style={{ color: 'var(--color-danger)', fontSize: 'var(--text-caption)' }}
+                role="alert"
+              >
+                {errors.directPercent}
+              </span>
+            ) : null}
+          </label>
+
+          <label htmlFor="category-referral-rate" style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontSize: 'var(--text-body-s)', fontWeight: 600 }}>
+              Direct referral (%)
+            </span>
+            <input
+              id="category-referral-rate"
+              value={referralPercent}
+              onChange={(e) => setReferralPercent(e.target.value)}
+              placeholder="e.g. 4"
+              inputMode="decimal"
+              aria-invalid={Boolean(errors.referralPercent)}
+              aria-describedby={errors.referralPercent ? 'category-referral-rate-error' : undefined}
+              style={{
+                padding: '10px 12px',
+                border: `1px solid ${errors.referralPercent ? 'var(--color-danger)' : 'var(--color-border-default)'}`,
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--text-body-s)',
+              }}
+            />
+            {errors.referralPercent ? (
+              <span
+                id="category-referral-rate-error"
+                style={{ color: 'var(--color-danger)', fontSize: 'var(--text-caption)' }}
+                role="alert"
+              >
+                {errors.referralPercent}
+              </span>
+            ) : null}
+          </label>
+        </div>
+        <span style={{ fontSize: 'var(--text-caption)', color: 'var(--color-text-muted)' }}>
+          Blank keeps the current rate on edit, or the global default on create.
+        </span>
 
         <label
           style={{

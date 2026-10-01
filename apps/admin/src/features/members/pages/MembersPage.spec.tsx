@@ -65,6 +65,29 @@ describe('MembersPage', () => {
     expect(screen.getByLabelText('Filter by membership status')).toBeInTheDocument();
     expect(screen.getByLabelText('Filter by account status')).toBeInTheDocument();
   });
+
+  it('displays human-readable member codes instead of uuids', async () => {
+    const { container } = renderWithProviders(<MembersPage />, { user: MOCK_ADMIN });
+    await screen.findByText('Juan Dela Cruz');
+    expect(screen.getByText('JAD-MEM-0001')).toBeInTheDocument();
+    // No raw internal ids anywhere in the rendered list.
+    expect(container.textContent).not.toMatch(/mem-00\d/);
+    expect(container.textContent).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    );
+  });
+
+  it('finds members by member code search', async () => {
+    renderWithProviders(<MembersPage />, { user: MOCK_ADMIN });
+    await screen.findByText('Juan Dela Cruz');
+
+    const searchInput = screen.getByLabelText('Search members');
+    await userEvent.type(searchInput, 'JAD-MEM-0007');
+
+    expect(screen.queryByText('Juan Dela Cruz')).not.toBeInTheDocument();
+    expect(screen.getByText('Kevin Kintanar')).toBeInTheDocument();
+    expect(screen.getByText('JAD-MEM-0007')).toBeInTheDocument();
+  });
 });
 
 describe('MembersPage archive pending guard', () => {

@@ -5,6 +5,7 @@ import { slugsAllowed, verifyStaffModule } from '../../../_lib/auth.js';
 import { appendAudit } from '../../../_lib/audit.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { mapAdminMemberRow } from '../../../_lib/pipeline.js';
+import { resolveCategoryRates } from '../../../_lib/category-rates.js';
 import { removeGovernmentIdObjects } from '../../../_lib/storage.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
@@ -408,8 +409,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select('value')
       .eq('key', 'COMMISSION_REFERRAL_RATE')
       .maybeSingle();
-    const rate = (rateRow as { value?: unknown } | null)?.value;
-    if (typeof rate !== 'string' || !/^[0-9]+(\.[0-9]{1,4})?$/.test(rate)) {
+    const globalRate = (rateRow as { value?: unknown } | null)?.value;
+    if (typeof globalRate !== 'string' || !/^[0-9]+(\.[0-9]{1,4})?$/.test(globalRate)) {
       const { error, status } = toErrorEnvelope(
         'INTERNAL',
         'Commission referral rate is not configured.',
@@ -420,7 +421,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const { data: qualifyingSales } = await supabase
       .from('Sale')
-      .select('id,propertyValue,referrerId')
+      .select('id,propertyId,propertyValue,referrerId')
       .eq('sellerId', id)
       .eq('status', 'QUALIFYING_SALE');
     const { data: existingReferrals } = await supabase
@@ -433,8 +434,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         typeof r.saleId === 'string' ? r.saleId : '',
       ),
     );
-    for (const sale of (qualifyingSales as
-      { id: string; propertyValue?: unknown; referrerId?: unknown }[] | null) ?? []) {
+    const salesList = (qualifyingSales as
+      {
+        id: string;
+        propertyId?: unknown;
+        propertyValue?: unknown;
+        referrerId?: unknown;
+      }[] | null) ?? [];
+    // Per-category referral rates with global fallback (mirrors
+    // sale_qualify) - resolved once for all sales, not per row.
+    const repairRates = await resolveCategoryRates(
+      supabase,
+      salesList.map((s) => (typeof s.propertyId === 'string' ? s.propertyId : '')),
+    ).catch(
+      () => new Map<string, { directRate: string | null; referralRate: string | null }>(),
+    );
+    for (const sale of salesList) {
       if (covered.has(sale.id)) continue;
       // A picked referrer already earned (or will earn) this sale's referral -
       // the sponsor must not be paid too.
@@ -445,6 +460,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ) {
         continue;
       }
+      const resolved =
+        typeof sale.propertyId === 'string' ? repairRates.get(sale.propertyId) : undefined;
+      const rate = resolved?.referralRate ?? globalRate;
       const amount = exactPercentOf(sale.propertyValue, rate);
       const { error: repairError } = await supabase.from('Commission').insert({
         id: `com-repair-${sale.id}`.slice(0, 32),

@@ -1,4 +1,5 @@
 import {
+  categoryCommissionRateSchema,
   cmsPropertyCategorySchema,
   createPropertyRequestSchema,
   createVoucherTemplateRequestSchema,
@@ -39,9 +40,14 @@ export const categoryPresentationSchema = cmsPropertyCategorySchema.omit({ slug:
 
 export type CategoryPresentation = z.infer<typeof categoryPresentationSchema>;
 
-/** Merged category view: DB key + CMS presentation + derived listing count. */
+/** Merged category view: DB key + CMS presentation + derived listing count + rates. */
 export const mergedCategorySchema = cmsPropertyCategorySchema.extend({
   listingCount: z.number().int().nonnegative(),
+  // Transactional rates ride the merged view so the admin UI edits them
+  // through the same single endpoint. Optional so a row missing the new
+  // columns (pre-migration read) still lists instead of filtering out.
+  directRate: categoryCommissionRateSchema.optional(),
+  referralRate: categoryCommissionRateSchema.optional(),
 });
 
 export function mergeCategory(
@@ -49,6 +55,7 @@ export function mergeCategory(
   title: string,
   presentation: Record<string, unknown> | undefined,
   listingCount: number,
+  rates?: { directRate?: unknown; referralRate?: unknown },
 ): Record<string, unknown> {
   // Missing presentation falls back to the title so the category stays
   // visible (the merged schema requires non-empty copy).
@@ -60,7 +67,7 @@ export function mergeCategory(
     typeof presentation?.description === 'string' && presentation.description
       ? presentation.description
       : title;
-  return {
+  const row: Record<string, unknown> = {
     slug,
     title,
     shortDescription,
@@ -72,6 +79,15 @@ export function mergeCategory(
     isFeatured: presentation?.isFeatured === true,
     listingCount,
   };
+  // Only well-formed rates ride along; anything else stays absent so the
+  // merged row keeps validating and the UI falls back to display logic.
+  if (typeof rates?.directRate === 'string' && categoryCommissionRateSchema.safeParse(rates.directRate).success) {
+    row.directRate = rates.directRate;
+  }
+  if (typeof rates?.referralRate === 'string' && categoryCommissionRateSchema.safeParse(rates.referralRate).success) {
+    row.referralRate = rates.referralRate;
+  }
+  return row;
 }
 
 export function isValidMergedCategory(row: Record<string, unknown>): boolean {

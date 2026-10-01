@@ -4,6 +4,7 @@ import { verifyUser } from '../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { isValidWalletRow, zeroWallet } from '../../_lib/money.js';
 import { sumPendingCommission } from '../../_lib/pending-commission.js';
+import { resolveCategoryRates } from '../../_lib/category-rates.js';
 import { methodNotAllowed, requireService } from '../../_lib/rest.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 
@@ -50,8 +51,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('SystemConfig')
         .select('key,value')
         .in('key', ['COMMISSION_DIRECT_RATE', 'COMMISSION_REFERRAL_RATE']),
-      supabase.from('Sale').select('propertyValue,status').eq('sellerId', auth.userId),
-      supabase.from('Sale').select('propertyValue,status').eq('referrerId', auth.userId),
+      supabase.from('Sale').select('propertyId,propertyValue,status').eq('sellerId', auth.userId),
+      supabase.from('Sale').select('propertyId,propertyValue,status').eq('referrerId', auth.userId),
       supabase.from('Member').select('id').eq('sponsorId', auth.userId),
     ]);
     const rateByKey: Record<string, string> = {};
@@ -59,14 +60,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       []) as { key: string; value: string }[]) {
       rateByKey[r.key] = r.value;
     }
-    const ownRows = ((ownSales as { data?: unknown[] | null })?.data ?? []) as {
-      status: unknown;
-      propertyValue: unknown;
-    }[];
-    const referredRows = ((referredSales as { data?: unknown[] | null })?.data ?? []) as {
-      status: unknown;
-      propertyValue: unknown;
-    }[];
+    type SaleRow = { status: unknown; propertyValue: unknown; propertyId?: unknown };
+    const ownRows = ((ownSales as { data?: unknown[] | null })?.data ?? []) as SaleRow[];
+    const referredRows = ((referredSales as { data?: unknown[] | null })?.data ?? []) as SaleRow[];
     const downlineIds = (
       ((downlineMembers as { data?: { id: string }[] | null })?.data ?? []) as {
         id: string;
@@ -74,19 +70,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     )
       .map((m) => m.id)
       .filter(Boolean);
-    let downlineRows: { status: unknown; propertyValue: unknown }[] = [];
+    let downlineRows: SaleRow[] = [];
     if (downlineIds.length > 0) {
       const { data: dlSales } = (await supabase
         .from('Sale')
-        .select('propertyValue,status')
+        .select('propertyId,propertyValue,status')
         .in('sellerId', downlineIds)
         .is('referrerId', null)) as { data?: unknown[] | null };
-      downlineRows = (dlSales ?? []) as { status: unknown; propertyValue: unknown }[];
+      downlineRows = (dlSales ?? []) as SaleRow[];
     }
+    // Per-category rates: each sale estimates at its own category's
+    // percentages, falling back to the globals for dangling properties.
+    const propertyIds = [...ownRows, ...referredRows, ...downlineRows].map((s) =>
+      typeof s.propertyId === 'string' ? s.propertyId : '',
+    );
+    const ratesByProperty = await resolveCategoryRates(supabase, propertyIds);
+    const withRates = (rows: SaleRow[]) =>
+      rows.map((s) => {
+        const resolved =
+          typeof s.propertyId === 'string' ? ratesByProperty.get(s.propertyId) : undefined;
+        return {
+          status: s.status,
+          propertyValue: s.propertyValue,
+          directRate: resolved?.directRate ?? undefined,
+          referralRate: resolved?.referralRate ?? undefined,
+        };
+      });
     pendingCommission = sumPendingCommission({
-      ownSales: ownRows,
-      referredSales: referredRows,
-      downlineSales: downlineRows,
+      ownSales: withRates(ownRows),
+      referredSales: withRates(referredRows),
+      downlineSales: withRates(downlineRows),
       directRate: rateByKey.COMMISSION_DIRECT_RATE,
       referralRate: rateByKey.COMMISSION_REFERRAL_RATE,
     });

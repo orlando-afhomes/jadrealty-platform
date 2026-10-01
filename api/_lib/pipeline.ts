@@ -138,6 +138,9 @@ export function mapMemberRow(
     ({ id: programId, code: 'DOMESTIC', name: 'Domestic Program' } as const);
   return {
     id: row.id,
+    // Admin-facing identifier (JAD-MEM-0001); the uuid stays internal.
+    // Absent only for legacy rows predating the member_code migration.
+    ...(typeof row.memberCode === 'string' && row.memberCode ? { memberCode: row.memberCode } : {}),
     ...names,
     dateOfBirth: row.dateOfBirth ?? '1990-01-01',
     age: calculateAge(typeof row.dateOfBirth === 'string' ? row.dateOfBirth : '1990-01-01'),

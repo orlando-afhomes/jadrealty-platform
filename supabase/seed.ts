@@ -668,6 +668,38 @@ async function seed() {
         b5Failed = true;
       }
     }
+    // Fresh category rows inherit the live global rates (same semantics as
+    // migration 20261021000001). Only untouched defaults are filled, so a
+    // re-seed never clobbers admin-customized rates - except a category
+    // deliberately set to exactly 0%, which re-seeding treats as unset.
+    {
+      const seedRate = (key: string): string | null => {
+        const found = refMod.CONFIG_SEEDS.find((entry) => entry.key === key);
+        return typeof found?.value === 'string' ? found.value : null;
+      };
+      const seedDirect = seedRate('COMMISSION_DIRECT_RATE');
+      const seedReferral = seedRate('COMMISSION_REFERRAL_RATE');
+      if (seedDirect) {
+        const { error } = await supabase
+          .from('PropertyCategory')
+          .update({ direct_rate: seedDirect })
+          .eq('direct_rate', '0.0000');
+        if (error) {
+          console.error('PropertyCategory direct_rate seed fill failed:', error.message);
+          b5Failed = true;
+        }
+      }
+      if (seedReferral) {
+        const { error } = await supabase
+          .from('PropertyCategory')
+          .update({ referral_rate: seedReferral })
+          .eq('referral_rate', '0.0000');
+        if (error) {
+          console.error('PropertyCategory referral_rate seed fill failed:', error.message);
+          b5Failed = true;
+        }
+      }
+    }
     for (const p of b5Mock.MOCK_PROPERTIES) {
       const { error } = await supabase.from('Property').upsert(
         {

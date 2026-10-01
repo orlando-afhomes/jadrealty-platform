@@ -615,6 +615,7 @@ export const MOCK_PROPERTIES: CatalogProperty[] = CMS_PROPERTIES_SEED.properties
 export const MOCK_MEMBERS: MemberProfile[] = [
   {
     id: 'mem-001',
+    memberCode: 'JAD-MEM-0001',
     firstName: 'Juan',
     lastName: 'Dela Cruz',
     dateOfBirth: '1992-03-14',
@@ -632,6 +633,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-002',
+    memberCode: 'JAD-MEM-0002',
     firstName: 'Maria',
     lastName: 'Santos',
     dateOfBirth: '1990-05-15',
@@ -649,6 +651,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-003',
+    memberCode: 'JAD-MEM-0003',
     firstName: 'Pedro',
     lastName: 'Pendiente',
     dateOfBirth: '1988-07-22',
@@ -666,6 +669,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-004',
+    memberCode: 'JAD-MEM-0004',
     firstName: 'Ana',
     lastName: 'Anay',
     dateOfBirth: '1994-02-10',
@@ -683,6 +687,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-005',
+    memberCode: 'JAD-MEM-0005',
     firstName: 'Ramon',
     lastName: 'Reyes',
     dateOfBirth: '1986-09-03',
@@ -700,6 +705,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-006',
+    memberCode: 'JAD-MEM-0006',
     firstName: 'Liza',
     lastName: 'Lopez',
     dateOfBirth: '1993-12-19',
@@ -717,6 +723,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-007',
+    memberCode: 'JAD-MEM-0007',
     firstName: 'Kevin',
     lastName: 'Kintanar',
     dateOfBirth: '1991-06-27',
@@ -734,6 +741,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-008',
+    memberCode: 'JAD-MEM-0008',
     firstName: 'Nina',
     lastName: 'Navarro',
     dateOfBirth: '1996-04-11',
@@ -751,6 +759,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-009',
+    memberCode: 'JAD-MEM-0009',
     firstName: 'Oscar',
     lastName: 'Mendoza',
     dateOfBirth: '1988-07-30',
@@ -768,6 +777,7 @@ export const MOCK_MEMBERS: MemberProfile[] = [
   },
   {
     id: 'mem-010',
+    memberCode: 'JAD-MEM-0010',
     firstName: 'Pedro',
     lastName: 'Reyes',
     dateOfBirth: '1985-11-22',

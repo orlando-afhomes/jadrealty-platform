@@ -36,9 +36,15 @@ import {
   cmsLinkedListingIds as buildLinkedListingIds,
 } from '../../cms/services/catalogLinks';
 import { PropertyFormDialog } from '../components/PropertyFormDialog';
-import { CategoryFormDialog } from '../components/CategoryFormDialog';
+import { CategoryFormDialog, decimalToPercent } from '../components/CategoryFormDialog';
 
 import styles from './CatalogPage.module.css';
+
+/** Display helper: exact decimal (0.0800) -> percent label (8%), dash when absent. */
+function formatRatePercent(rate: string | undefined): string {
+  const percent = decimalToPercent(rate);
+  return percent === '' ? '-' : `${percent}%`;
+}
 
 type Tab = 'categories' | 'listings';
 
@@ -214,13 +220,15 @@ export function CatalogPage() {
             <div className="table-scroll">
               <Table>
                 <TableHead>
-                  <TableRow>
-                    <TableHeaderCell>Title</TableHeaderCell>
-                    <TableHeaderCell>Slug</TableHeaderCell>
-                    <TableHeaderCell>Featured</TableHeaderCell>
-                    <TableHeaderCell>Listings</TableHeaderCell>
-                    <TableHeaderCell>Actions</TableHeaderCell>
-                  </TableRow>
+                    <TableRow>
+                      <TableHeaderCell>Title</TableHeaderCell>
+                      <TableHeaderCell>Slug</TableHeaderCell>
+                      <TableHeaderCell>Featured</TableHeaderCell>
+                      <TableHeaderCell>Direct %</TableHeaderCell>
+                      <TableHeaderCell>Referral %</TableHeaderCell>
+                      <TableHeaderCell>Listings</TableHeaderCell>
+                      <TableHeaderCell>Actions</TableHeaderCell>
+                    </TableRow>
                 </TableHead>
                 <TableBody>
                   {categories.map((cat) => (
@@ -255,6 +263,8 @@ export function CatalogPage() {
                           <span style={{ color: 'var(--color-text-muted)' }}>-</span>
                         )}
                       </TableCell>
+                      <TableCell label="Direct %">{formatRatePercent(cat.directRate)}</TableCell>
+                      <TableCell label="Referral %">{formatRatePercent(cat.referralRate)}</TableCell>
                       <TableCell label="Listings">{cat.listingCount}</TableCell>
                       <TableCell label="Actions">
                         <div

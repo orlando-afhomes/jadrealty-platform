@@ -247,6 +247,7 @@ export const initialRegistrations: Registration[] = [
 export const initialMembers: AdminMember[] = [
   {
     id: 'mem-001',
+    memberCode: 'JAD-MEM-0001',
     firstName: 'Juan',
     lastName: 'Dela Cruz',
     dateOfBirth: '1992-03-14',
@@ -267,6 +268,7 @@ export const initialMembers: AdminMember[] = [
   },
   {
     id: 'mem-002',
+    memberCode: 'JAD-MEM-0002',
     firstName: 'Maria',
     lastName: 'Santos',
     dateOfBirth: '1990-05-15',
@@ -287,6 +289,7 @@ export const initialMembers: AdminMember[] = [
   },
   {
     id: 'mem-005',
+    memberCode: 'JAD-MEM-0005',
     firstName: 'Ramon',
     lastName: 'Reyes',
     dateOfBirth: '1986-09-03',
@@ -307,6 +310,7 @@ export const initialMembers: AdminMember[] = [
   },
   {
     id: 'mem-007',
+    memberCode: 'JAD-MEM-0007',
     firstName: 'Kevin',
     lastName: 'Kintanar',
     dateOfBirth: '1991-06-27',
@@ -337,6 +341,7 @@ export const initialArchived: ArchivedMember[] = [
     // the registration queue on approve).
     originalData: {
       id: 'mem-012',
+      memberCode: 'JAD-MEM-0012',
       firstName: 'Sofia',
       lastName: 'Reyes',
       dateOfBirth: '1990-03-03',

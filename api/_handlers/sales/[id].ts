@@ -4,6 +4,7 @@ import { verifyUser } from '../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { mapSaleRow } from '../../_lib/pipeline.js';
 import { methodNotAllowed, requireService } from '../../_lib/rest.js';
+import { resolveCategoryRates } from '../../_lib/category-rates.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 
 /**
@@ -57,21 +58,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   // Configured rates for the estimate preview (never hard-code 8%/4%).
   // Served here (own sale only) so rates stay off the public surface.
-  const { data: rateRows } = await supabase
-    .from('SystemConfig')
-    .select('key,value')
-    .in('key', ['COMMISSION_DIRECT_RATE', 'COMMISSION_REFERRAL_RATE']);
-  const rateByKey: Record<string, string> = {};
-  for (const r of (rateRows as { key: string; value: string }[] | null) ?? []) {
-    rateByKey[r.key] = r.value;
-  }
+  // Per-category first, global fallback - mirrors sale_qualify.
+  const saleRow = mapSaleRow(data as Record<string, unknown>);
+  const salePropertyId = typeof saleRow.propertyId === 'string' ? saleRow.propertyId : null;
+  const resolved = await resolveCategoryRates(
+    supabase,
+    salePropertyId ? [salePropertyId] : [],
+  ).catch(
+    () => new Map<string, { directRate: string | null; referralRate: string | null }>(),
+  );
+  const preview = salePropertyId ? resolved.get(salePropertyId) : undefined;
   const parsed = saleSchema.safeParse({
-    ...mapSaleRow(data as Record<string, unknown>),
-    ...(rateByKey.COMMISSION_DIRECT_RATE && rateByKey.COMMISSION_REFERRAL_RATE
+    ...saleRow,
+    ...(preview?.directRate && preview?.referralRate
       ? {
           commissionRates: {
-            direct: rateByKey.COMMISSION_DIRECT_RATE,
-            referral: rateByKey.COMMISSION_REFERRAL_RATE,
+            direct: preview.directRate,
+            referral: preview.referralRate,
           },
         }
       : {}),
