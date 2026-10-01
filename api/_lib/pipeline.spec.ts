@@ -150,6 +150,13 @@ describe('member row mapping', () => {
     expect(mapMemberRow(base).memberCode).toBeUndefined();
     expect(isValidMemberRow(base)).toBe(true);
   });
+
+  it('passes middle initial and suffix through, trimming blanks to absent', () => {
+    expect(mapMemberRow({ ...base, middleInitial: 'D' }).middleInitial).toBe('D');
+    expect(mapMemberRow({ ...base, nameSuffix: 'Jr.' }).nameSuffix).toBe('Jr.');
+    expect(mapMemberRow({ ...base, middleInitial: '   ' }).middleInitial).toBeUndefined();
+    expect(isValidMemberRow({ ...base, middleInitial: 'D' })).toBe(true);
+  });
 });
 
 describe('sale/customer row mapping', () => {

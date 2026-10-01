@@ -6,10 +6,34 @@ import { appendAudit } from '../../_lib/audit.js';
 import { getSupabaseEnv } from '../../_lib/env.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { isValidAdminMemberRow, mapAdminMemberRow } from '../../_lib/pipeline.js';
-import { isReferralCodeConflict, pickUniqueReferralCode } from '../../_lib/referral-codes.js';
-import { adminMemberSchema } from '@jad/contracts';
+import {
+  generateReferralCode,
+  isReferralCodeConflict,
+  MAX_REFERRAL_CODE_ATTEMPTS,
+} from '../../_lib/referral-codes.js';
+import {
+  adminMemberSchema,
+  birthDateSchema,
+  MAX_STREET_LENGTH,
+  middleInitialSchema,
+  personNameSchema,
+  staffPasswordSchema,
+  validatePhoneNumber,
+} from '@jad/contracts';
+import {
+  buildPhoneRule,
+  locationLookupsFor,
+  resolveIntakeAddress,
+} from '../../_lib/intake-validation.js';
+import { enforceRateLimit } from '../../_lib/rate-limit.js';
 import { methodNotAllowed, okList, readJsonBody, serviceClient } from '../../_lib/rest.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
+
+function idempotencyKey(req: VercelRequest): string | undefined {
+  const raw = req.headers['idempotency-key'] ?? req.headers['Idempotency-Key'];
+  const key = Array.isArray(raw) ? raw[0] : raw;
+  return typeof key === 'string' && key ? key : undefined;
+}
 
 const PROGRAM_IDS = ['prg-domestic', 'prg-abroad'] as const;
 
@@ -21,7 +45,7 @@ function validEmail(email: string): boolean {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -71,6 +95,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'POST') {
+    // This endpoint mints auth identities - brake floods like the other
+    // account-creating endpoints do (register/session-password parity).
+    if (
+      !enforceRateLimit(req, res, {
+        scope: 'admin/members',
+        max: process.env.ADMIN_MEMBERS_RATE_LIMIT
+          ? Number(process.env.ADMIN_MEMBERS_RATE_LIMIT)
+          : 30,
+      })
+    ) {
+      return;
+    }
+    // Double-submit protection (sales/withdrawals parity): the dialog sends
+    // a fresh key per open; retries replay the stored 201 payload instead of
+    // minting a second auth user + duplicate MEMBER_CREATED audit. Scoped by
+    // staff actor inside the key (staff ids are not Member rows, so
+    // IdempotencyKey.memberId stays null here).
+    const rawKey = idempotencyKey(req);
+    if (!rawKey) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Idempotency-Key header is required.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const idemPath = `POST:/admin/members:${auth.userId}:${rawKey}`;
+    const { data: replay } = await supabase
+      .from('IdempotencyKey')
+      .select('response,expiresAt')
+      .eq('key', idemPath)
+      .maybeSingle();
+    const expired =
+      replay !== null &&
+      (replay as { expiresAt?: string | null }).expiresAt != null &&
+      new Date((replay as { expiresAt: string }).expiresAt).getTime() <= Date.now();
+    if (expired) {
+      await supabase.from('IdempotencyKey').delete().eq('key', idemPath);
+    } else if (replay && (replay as { response?: unknown }).response) {
+      res.status(200).json((replay as { response: unknown }).response);
+      return;
+    }
     const parsedBody = readJsonBody(req);
     if (!parsedBody.ok) {
       const { error, status } = parsedBody.error;
@@ -78,8 +145,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     const input = (parsedBody.body ?? {}) as Record<string, unknown>;
-    const firstName = String(input.firstName ?? '').trim();
-    const lastName = String(input.lastName ?? '').trim();
+    // Names, initial, email, phone, DOB, and address are validated with the
+    // same `@jad/contracts` normalize-then-validate core `/register` and the
+    // intake API enforce - the dialog is UX-only, this is the boundary.
+    const firstNameParsed = personNameSchema.safeParse(input.firstName ?? '');
+    const lastNameParsed = personNameSchema.safeParse(input.lastName ?? '');
+    if (!firstNameParsed.success || !lastNameParsed.success) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'First and last name are required (letters, spaces, hyphens, apostrophes).',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const firstName = firstNameParsed.data;
+    const lastName = lastNameParsed.data;
+    const middleInitialParsed = middleInitialSchema.safeParse(input.middleInitial ?? '');
+    if (!middleInitialParsed.success) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Middle initial must be a single letter (A-Z) or omitted.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const middleInitial = middleInitialParsed.data ?? '';
     const email = String(input.email ?? '')
       .trim()
       .toLowerCase();
@@ -89,16 +181,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const programId = (PROGRAM_IDS as readonly string[]).includes(rawProgram)
       ? rawProgram
       : `prg-${rawProgram.toLowerCase()}`;
-    if (!firstName || !lastName) {
-      const { error, status } = toErrorEnvelope(
-        'VALIDATION_ERROR',
-        'First and last name are required.',
-        400,
-      );
-      res.status(status).json({ error });
-      return;
-    }
-    if (!validEmail(email)) {
+    if (!validEmail(email) || email.length > 254) {
       const { error, status } = toErrorEnvelope(
         'VALIDATION_ERROR',
         'A valid email address is required.',
@@ -107,16 +190,141 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error });
       return;
     }
-    if (!(PROGRAM_IDS as readonly string[]).includes(programId)) {
+    // NOTE: any country × program combination is intentionally allowed
+    // (admin power, e.g. OFW on Domestic) - only existence is enforced, and
+    // the program row itself is verified against the Program table below.
+    const countryCode = String(input.countryCode ?? '').trim();
+    // Independent reference reads overlap in one round (B4): country rule
+    // (also feeds phone validation below, so no second countries fetch),
+    // minimum age, program existence (never trust the hardcoded list alone),
+    // and the email pre-check.
+    const [countryRes, minAgeRes, programRes, existingRes] = await Promise.all([
+      supabase
+        .from('countries')
+        .select('code,name,is_active,dial_code,phone_national_min,phone_national_max,phone_pattern')
+        .eq('code', countryCode)
+        .maybeSingle(),
+      supabase
+        .from('SystemConfig')
+        .select('value')
+        .eq('key', 'QUALIFICATION_MIN_AGE')
+        .maybeSingle(),
+      supabase.from('Program').select('id').eq('id', programId).maybeSingle(),
+      supabase.from('Member').select('id').eq('email', email).limit(1),
+    ]);
+    if (!programRes.data) {
       const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Unknown program.', 400);
       res.status(status).json({ error });
       return;
     }
-    const { data: existing } = await supabase
-      .from('Member')
-      .select('id')
-      .eq('email', email)
-      .limit(1);
+    const country = countryRes.data as {
+      code?: string;
+      name?: string;
+      is_active?: boolean;
+      dial_code?: unknown;
+      phone_national_min?: unknown;
+      phone_national_max?: unknown;
+      phone_pattern?: unknown;
+    } | null;
+    if (!country || typeof country.code !== 'string' || country.is_active === false) {
+      const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Select a valid country.', 400);
+      res.status(status).json({ error });
+      return;
+    }
+    const countryName = typeof country.name === 'string' && country.name ? country.name : '';
+    const lookups = locationLookupsFor(supabase);
+    const phone = validatePhoneNumber(
+      String(input.phone ?? ''),
+      buildPhoneRule({
+        code: countryCode,
+        dial_code: country.dial_code,
+        phone_national_min: country.phone_national_min,
+        phone_national_max: country.phone_national_max,
+        phone_pattern: country.phone_pattern,
+      }),
+    );
+    if (!phone) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Enter a valid phone number.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const minAge = Number.parseInt(
+      String((minAgeRes.data as { value?: unknown } | null)?.value ?? '18'),
+      10,
+    );
+    const dobCheck = birthDateSchema(Number.isFinite(minAge) ? minAge : 18).safeParse(
+      input.dateOfBirth ?? '',
+    );
+    if (!dobCheck.success) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Enter a valid date of birth.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const dateOfBirth = dobCheck.data;
+    const gender = String(input.gender ?? '').trim();
+    if (!gender || gender.length > 60) {
+      const { error, status } = toErrorEnvelope('VALIDATION_ERROR', 'Gender is required.', 400);
+      res.status(status).json({ error });
+      return;
+    }
+    // Optional name suffix - fixed choices only (Jr./Sr./II/III/IV/V),
+    // mirroring the admin dialog dropdown.
+    const nameSuffix = String(input.nameSuffix ?? '').trim();
+    if (nameSuffix && !['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'].includes(nameSuffix)) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Name suffix must be one of Jr., Sr., II, III, IV, V.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const street = String(input.address ?? '').trim();
+    if (!street || street.length > MAX_STREET_LENGTH) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Street address is required.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const addressCheck = await resolveIntakeAddress(lookups, countryCode, {
+      street,
+      provinceCode: typeof input.provinceCode === 'string' ? input.provinceCode : undefined,
+      cityCode: typeof input.cityCode === 'string' ? input.cityCode : undefined,
+      barangayCode: typeof input.barangayCode === 'string' ? input.barangayCode : undefined,
+      region: typeof input.region === 'string' ? input.region : undefined,
+      city: typeof input.city === 'string' ? input.city : undefined,
+    });
+    if (!addressCheck.ok) {
+      const { error, status } = toErrorEnvelope('VALIDATION_ERROR', addressCheck.message, 400);
+      res.status(status).json({ error });
+      return;
+    }
+    const addressColumns = addressCheck.columns;
+    const rawPassword =
+      typeof input.temporaryPassword === 'string' && input.temporaryPassword
+        ? input.temporaryPassword
+        : null;
+    if (rawPassword !== null && !staffPasswordSchema.safeParse(rawPassword).success) {
+      const { error, status } = toErrorEnvelope(
+        'VALIDATION_ERROR',
+        'Temporary password must be 8-72 characters.',
+        400,
+      );
+      res.status(status).json({ error });
+      return;
+    }
+    const existing = existingRes.data;
     if (Array.isArray(existing) && existing.length > 0) {
       const { error, status } = toErrorEnvelope(
         'CONFLICT',
@@ -128,10 +336,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const created = await supabase.auth.admin.createUser({
       email,
-      password:
-        typeof input.temporaryPassword === 'string' && input.temporaryPassword
-          ? input.temporaryPassword
-          : randomUUID(),
+      password: rawPassword ?? randomUUID(),
       email_confirm: true,
       user_metadata: { full_name: `${firstName} ${lastName}` },
     });
@@ -156,10 +361,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
     const now = new Date().toISOString();
-    const { data: codeRows } = await supabase.from('Member').select('referralCode');
-    let taken: (string | null | undefined)[] = (
-      (codeRows as { referralCode?: string | null }[] | null) ?? []
-    ).map((candidate) => candidate.referralCode);
     const buildMemberRow = (referralCode: string, sponsorId: string | null) => ({
       id: authId,
       email,
@@ -168,10 +369,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       isQualified: false,
       firstName,
       lastName,
-      phone: typeof input.phone === 'string' ? input.phone : null,
-      address: typeof input.address === 'string' ? input.address : null,
-      countryCode: typeof input.countryCode === 'string' ? input.countryCode : 'PH',
-      countryName: typeof input.countryName === 'string' ? input.countryName : 'Philippines',
+      middleInitial,
+      nameSuffix,
+      phone,
+      dateOfBirth,
+      gender,
+      address: addressColumns.address,
+      province_code: addressColumns.province_code,
+      province_name: addressColumns.province_name,
+      city_code: addressColumns.city_code,
+      city_name: addressColumns.city_name,
+      barangay_code: addressColumns.barangay_code,
+      barangay_name: addressColumns.barangay_name,
+      region_name: addressColumns.region_name,
+      countryCode,
+      countryName,
       programId,
       referralCode,
       sponsorId,
@@ -185,9 +397,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let sponsorId: string | null = null;
     const sponsorCode = String(input.referralCode ?? '').trim();
     if (sponsorCode) {
+      // Targeted case-insensitive lookup (LIKE metacharacters escaped) - no
+      // full-table scan; the JS comparison below confirms the exact match.
+      const escaped = sponsorCode.replace(/[\\%_]/g, (match) => `\\${match}`);
       const { data: sponsorRows } = await supabase
         .from('Member')
-        .select('id,referralCode,accountStatus,isQualified');
+        .select('id,referralCode,accountStatus,isQualified')
+        .ilike('referralCode', escaped);
       const sponsor = (
         (sponsorRows as
           | {
@@ -216,13 +432,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       sponsorId = sponsor.id;
     }
-    let referralCode = pickUniqueReferralCode(taken, lastName);
+    // Fresh entropy per attempt with the shared retry budget (no
+    // full-table pre-scan): the partial UNIQUE index stays the source of
+    // truth, so concurrent creates converge instead of colliding.
+    let referralCode = generateReferralCode(lastName);
     let memberResult = await supabase
       .from('Member')
       .upsert(buildMemberRow(referralCode, sponsorId), { onConflict: 'id' });
-    if (memberResult.error && isReferralCodeConflict(memberResult.error)) {
-      taken = [...taken, referralCode];
-      referralCode = pickUniqueReferralCode(taken, lastName);
+    for (
+      let attempt = 1;
+      attempt < MAX_REFERRAL_CODE_ATTEMPTS &&
+      memberResult.error &&
+      isReferralCodeConflict(memberResult.error);
+      attempt += 1
+    ) {
+      referralCode = generateReferralCode(lastName);
       memberResult = await supabase
         .from('Member')
         .upsert(buildMemberRow(referralCode, sponsorId), { onConflict: 'id' });
@@ -296,6 +520,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(status).json({ error });
       return;
     }
+    await supabase.from('IdempotencyKey').upsert(
+      {
+        key: idemPath,
+        memberId: null,
+        response: parsed.data,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+      { onConflict: 'key' },
+    );
     res.status(201).json(parsed.data);
     return;
   }

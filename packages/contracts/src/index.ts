@@ -42,12 +42,26 @@ export {
   normalizePhoneDigits,
   validatePhoneNumber,
   toPhoneRule,
+  buildPhoneRule,
+  dialCodeOptions,
+  buildPhoneRuleForDial,
+  maxNationalLength,
+  sanitizeNationalInput,
+  splitStoredPhone,
+  composeE164Phone,
   parseBirthDate,
+  cutoffDateForMinAge,
   birthDateSchema,
   philippineAddressSchema,
   genericAddressSchema,
 } from './schemas/registration-validation.js';
-export type { PhoneCountryRule, PhoneRuleInput, ParsedBirthDate } from './schemas/registration-validation.js';
+export type {
+  PhoneCountryRule,
+  PhoneRuleInput,
+  ParsedBirthDate,
+  CountryPhoneMeta,
+  DialCodeOption,
+} from './schemas/registration-validation.js';
 export { systemConfigEntrySchema, PUBLIC_CONFIG_KEYS } from './schemas/system-config.js';
 export type { SystemConfigEntry } from './schemas/system-config.js';
 export {

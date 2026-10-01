@@ -185,7 +185,7 @@ export function MembersPage() {
     <section>
       <PageHeader
         title="Members"
-        description="Member management edit, deactivate, archive (mock repositories, DB-ready)"
+        description="Manage members: create, edit, deactivate, archive, and restore member records"
         actions={
           <Button variant="primary" onClick={() => setShowCreate(true)} aria-label="Create member">
             Create Member

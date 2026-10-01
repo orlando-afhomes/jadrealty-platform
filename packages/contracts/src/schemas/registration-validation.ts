@@ -241,6 +241,17 @@ export function parseBirthDate(value: string, now: Date = new Date()): ParsedBir
   return { ok: true, date, age };
 }
 
+/**
+ * Latest birth date satisfying a minimum age, as `YYYY-MM-DD` (drives date
+ * input `max` attributes - typed values still go through `parseBirthDate`).
+ */
+export function cutoffDateForMinAge(minAge: number, now: Date = new Date()): string {
+  const y = now.getFullYear() - minAge;
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /** Birth-date schema: strict parse + configurable minimum age. */
 export function birthDateSchema(minAge: number, now: Date = new Date()) {
   return z
@@ -279,6 +290,148 @@ export function validatePhoneNumber(input: string, rule: PhoneCountryRule): stri
   if (!rule.nationalLengths.includes(national.length)) return null;
   if (rule.nationalPattern && !rule.nationalPattern.test(national)) return null;
   return `+${rule.dialCode}${national}`;
+}
+
+/** Phone metadata for one country, as served by GET /config/public. */
+export interface CountryPhoneMeta {
+  code: string;
+  name: string;
+  dialCode?: string;
+  phoneMin?: number;
+  phoneMax?: number;
+  phonePattern?: string;
+}
+
+/**
+ * Build the effective phone rule for a country from config metadata,
+ * falling back to generic E.164 when the country carries no (valid) rule.
+ */
+export function buildPhoneRule(
+  countries: CountryPhoneMeta[] | undefined,
+  countryCode: string,
+): PhoneCountryRule {
+  const row = countries?.find((candidate) => candidate.code === countryCode);
+  if (!row) return { ...GENERIC_E164_RULE };
+  return toPhoneRule({
+    countryCode,
+    dialCode: row.dialCode,
+    min: row.phoneMin,
+    max: row.phoneMax,
+    pattern: row.phonePattern,
+  });
+}
+
+/** One entry of a phone field's country-code dropdown. */
+export interface DialCodeOption {
+  /** Dial digits without '+', e.g. '63'. */
+  dial: string;
+  /** ISO code of the (first) country carrying this dial. */
+  countryCode: string;
+  label: string;
+}
+
+const DIAL_RE = /^[0-9]{1,4}$/;
+
+/**
+ * Dial-code dropdown options from public config. Countries without a valid
+ * dial code are skipped; duplicate dials collapse to their first country
+ * (shared dials such as +1 validate against that country's rule).
+ */
+export function dialCodeOptions(
+  countries: CountryPhoneMeta[] | undefined,
+): DialCodeOption[] {
+  const options: DialCodeOption[] = [];
+  for (const row of countries ?? []) {
+    if (!row.dialCode || !DIAL_RE.test(row.dialCode)) continue;
+    if (options.some((option) => option.dial === row.dialCode)) continue;
+    options.push({
+      dial: row.dialCode,
+      countryCode: row.code,
+      label: `+${row.dialCode} ${row.name}`,
+    });
+  }
+  return options;
+}
+
+/**
+ * Effective phone rule for a selected dial code (first country carrying the
+ * dial wins), falling back to generic E.164 for unknown dials.
+ */
+export function buildPhoneRuleForDial(
+  countries: CountryPhoneMeta[] | undefined,
+  dial: string,
+): PhoneCountryRule {
+  const row = countries?.find((candidate) => candidate.dialCode === dial);
+  if (!row) return { ...GENERIC_E164_RULE };
+  return toPhoneRule({
+    countryCode: row.code,
+    dialCode: row.dialCode,
+    min: row.phoneMin,
+    max: row.phoneMax,
+    pattern: row.phonePattern,
+  });
+}
+
+/** Largest national length a rule allows (drives input truncation). */
+export function maxNationalLength(rule: PhoneCountryRule): number {
+  return rule.nationalLengths.length > 0 ? Math.max(...rule.nationalLengths) : 15;
+}
+
+/**
+ * Sanitize raw phone input to national digits capped at `maxLen`. Strips
+ * every non-digit, then drops an embedded dial code or trunk `0` only when
+ * the digit string overflows (a bare national number never exceeds `maxLen`,
+ * so overflow proves a prefix rode along - paste, autofill, `+63 ...`). The
+ * result is always slice-capped, so typing and pasting can never exceed the
+ * country's limit; length/format enforcement stays in `validatePhoneNumber`.
+ */
+export function sanitizeNationalInput(rawValue: string, dial: string, maxLen: number): string {
+  let digits = rawValue.replace(/\D/g, '');
+  if (digits === '') return '';
+  if (dial !== '' && digits.length > maxLen && digits.startsWith(dial)) {
+    digits = digits.slice(dial.length);
+  }
+  while (digits.startsWith('0') && digits.length > maxLen) {
+    digits = digits.slice(1);
+  }
+  return digits.slice(0, maxLen);
+}
+
+/**
+ * Split a stored phone value (canonical E.164 `+<dial><national>`) into dial
+ * + national parts. Never truncates - overlong values stay overlong so
+ * validation flags them.
+ */
+export function splitStoredPhone(
+  stored: string,
+  countries: CountryPhoneMeta[] | undefined,
+  countryCode: string,
+): { dial: string; national: string } {
+  const rows = countries ?? [];
+  const verified = rows.find((row) => row.code === countryCode);
+  const verifiedDial =
+    verified?.dialCode && DIAL_RE.test(verified.dialCode) ? verified.dialCode : '';
+  const digits = stored.replace(/\D/g, '');
+  if (digits === '') return { dial: verifiedDial, national: '' };
+  // Prefer the verified country's dial for the bare dial-code form.
+  if (verifiedDial !== '' && digits.startsWith(verifiedDial)) {
+    return { dial: verifiedDial, national: digits.slice(verifiedDial.length) };
+  }
+  const other = rows.find(
+    (row) => row.dialCode && DIAL_RE.test(row.dialCode) && digits.startsWith(row.dialCode),
+  );
+  if (other?.dialCode) return { dial: other.dialCode, national: digits.slice(other.dialCode.length) };
+  if (digits.startsWith('0') && verifiedDial !== '') {
+    return { dial: verifiedDial, national: digits.slice(1) };
+  }
+  return { dial: verifiedDial, national: digits };
+}
+
+/** Compose the canonical E.164 submit value from dial + national digits. */
+export function composeE164Phone(dial: string, national: string): string {
+  const digits = national.replace(/\D/g, '');
+  if (digits === '') return '';
+  return dial !== '' ? `+${dial}${digits}` : `+${digits}`;
 }
 
 /** Philippine structured address: province → city → barangay codes + optional street. */

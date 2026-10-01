@@ -53,13 +53,26 @@ export async function setMemberQualified(id: string, isQualified: boolean): Prom
 
 export interface CreateMemberInput {
   firstName: string;
+  /** Single uppercase letter; absent when the member has none (N/A). */
+  middleInitial?: string;
   lastName: string;
+  /** Optional suffix (Jr./Sr./III, max 10) - validated server-side. */
+  nameSuffix?: string;
   email: string;
+  /** Canonical E.164 (`+<dial><national>`), validated per-country server-side. */
   phone: string;
   gender: string;
+  /** Street/building/unit line. */
   address?: string;
   countryCode: string;
   countryName: string;
+  /** PH hierarchy (PSGC codes, verified server-side) - PH only. */
+  provinceCode?: string;
+  cityCode?: string;
+  barangayCode?: string;
+  /** Structured address text - non-PH only. */
+  region?: string;
+  city?: string;
   programCode: string;
   dateOfBirth: string;
   temporaryPassword: string;
@@ -67,10 +80,16 @@ export interface CreateMemberInput {
   referralCode?: string;
 }
 
-export async function createMember(input: CreateMemberInput): Promise<AdminMember> {
+export async function createMember(
+  input: CreateMemberInput,
+  opts?: { idempotencyKey?: string },
+): Promise<AdminMember> {
   return request('/admin/members', adminMemberSchema, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts?.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {}),
+    },
     body: JSON.stringify(input),
   });
 }

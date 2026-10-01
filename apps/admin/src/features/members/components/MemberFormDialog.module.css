@@ -1,0 +1,76 @@
+/* Polished native controls for the member dialog (date picker, dropdowns,
+   phone inputs). Native elements are kept so mobile pickers, keyboard
+   support, and screen-reader semantics stay intact - this only upgrades
+   their visuals to match the dialog. */
+
+.control {
+  min-height: 44px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-s);
+  font-family: inherit;
+  color: inherit;
+  background: var(--color-bg-surface-raised);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.control:hover {
+  border-color: var(--color-text-muted);
+}
+
+.control:focus {
+  outline: none;
+  border-color: var(--color-brand-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring, rgba(44, 106, 167, 0.25));
+}
+
+.control:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.controlError,
+.controlError:focus {
+  border-color: var(--color-danger);
+}
+
+.controlError:focus {
+  box-shadow: 0 0 0 3px rgba(200, 40, 40, 0.18);
+}
+
+/* Dropdowns: custom chevron, room for it on the right. */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%236b7280' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.select:disabled {
+  cursor: not-allowed;
+}
+
+/* Date input: full-width tap target with an obvious calendar affordance. */
+.date {
+  color-scheme: light;
+}
+
+.date::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.65;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.date::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background: var(--color-bg-surface);
+}

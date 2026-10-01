@@ -142,6 +142,13 @@ export function mapMemberRow(
     // Absent only for legacy rows predating the member_code migration.
     ...(typeof row.memberCode === 'string' && row.memberCode ? { memberCode: row.memberCode } : {}),
     ...names,
+    // Optional single-letter initial / suffix (columns default to '').
+    ...(typeof row.middleInitial === 'string' && row.middleInitial.trim() !== ''
+      ? { middleInitial: row.middleInitial.trim() }
+      : {}),
+    ...(typeof row.nameSuffix === 'string' && row.nameSuffix.trim() !== ''
+      ? { nameSuffix: row.nameSuffix.trim() }
+      : {}),
     dateOfBirth: row.dateOfBirth ?? '1990-01-01',
     age: calculateAge(typeof row.dateOfBirth === 'string' ? row.dateOfBirth : '1990-01-01'),
     gender: row.gender ?? 'Male',

@@ -22,7 +22,7 @@ describe('MembersPage', () => {
   it('renders page header', async () => {
     renderWithProviders(<MembersPage />, { user: MOCK_ADMIN });
     expect(await screen.findByText('Members')).toBeInTheDocument();
-    expect(screen.getByText(/Member management edit, deactivate, archive/)).toBeInTheDocument();
+    expect(screen.getByText(/Manage members/)).toBeInTheDocument();
   });
 
   it('renders members table with data', async () => {

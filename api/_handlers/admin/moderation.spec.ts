@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
+import { resetRateLimits } from '../../_lib/rate-limit.js';
 
 import approveRegistration from './registrations/[id]/approve.js';
 import rejectRegistration from './registrations/[id]/reject.js';
@@ -29,14 +30,45 @@ const mocks = vi.hoisted(() => {
     memberRow: null as unknown,
     programs: [{ id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' }],
     memberUpsertErrors: [] as { message: string; code?: string }[],
+    idempotencyReplay: null as unknown,
+    countryRows: [
+      {
+        code: 'PH',
+        name: 'Philippines',
+        is_active: true,
+        dial_code: '63',
+        phone_national_min: 10,
+        phone_national_max: 10,
+        phone_pattern: '^9[0-9]{9}$',
+      },
+    ] as Record<string, unknown>[],
+    minAgeValue: '18' as string | null,
+    provinceRows: [{ code: '0128', name: 'Ilocos Norte' }] as Record<string, unknown>[],
+    cityRows: [{ code: '012801', name: 'Laoag City', province_code: '0128' }] as Record<
+      string,
+      unknown
+    >[],
+    barangayRows: [{ code: '012801001', name: 'Brgy 1', city_code: '012801' }] as Record<
+      string,
+      unknown
+    >[],
+    programRows: [{ id: 'prg-domestic' }, { id: 'prg-abroad' }] as Record<string, unknown>[],
   };
   const builder = (table: string) => {
     const b: Record<string, (...a: never[]) => unknown> = {};
+    let eqArgs: unknown[] = [];
     b.select = () => b;
-    b.eq = () => b;
+    b.eq = (...args: never[]) => {
+      eqArgs = args as unknown[];
+      return b;
+    };
     b.limit = async () => {
       if (table === 'Member') return { data: script.existingMembers, error: null };
       if (table === 'Role') return { data: [{ id: 'role-basic' }], error: null };
+      return { data: [], error: null };
+    };
+    b.ilike = async () => {
+      if (table === 'Member') return { data: script.memberList ?? [], error: null };
       return { data: [], error: null };
     };
     b.order = async () => ({ data: [], error: null });
@@ -67,6 +99,34 @@ const mocks = vi.hoisted(() => {
         return { data, error: null };
       }
       if (table === 'Member') return { data: script.memberRow, error: null };
+      if (table === 'IdempotencyKey') return { data: script.idempotencyReplay, error: null };
+      // Reference lookups for member-create validation (eq-aware).
+      if (table === 'countries') {
+        const row = script.countryRows.find((r) => r.code === eqArgs[1]) ?? null;
+        return { data: row, error: null };
+      }
+      if (table === 'SystemConfig') {
+        return {
+          data: script.minAgeValue === null ? null : { value: script.minAgeValue },
+          error: null,
+        };
+      }
+      if (table === 'ph_provinces') {
+        const row = script.provinceRows.find((r) => r.code === eqArgs[1]) ?? null;
+        return { data: row, error: null };
+      }
+      if (table === 'ph_cities') {
+        const row = script.cityRows.find((r) => r.code === eqArgs[1]) ?? null;
+        return { data: row, error: null };
+      }
+      if (table === 'ph_barangays') {
+        const row = script.barangayRows.find((r) => r.code === eqArgs[1]) ?? null;
+        return { data: row, error: null };
+      }
+      if (table === 'Program') {
+        const row = script.programRows.find((r) => r.id === eqArgs[1]) ?? null;
+        return { data: row, error: null };
+      }
       return { data: null, error: null };
     };
     b.single = async () => ({ data: null, error: null });
@@ -466,6 +526,27 @@ describe('POST /admin/registrations/:id/reject', () => {
 });
 
 describe('POST /admin/members', () => {
+  const keyed = (key: string) => ({ ...authed, 'idempotency-key': key });
+  const validCreateBody = (overrides: Record<string, unknown> = {}) => ({
+    firstName: 'Jane',
+    middleInitial: 'A',
+    lastName: 'Doe',
+    nameSuffix: 'Jr.',
+    email: 'jane@example.com',
+    phone: '+639180000001',
+    gender: 'Female',
+    address: '123 Mabini St, Quezon City',
+    countryCode: 'PH',
+    countryName: 'Philippines',
+    provinceCode: '0128',
+    cityCode: '012801',
+    barangayCode: '012801001',
+    programCode: 'ABROAD',
+    dateOfBirth: '1992-01-01',
+    temporaryPassword: 'password123',
+    ...overrides,
+  });
+
   beforeEach(() => {
     vi.stubEnv('SUPABASE_URL', 'https://fix.test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
@@ -477,6 +558,8 @@ describe('POST /admin/members', () => {
     mocks.script.memberList = [];
     mocks.script.createdAuthId = 'auth-uuid-2';
     mocks.script.createError = null;
+    mocks.script.idempotencyReplay = null;
+    resetRateLimits();
     mocks.script.listedUsers = [];
     mocks.script.memberRow = {
       id: 'auth-uuid-2',
@@ -503,19 +586,8 @@ describe('POST /admin/members', () => {
       {
         method: 'POST',
         query: {},
-        headers: authed,
-        body: {
-          firstName: 'Jane',
-          lastName: 'Doe',
-          email: 'jane@example.com',
-          phone: '+639180000001',
-          gender: 'Female',
-          countryCode: 'PH',
-          countryName: 'Philippines',
-          programCode: 'ABROAD',
-          dateOfBirth: '1992-01-01',
-          temporaryPassword: 'password123',
-        },
+        headers: keyed('test-key'),
+        body: validCreateBody(),
       } as VercelRequest,
       res,
     );
@@ -533,6 +605,60 @@ describe('POST /admin/members', () => {
     const upsert = mocks.calls.find((c) => c.table === 'Member' && c.op === 'upsert')
       ?.arg as Record<string, unknown>;
     expect(upsert.programId).toBe('prg-abroad');
+    // Server normalizes with the register-shared core: E.164 phone,
+    // single-letter initial, structured address snapshots, real DOB/gender.
+    expect(upsert).toMatchObject({
+      phone: '+639180000001',
+      middleInitial: 'A',
+      nameSuffix: 'Jr.',
+      dateOfBirth: '1992-01-01',
+      gender: 'Female',
+      address: '123 Mabini St, Quezon City',
+      province_code: '0128',
+      province_name: 'Ilocos Norte',
+      city_code: '012801',
+      city_name: 'Laoag City',
+      barangay_code: '012801001',
+      barangay_name: 'Brgy 1',
+    });
+  });
+
+  it('400s names with numbers, bad initials, phones, DOBs, passwords, and addresses', async () => {
+    const cases: Record<string, unknown>[] = [
+      // Numbers / symbols in names (normalized-then-validated server-side).
+      validCreateBody({ firstName: 'Jane2' }),
+      validCreateBody({ lastName: '   ' }),
+      validCreateBody({ middleInitial: 'AB' }),
+      validCreateBody({ middleInitial: '1' }),
+      validCreateBody({ nameSuffix: 'Esquire Junior' }),
+      // Email + password boundaries (shared staffPasswordSchema 8-72).
+      validCreateBody({ email: 'not-an-email' }),
+      validCreateBody({ temporaryPassword: 'short' }),
+      validCreateBody({ temporaryPassword: 'x'.repeat(73) }),
+      // Phone must satisfy the PH rule (letters rejected, 09… too short).
+      validCreateBody({ phone: '0917-CALL-ME' }),
+      validCreateBody({ phone: '0918000001' }),
+      // DOB: today, future, impossible, and ancient dates rejected.
+      validCreateBody({ dateOfBirth: new Date().toISOString().slice(0, 10) }),
+      validCreateBody({ dateOfBirth: '2999-01-01' }),
+      validCreateBody({ dateOfBirth: '2026-02-30' }),
+      validCreateBody({ dateOfBirth: '1800-01-01' }),
+      // Address: missing street, incomplete trio, unknown codes.
+      validCreateBody({ address: '   ' }),
+      validCreateBody({ barangayCode: '' }),
+      validCreateBody({ cityCode: '999999' }),
+      // Unknown country.
+      validCreateBody({ countryCode: 'XX' }),
+    ];
+    for (const body of cases) {
+      const { res, seen } = capture();
+      await createMember(
+        { method: 'POST', query: {}, headers: keyed('test-key'), body } as VercelRequest,
+        res,
+      );
+      expect(seen.status).toBe(400);
+      expect(seen.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    }
   });
 
   it('adopts the orphaned auth account on the real duplicate message', async () => {
@@ -549,19 +675,8 @@ describe('POST /admin/members', () => {
       {
         method: 'POST',
         query: {},
-        headers: authed,
-        body: {
-          firstName: 'Jane',
-          lastName: 'Doe',
-          email: 'jane@example.com',
-          phone: '+639180000001',
-          gender: 'Female',
-          countryCode: 'PH',
-          countryName: 'Philippines',
-          programCode: 'ABROAD',
-          dateOfBirth: '1992-01-01',
-          temporaryPassword: 'password123',
-        },
+        headers: keyed('test-key'),
+        body: validCreateBody(),
       } as VercelRequest,
       res,
     );
@@ -583,20 +698,8 @@ describe('POST /admin/members', () => {
       {
         method: 'POST',
         query: {},
-        headers: authed,
-        body: {
-          firstName: 'Jane',
-          lastName: 'Doe',
-          email: 'jane@example.com',
-          phone: '+639180000001',
-          gender: 'Female',
-          countryCode: 'PH',
-          countryName: 'Philippines',
-          programCode: 'ABROAD',
-          dateOfBirth: '1992-01-01',
-          temporaryPassword: 'password123',
-          referralCode: 'jd-2026-001',
-        },
+        headers: keyed('test-key'),
+        body: validCreateBody({ referralCode: 'jd-2026-001' }),
       } as VercelRequest,
       res,
     );
@@ -613,24 +716,98 @@ describe('POST /admin/members', () => {
       {
         method: 'POST',
         query: {},
-        headers: authed,
-        body: {
-          firstName: 'Jane',
-          lastName: 'Doe',
-          email: 'jane@example.com',
-          phone: '+639180000001',
-          gender: 'Female',
-          countryCode: 'PH',
-          countryName: 'Philippines',
-          programCode: 'ABROAD',
-          dateOfBirth: '1992-01-01',
-          temporaryPassword: 'password123',
-          referralCode: 'NOPE',
-        },
+        headers: keyed('test-key'),
+        body: validCreateBody({ referralCode: 'NOPE' }),
       } as VercelRequest,
       res,
     );
     expect(seen.status).toBe(400);
     expect(seen.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+  });
+
+  it('400s without an Idempotency-Key header', async () => {
+    const { res, seen } = capture();
+    await createMember(
+      { method: 'POST', query: {}, headers: authed, body: validCreateBody() } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(400);
+    expect(seen.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(mocks.calls.some((c) => c.table === 'auth.users')).toBe(false);
+  });
+
+  it('replays the stored payload instead of minting a second member', async () => {
+    const stored = { id: 'auth-uuid-2', email: 'jane@example.com', status: 'APPROVED_ACTIVE' };
+    mocks.script.idempotencyReplay = { response: stored, expiresAt: null };
+    const { res, seen } = capture();
+    await createMember(
+      {
+        method: 'POST',
+        query: {},
+        headers: keyed('replay-key'),
+        body: validCreateBody(),
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(200);
+    expect(seen.body).toEqual(stored);
+    expect(mocks.calls.some((c) => c.table === 'auth.users')).toBe(false);
+    expect(mocks.calls.some((c) => c.table === 'Member' && c.op === 'upsert')).toBe(false);
+  });
+
+  it('stores the created payload for future replays', async () => {
+    const { res, seen } = capture();
+    await createMember(
+      {
+        method: 'POST',
+        query: {},
+        headers: keyed('store-key'),
+        body: validCreateBody(),
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(201);
+    const stored = mocks.calls.find((c) => c.table === 'IdempotencyKey' && c.op === 'upsert')
+      ?.arg as Record<string, unknown>;
+    expect(String(stored.key)).toContain('store-key');
+    expect(stored.response).toMatchObject({ id: 'auth-uuid-2', email: 'jane@example.com' });
+  });
+
+  it('400s an unknown program verified against the Program table', async () => {
+    const { res, seen } = capture();
+    await createMember(
+      {
+        method: 'POST',
+        query: {},
+        headers: keyed('program-key'),
+        body: validCreateBody({ programCode: 'XX' }),
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(400);
+    expect(seen.body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+  });
+
+  it('429s once the per-IP create budget is exceeded', async () => {
+    vi.stubEnv('ADMIN_MEMBERS_RATE_LIMIT', '1');
+    try {
+      const attempt = async () => {
+        const { res, seen } = capture();
+        await createMember(
+          {
+            method: 'POST',
+            query: {},
+            headers: keyed(`throttle-${Math.random()}`),
+            body: validCreateBody(),
+          } as VercelRequest,
+          res,
+        );
+        return seen.status;
+      };
+      expect(await attempt()).toBe(201);
+      expect(await attempt()).toBe(429);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

@@ -387,7 +387,46 @@ export const adminMockHandlers: MockRoute[] = [
   },
   {
     path: '/admin/members',
-    response: () => {
+    handler: (ctx: MockRequestContext) => {
+      // POST - create a member with the next mock JAD-MEM code (mirrors the
+      // trigger-assigned memberCode; the dialog validates before sending).
+      if (ctx.method === 'POST') {
+        const body = (ctx.body ?? {}) as Record<string, unknown>;
+        const maxSeq = registrationStore.members.reduce((max, m) => {
+          const match = /^JAD-MEM-0*([1-9][0-9]*)$/.exec(
+            typeof m.memberCode === 'string' ? m.memberCode : '',
+          );
+          return match?.[1] ? Math.max(max, Number(match[1])) : max;
+        }, 0);
+        const created = {
+          id: `mem-mock-${Date.now().toString(36)}`,
+          memberCode: `JAD-MEM-${String(maxSeq + 1).padStart(4, '0')}`,
+          firstName: String(body.firstName ?? ''),
+          lastName: String(body.lastName ?? ''),
+          ...(typeof body.nameSuffix === 'string' && body.nameSuffix
+            ? { nameSuffix: body.nameSuffix }
+            : {}),
+          dateOfBirth: String(body.dateOfBirth ?? '1992-01-01'),
+          age: 34,
+          gender: String(body.gender ?? 'Male'),
+          address: typeof body.address === 'string' ? body.address : undefined,
+          countryCode: String(body.countryCode ?? 'PH'),
+          countryName: String(body.countryName ?? 'Philippines'),
+          phone: String(body.phone ?? ''),
+          email: String(body.email ?? ''),
+          referralCode: 'JAD-MOCK01',
+          status: 'APPROVED_ACTIVE',
+          isQualified: false,
+          program: { id: 'prg-domestic', code: 'DOMESTIC', name: 'Domestic Program' },
+          accountStatus: 'ACTIVE',
+          registeredAt: new Date().toISOString(),
+          ...(typeof body.middleInitial === 'string' && body.middleInitial
+            ? { middleInitial: body.middleInitial }
+            : {}),
+        } as (typeof registrationStore.members)[number];
+        registrationStore.members.push(created);
+        return { body: created, status: 201 as const };
+      }
       const data = registrationStore.members;
       return {
         data,
@@ -397,6 +436,68 @@ export const adminMockHandlers: MockRoute[] = [
           total: data.length,
         },
       };
+    },
+  },
+  {
+    // Public reference data for the member form (tiny deterministic dataset
+    // mirroring the PSGC-seeded tables + curated phone rules).
+    path: '/config/public',
+    response: () => ({
+      minimumAge: 18,
+      genders: ['Male', 'Female', 'Others'],
+      countries: [
+        {
+          code: 'PH',
+          name: 'Philippines',
+          dialCode: '63',
+          phoneMin: 10,
+          phoneMax: 10,
+          phonePattern: '^9[0-9]{9}$',
+        },
+        { code: 'US', name: 'United States', dialCode: '1', phoneMin: 10, phoneMax: 10 },
+        { code: 'JP', name: 'Japan', dialCode: '81', phoneMin: 9, phoneMax: 10 },
+        { code: 'SG', name: 'Singapore', dialCode: '65', phoneMin: 8, phoneMax: 8 },
+      ],
+    }),
+  },
+  {
+    path: '/locations/provinces',
+    response: () => ({
+      data: [
+        { code: '0128', name: 'Ilocos Norte', kind: 'province' },
+        { code: '133900', name: 'City of Manila', kind: 'city' },
+      ],
+      meta: { page: 1, pageSize: 10, total: 2 },
+    }),
+  },
+  {
+    path: '/locations/cities',
+    handler: (ctx: MockRequestContext) => {
+      const provinceCode = new URL(ctx.url, 'http://mock.local').searchParams.get('provinceCode');
+      const data =
+        provinceCode === '0128'
+          ? [
+              { code: '012801', name: 'Laoag City', provinceCode: '0128', kind: 'city' },
+              { code: '012802', name: 'Adams', provinceCode: '0128', kind: 'municipality' },
+            ]
+          : [];
+      return { data, meta: { page: 1, pageSize: 10, total: data.length } };
+    },
+  },
+  {
+    path: '/locations/barangays',
+    handler: (ctx: MockRequestContext) => {
+      const cityCode = new URL(ctx.url, 'http://mock.local').searchParams.get('cityCode');
+      const data =
+        cityCode === '012801'
+          ? [
+              { code: '012801001', name: 'Brgy 1', cityCode: '012801' },
+              { code: '012801002', name: 'Brgy 2', cityCode: '012801' },
+            ]
+          : cityCode === '133900'
+            ? [{ code: '133900001', name: 'Brgy 2', cityCode: '133900' }]
+            : [];
+      return { data, meta: { page: 1, pageSize: 10, total: data.length } };
     },
   },
   {
