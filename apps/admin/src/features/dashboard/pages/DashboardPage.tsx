@@ -1,5 +1,5 @@
 import type { AdminQueues } from '@jad/contracts';
-import { EmptyState, ErrorState, Icon, PageHeader, Skeleton, Spinner, StatusChip } from '@jad/ui';
+import { ErrorState, Icon, PageHeader, Skeleton, Spinner, StatusChip } from '@jad/ui';
 import { Link } from 'react-router';
 
 import { canAccess, findNavItem, ROLE_LABELS } from '../../../app/navigation';
@@ -124,11 +124,6 @@ export function DashboardPage() {
     !isPending && data && roleLabel
       ? `Welcome back, ${roleLabel} - ${sum} pending`
       : 'Pending action queues for your role';
-  const allClear =
-    !isPending &&
-    !isError &&
-    visible.length > 0 &&
-    visible.every((q) => (data?.[q.key] ?? 0) === 0);
 
   return (
     <section>
@@ -180,9 +175,6 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-          {allClear ? (
-            <EmptyState title="All clear" description="No pending items for your role." />
-          ) : null}
         </>
       )}
       {salesModuleOk ? <SalesTrendChart /> : null}

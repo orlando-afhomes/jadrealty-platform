@@ -42,11 +42,14 @@ describe('member NotificationsPage', () => {
     expect(screen.getByText(/Showing 7 of 7 notifications/)).toBeInTheDocument();
     expect(screen.getAllByText('Read').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Unread').length).toBeGreaterThanOrEqual(2);
-    // Unread cards carry the accent class; read cards do not
+    // Unread items carry a dot marker + tinted icon badge - never an accent edge
     const unreadCard = screen.getByText('Commission cleared').closest('li')!;
-    expect(unreadCard.className).toMatch(/cardUnread/);
+    expect(unreadCard.className).not.toMatch(/cardUnread/);
+    expect(unreadCard.querySelector('[class*="unreadDot"]')).not.toBeNull();
+    expect(unreadCard.querySelector('[class*="iconUnread"]')).not.toBeNull();
     const readCard = screen.getByText('Welcome to JA&D').closest('li')!;
-    expect(readCard.className).not.toMatch(/cardUnread/);
+    expect(readCard.querySelector('[class*="unreadDot"]')).toBeNull();
+    expect(readCard.querySelector('[class*="iconUnread"]')).toBeNull();
   });
 
   it('filters by read/unread and resets', async () => {
@@ -152,5 +155,29 @@ describe('member NotificationsPage', () => {
     renderMember(<NotificationsPage />, { user: MOCK_MEMBER });
 
     expect(await screen.findByText('No notifications')).toBeInTheDocument();
+    expect(document.querySelector('[class*="iconWrap"] svg')).not.toBeNull();
+  });
+
+  it('shows an illustrated empty state with a working Clear filter button on no matches', async () => {
+    const user = userEvent.setup();
+    renderMember(<NotificationsPage />, { user: MOCK_MEMBER });
+    await screen.findByText('Welcome to JA&D');
+
+    await user.click(screen.getByRole('button', { name: 'Mark all as read' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Mark all as read' })).toBeDisabled();
+    });
+    await user.click(screen.getByRole('button', { name: 'Unread' }));
+    expect(await screen.findByText('No matches')).toBeInTheDocument();
+    expect(
+      screen.getByText('No unread notifications match this filter.'),
+    ).toBeInTheDocument();
+    expect(document.querySelector('[class*="iconWrap"] svg')).not.toBeNull();
+
+    const clearBtn = screen.getByRole('button', { name: 'Clear filter' });
+    expect(clearBtn.className).toMatch(/clearButton/);
+    await user.click(clearBtn);
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByText('Commission cleared')).toBeInTheDocument();
   });
 });

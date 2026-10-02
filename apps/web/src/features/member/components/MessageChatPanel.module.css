@@ -1,0 +1,140 @@
+/*
+ * Floating chat panel (chatbot-style) opened by the member MessageFab.
+ * Desktop: docked card above the FAB. Mobile: full-width bottom sheet that
+ * respects the bottom nav + safe area.
+ */
+
+.panel {
+  position: fixed;
+  z-index: 55;
+  right: var(--space-3);
+  left: var(--space-3);
+  bottom: 136px;
+  bottom: calc(136px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  max-height: 560px;
+  max-height: min(560px, calc(100vh - 220px));
+  max-height: min(560px, calc(100dvh - 220px));
+  overflow: hidden;
+  background: var(--color-bg-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: panelIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Plain fallbacks above keep the panel anchored + capped where env()/dvh
+   are unsupported (an invalid declaration drops the whole line). Every
+   direct grid child must additionally shrink past its content width so long
+   words, buttons, and alerts never force the panel outside its box. */
+.panel > * {
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.avatar {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-soft);
+  color: var(--color-brand-primary);
+  border: 1px solid var(--color-border-default);
+}
+
+.identity {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+.note {
+  margin: 2px 0 0;
+  font-size: var(--text-body-s);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.closeButton {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary);
+}
+
+.closeButton:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
+}
+
+.alertWrap {
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+/* Thread viewport inside the panel: it must shrink below its content
+   (min-height 0 beats the grid default of auto) so the panel never grows
+   past its max-height on short screens - the thread scrolls internally. */
+.threadSize {
+  min-height: 0;
+  min-width: 0;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (min-width: 640px) {
+  .panel {
+    left: auto;
+    width: 384px;
+    right: var(--space-6);
+    bottom: calc(var(--space-6) + 56px + var(--space-3));
+    max-height: 560px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+}

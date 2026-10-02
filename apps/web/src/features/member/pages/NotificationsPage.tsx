@@ -190,13 +190,18 @@ export function NotificationsPage() {
           onRetry={() => void broadcastsQuery.refetch()}
         />
       ) : items.length === 0 ? (
-        <EmptyState title="No notifications" description="Updates from JA&D will appear here." />
+        <EmptyState
+          title="No notifications"
+          description="Updates from JA&D will appear here."
+          icon="bell"
+        />
       ) : filtered.length === 0 ? (
         <EmptyState
           title="No matches"
           description={`No ${filter === 'READ' ? 'read' : 'unread'} notifications match this filter.`}
+          icon="search"
           action={
-            <button type="button" className={styles.inlineLink} onClick={() => setFilter('ALL')}>
+            <button type="button" className={styles.clearButton} onClick={() => setFilter('ALL')}>
               Clear filter
             </button>
           }
@@ -206,22 +211,27 @@ export function NotificationsPage() {
           {filtered.map((notification) => {
             const isUnread = !notification.readAt;
             return (
-              <li
-                key={notification.id}
-                className={`${styles.card} ${isUnread ? styles.cardUnread : ''}`}
-              >
-                <span className={styles.iconWrap} aria-hidden="true">
+              <li key={notification.id} className={styles.card}>
+                <span
+                  className={`${styles.iconWrap} ${isUnread ? styles.iconUnread : ''}`}
+                  aria-hidden="true"
+                >
                   <Icon name="bell" size={18} className={styles.icon} />
                 </span>
                 <div className={styles.cardMain}>
-                  <button
-                    type="button"
-                    className={`${styles.titleButton} ${isUnread ? styles.titleUnread : ''}`}
-                    onClick={() => openViewer(notification)}
-                    aria-label={`View notification: ${notification.title}`}
-                  >
-                    {notification.title}
-                  </button>
+                  <span className={styles.titleRow}>
+                    {isUnread ? (
+                      <span className={styles.unreadDot} aria-hidden="true" />
+                    ) : null}
+                    <button
+                      type="button"
+                      className={`${styles.titleButton} ${isUnread ? styles.titleUnread : ''}`}
+                      onClick={() => openViewer(notification)}
+                      aria-label={`View notification: ${notification.title}`}
+                    >
+                      {notification.title}
+                    </button>
+                  </span>
                   {notification.body ? (
                     <span className={styles.body}>{notification.body}</span>
                   ) : null}

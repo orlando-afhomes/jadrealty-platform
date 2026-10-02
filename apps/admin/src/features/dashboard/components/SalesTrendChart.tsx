@@ -33,7 +33,7 @@ const MONTH_LABELS = [
 ];
 
 /** `2026-09` -> "Sep '26"; `2026` -> "2026". */
-function periodLabel(key: string): string {
+export function periodLabel(key: string): string {
   if (key.length === 4) return key;
   const year = key.slice(0, 4);
   const month = Number(key.slice(5, 7));
@@ -48,6 +48,63 @@ function abbreviateMoney(value: number): string {
 }
 
 type Metric = 'value' | 'count';
+
+/** Real trailing periods kept on either side of the centered latest point. */
+export const TREND_HISTORY_PERIODS = 7;
+
+export interface CenteredTrendPoint {
+  key: string;
+  label: string;
+  count: number;
+  total: string;
+  /** Null for upcoming slots - rendered as an honest gap, never a zero. */
+  plot: number | null;
+  upcoming: boolean;
+}
+
+function shiftMonthKey(key: string, delta: number): string | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(key);
+  if (!match) return null;
+  const total = Number(match[1]) * 12 + (Number(match[2]) - 1) + delta;
+  if (!Number.isSafeInteger(total) || total < 0) return null;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+}
+
+function shiftYearKey(key: string, delta: number): string | null {
+  if (!/^\d{4}$/.test(key)) return null;
+  return String(Number(key) + delta);
+}
+
+/**
+ * Compact centered window: the latest real period always lands in the
+ * middle - up to 7 trailing real periods plus a mirrored run of upcoming
+ * slots. Upcoming slots carry no data (plot null, rendered as a gap), so
+ * the future is never fabricated as zeroes.
+ */
+export function centerTrendSeries(
+  realPoints: { key: string; count: number; total: string }[],
+  granularity: 'month' | 'year',
+  metric: Metric,
+): CenteredTrendPoint[] {
+  const windowed = realPoints.slice(-TREND_HISTORY_PERIODS);
+  const series: CenteredTrendPoint[] = windowed.map((period) => ({
+    key: period.key,
+    label: periodLabel(period.key),
+    count: period.count,
+    total: period.total,
+    plot: metric === 'value' ? Number(period.total) : period.count,
+    upcoming: false,
+  }));
+  const lastKey = windowed.at(-1)?.key;
+  if (!lastKey) return series;
+  const shift = granularity === 'month' ? shiftMonthKey : shiftYearKey;
+  for (let i = 1; i <= windowed.length - 1; i++) {
+    const key = shift(lastKey, i);
+    if (!key) break;
+    series.push({ key, label: periodLabel(key), count: 0, total: '0.00', plot: null, upcoming: true });
+  }
+  return series;
+}
 
 interface Kpi {
   label: string;
@@ -67,13 +124,10 @@ export function SalesTrendChart() {
   const { data, isPending, isError, error, refetch } = useSalesTrend(granularity);
 
   const points = data?.periods ?? [];
-  const series = points.map((period) => ({
-    key: period.key,
-    label: periodLabel(period.key),
-    count: period.count,
-    total: period.total,
-    plot: metric === 'value' ? Number(period.total) : period.count,
-  }));
+  // KPIs always read the real trailing window; the chart pads it with
+  // mirrored upcoming slots so the latest period sits in the middle.
+  const realPoints = points.slice(-TREND_HISTORY_PERIODS);
+  const series = centerTrendSeries(points, granularity, metric);
 
   const yearPrefix = String(new Date().getUTCFullYear());
   const yearPeriods = points.filter((p) => p.key.startsWith(yearPrefix));
@@ -81,8 +135,8 @@ export function SalesTrendChart() {
   for (const period of yearPeriods) totalThisYear = addMoney(totalThisYear, period.total);
   const countThisYear = yearPeriods.reduce((sum, period) => sum + period.count, 0);
 
-  const current = points.at(-1);
-  const previous = points.at(-2);
+  const current = realPoints.at(-1);
+  const previous = realPoints.at(-2);
   const kpis: Kpi[] = [
     {
       label: granularity === 'month' ? 'Value this month' : `Value in ${yearPrefix}`,
@@ -196,8 +250,9 @@ export function SalesTrendChart() {
                   labelFormatter={(label) => String(label)}
                   formatter={(value, _name, item) => {
                     const point = item as
-                      | { payload?: { total?: string; count?: number } }
+                      | { payload?: { total?: string; count?: number; upcoming?: boolean } }
                       | undefined;
+                    if (point?.payload?.upcoming) return ['No data yet', 'Upcoming'];
                     if (point?.payload?.total !== undefined) {
                       return [point.payload.total === undefined ? String(value) : formatMoney(point.payload.total), 'Sales value'];
                     }

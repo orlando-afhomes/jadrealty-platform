@@ -78,15 +78,8 @@
 }
 
 .card:hover {
-  border-color: var(--color-border-strong);
+  border-color: var(--color-brand-primary);
   box-shadow: var(--shadow-sm);
-}
-
-/* Unread emphasis: accent edge + tinted surface + bold title (chip retained - 
-   state is never color-only, DESIGN-SYSTEM §1.1). */
-.cardUnread {
-  border-left: 4px solid var(--color-brand-primary);
-  background-color: var(--color-brand-soft);
 }
 
 .cardActions {
@@ -166,6 +159,34 @@
   color: var(--color-text-muted);
 }
 
+/* Unread emphasis without an accent edge: tinted bell badge + dot marker +
+   bold title (the Unread chip is retained - state is never color-only,
+   DESIGN-SYSTEM §1.1). */
+.iconUnread {
+  background-color: var(--color-brand-soft);
+  border-color: var(--color-brand-primary);
+}
+
+.iconUnread svg {
+  color: var(--color-brand-primary);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.unreadDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  align-self: center;
+  border-radius: var(--radius-full);
+  background-color: var(--color-brand-primary);
+}
+
 .cardMain {
   display: grid;
   gap: var(--space-1);
@@ -217,9 +238,35 @@
   color: var(--color-text-muted);
 }
 
-.inlineLink {
+/* Real button for the empty-state filter reset. */
+.clearButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-4);
+  min-height: 44px;
+  font-size: var(--text-body-s);
   font-weight: 600;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.clearButton:hover {
+  border-color: var(--color-brand-primary);
   color: var(--color-brand-primary);
+  background-color: var(--color-brand-soft);
+}
+
+.clearButton:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
 }
 
 .loading {
