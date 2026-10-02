@@ -140,6 +140,7 @@ describe('POST /admin/content', () => {
     expect(insert.title).toBe('Showcase');
     expect(insert.download_url).toBe('https://cdn.test/showcase.jpg');
     expect(insert.published).toBe(true);
-    expect(String(insert.id)).toMatch(/^cnt-/);
+    expect(String(insert.id)).toMatch(/^JAD-MT-[A-Z0-9]{6}$/);
+    expect(seen.body).toMatchObject({ id: insert.id });
   });
 });

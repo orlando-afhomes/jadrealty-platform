@@ -11,6 +11,8 @@ import {
   voucherAssignmentSchema,
   voucherTemplateSchema,
 } from '@jad/contracts';
+import { randomBytes } from 'node:crypto';
+
 import { maskIdentifier } from './money.js';
 
 /**
@@ -96,6 +98,26 @@ export function prefixedId(prefix: string): string {
  */
 export function saleReferenceId(): string {
   return `JAD-SAL-${Date.now().toString(36).toUpperCase()}`;
+}
+
+const MARKETING_TOOL_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/**
+ * Human-readable marketing-tool reference (`JAD-MT-NR5V7H`) - the ContentItem
+ * PK itself. Random 6-char suffix (same alphabet as voucher codes, deliberately
+ * not sequential: sequential ids are enumerable). Legacy `cnt-*` rows keep
+ * working (the contract stays lenient); only newly created tools take this
+ * shape. The PK unique index is the backstop for the (negligible) collision.
+ */
+export function marketingToolReferenceId(): string {
+  const bytes = randomBytes(6);
+  let suffix = '';
+  for (let i = 0; i < 6; i++) {
+    suffix += MARKETING_TOOL_ID_ALPHABET[
+      (bytes[i] as number) % MARKETING_TOOL_ID_ALPHABET.length
+    ];
+  }
+  return `JAD-MT-${suffix}`;
 }
 
 /**

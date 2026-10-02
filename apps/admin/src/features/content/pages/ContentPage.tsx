@@ -10,6 +10,7 @@ import {
   Icon,
   PageHeader,
   Pagination,
+  Select,
   Skeleton,
   StatusChip,
   Table,
@@ -22,6 +23,7 @@ import {
   notifySuccess,
 } from '@jad/ui';
 import type { ContentKind, ForwardableContent } from '@jad/contracts';
+import { CONTENT_TITLE_MAX, validateContentTitle } from '@jad/contracts';
 
 import { formatDate } from '../../../lib/format';
 import { useContent } from '../hooks/useContent';
@@ -35,7 +37,12 @@ import {
   matchesAccept,
   uploadContentFile,
 } from '../services/uploads';
-import { CONTENT_KIND_LABEL, CONTENT_KIND_TONE } from '../status';
+import {
+  CONTENT_KIND_LABEL,
+  CONTENT_KIND_META,
+  CONTENT_KIND_OPTIONS,
+  CONTENT_KIND_TONE,
+} from '../status';
 import styles from './ContentPage.module.css';
 
 type ContentFilter = 'ALL' | ContentKind;
@@ -107,10 +114,24 @@ export function ContentPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [fileErrors, setFileErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    fileName: string;
+    phase: string;
+  } | null>(null);
+  const [titleTouched, setTitleTouched] = useState(false);
   const [activeFile, setActiveFile] = useState<{ name: string; phase: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ForwardableContent | null>(null);
   const [editTarget, setEditTarget] = useState<ForwardableContent | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const titleError = validateContentTitle(form.title);
+  const showTitleError = titleTouched && titleError !== null;
+  // Publish stays disabled until the title is valid, at least one file is
+  // staged, and no upload/publish run is in flight (`saving` covers the
+  // whole sign -> PUT -> create loop, so a click can never race an import).
+  const canPublish = titleError === null && files.length > 0 && !saving;
 
   const allItems = useMemo(() => [...(data ?? [])], [data]);
 
@@ -133,11 +154,12 @@ export function ContentPage() {
 
   const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? []);
-    setFileErrors([]);
     if (selected.length === 0) return;
+    setFileErrors([]);
 
     const maxSize = KIND_MAX_SIZE[form.kind];
     const accept = KIND_ACCEPT[form.kind];
+    const seen = new Set(files.map((f) => `${f.name}::${f.size}::${f.lastModified}`));
     const valid: File[] = [];
     const errors: string[] = [];
 
@@ -150,7 +172,11 @@ export function ContentPage() {
       } else if (f.size > maxSize) {
         errors.push(`"${f.name}" must be ${formatBytes(maxSize)} or less.`);
       } else {
-        valid.push(f);
+        const key = `${f.name}::${f.size}::${f.lastModified}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          valid.push(f);
+        }
       }
     }
 
@@ -160,13 +186,17 @@ export function ContentPage() {
   };
 
   const handleRemoveFile = (index: number) => {
+    if (saving) return;
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleKindChange = (kind: ContentKind) => {
+    if (saving) return;
     setForm((f) => ({ ...f, kind }));
     setFiles([]);
     setFileErrors([]);
+    setUploadProgress(null);
+    setActiveFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -188,52 +218,91 @@ export function ContentPage() {
   };
 
   const handleCreate = async () => {
-    if (!form.title.trim() || files.length === 0) return;
+    if (!canPublish) return;
     setSaving(true);
     setFileErrors([]);
 
     const failed: string[] = [];
     let created = 0;
 
-    for (const file of files) {
-      setActiveFile({ name: file.name, phase: 'Uploading' });
-      const uploaded = await uploadContentFile(file, form.kind);
-      if ('error' in uploaded) {
-        failed.push(uploaded.error);
-        continue;
-      }
-      setActiveFile({ name: file.name, phase: 'Publishing' });
-      try {
-        await createContent.mutateAsync({
-          title: form.title.trim(),
-          ...(form.description.trim() && { description: form.description.trim() }),
-          kind: form.kind,
-          downloadUrl: uploaded.downloadUrl,
+    try {
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        if (!file) continue;
+        setActiveFile({ name: file.name, phase: 'Uploading' });
+        setUploadProgress({
+          current: i + 1,
+          total: files.length,
+          fileName: file.name,
+          phase: 'Uploading',
         });
-        created += 1;
-      } catch {
-        failed.push(`"${file.name}" failed to publish. Remove and try again.`);
+        const uploaded = await uploadContentFile(file, form.kind, (phase) => {
+          setUploadProgress({
+            current: i + 1,
+            total: files.length,
+            fileName: file.name,
+            phase: phase === 'done' ? 'Finishing' : phase === 'signing' ? 'Signing' : 'Uploading',
+          });
+        });
+        if ('error' in uploaded) {
+          failed.push(uploaded.error);
+          continue;
+        }
+        setActiveFile({ name: file.name, phase: 'Publishing' });
+        setUploadProgress({
+          current: i + 1,
+          total: files.length,
+          fileName: file.name,
+          phase: 'Publishing',
+        });
+        try {
+          await createContent.mutateAsync({
+            title: form.title.trim(),
+            ...(form.description.trim() && { description: form.description.trim() }),
+            kind: form.kind,
+            downloadUrl: uploaded.downloadUrl,
+          });
+          created += 1;
+        } catch {
+          failed.push(`"${file.name}" failed to publish. Remove and try again.`);
+        }
       }
+    } finally {
+      setActiveFile(null);
+      setUploadProgress(null);
+      setSaving(false);
     }
 
-    setActiveFile(null);
     if (failed.length > 0) {
       setFileErrors(failed);
     }
     if (created === 0) {
-      setSaving(false);
       return;
     }
 
     setForm({ title: '', description: '', kind: 'DOCUMENT' });
+    setTitleTouched(false);
     setFiles([]);
     if (failed.length === 0) setFileErrors([]);
     // New items sort newest-first, so return to page 1 with no kind filter -
     // otherwise a stale page/filter keeps the just-published item out of view.
     setPage(1);
     setFilter('ALL');
-    setSaving(false);
     setShowCreate(false);
+  };
+
+  const closeCreate = () => {
+    // Never tear down mid-upload: the sign -> PUT -> create loop holds
+    // `saving` until it settles, and resetting files/form underneath it
+    // would orphan uploads and corrupt the next open.
+    if (saving) return;
+    setShowCreate(false);
+    setForm({ title: '', description: '', kind: 'DOCUMENT' });
+    setTitleTouched(false);
+    setFiles([]);
+    setFileErrors([]);
+    setUploadProgress(null);
+    setActiveFile(null);
   };
 
   return (
@@ -364,38 +433,41 @@ export function ContentPage() {
 
       <Dialog
         open={showCreate}
-        onClose={() => {
-          setShowCreate(false);
-          setForm({ title: '', description: '', kind: 'DOCUMENT' });
-          setFiles([]);
-          setFileErrors([]);
-          setActiveFile(null);
-        }}
+        onClose={closeCreate}
         title="New Marketing Tool"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setShowCreate(false)}>
+            <Button variant="secondary" onClick={closeCreate} disabled={saving}>
               Cancel
             </Button>
-            <Button
-              onClick={handleCreate}
-              loading={saving}
-              disabled={!form.title.trim() || files.length === 0 || saving}
-            >
+            <Button onClick={handleCreate} loading={saving} disabled={!canPublish}>
               Publish
             </Button>
           </>
         }
       >
-        <div className={styles.form}>
+        <div className={styles.form} aria-busy={saving}>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>Title</span>
             <input
               value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              onChange={(e) => {
+                setTitleTouched(true);
+                setForm((f) => ({ ...f, title: e.target.value }));
+              }}
+              onBlur={() => setTitleTouched(true)}
               placeholder="JA&D Project Showcase"
               className={styles.input}
+              maxLength={CONTENT_TITLE_MAX}
+              aria-invalid={showTitleError}
+              aria-describedby={showTitleError ? 'content-title-error' : undefined}
+              disabled={saving}
             />
+            {showTitleError && (
+              <span id="content-title-error" role="alert" className={styles.fieldError}>
+                {titleError}
+              </span>
+            )}
           </label>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>Description</span>
@@ -404,21 +476,29 @@ export function ContentPage() {
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="High-resolution image for social posts"
               className={styles.textarea}
+              disabled={saving}
             />
           </label>
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>Type</span>
-            <select
-              value={form.kind}
-              onChange={(e) => handleKindChange(e.target.value as ContentKind)}
-              className={styles.select}
-            >
-              <option value="DOCUMENT">Document</option>
-              <option value="IMAGE">Image</option>
-              <option value="VIDEO">Video</option>
-              <option value="PROMO">Promo</option>
-            </select>
-          </label>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel} htmlFor="content-kind">
+              Type
+            </label>
+            <div className={styles.typeSelect}>
+              <Select
+                id="content-kind"
+                aria-label="Type"
+                aria-describedby="content-kind-hint"
+                options={CONTENT_KIND_OPTIONS}
+                value={form.kind}
+                onChange={(e) => handleKindChange(e.target.value as ContentKind)}
+                disabled={saving}
+              />
+            </div>
+            <span id="content-kind-hint" className={styles.typeHint}>
+              <Icon name={KIND_ICON[form.kind]} size={14} aria-hidden="true" />
+              {CONTENT_KIND_META[form.kind].hint}
+            </span>
+          </div>
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Files (required)</span>
             <label className={styles.fileDropzone}>
@@ -431,8 +511,23 @@ export function ContentPage() {
                 multiple
                 onChange={handleFilesChange}
                 className={styles.fileInput}
+                disabled={saving}
               />
             </label>
+            {saving && uploadProgress && (
+              <div className={styles.progressWrap} role="status" aria-live="polite">
+                <progress
+                  className={styles.progressBar}
+                  max={uploadProgress.total}
+                  value={uploadProgress.current - 1}
+                  aria-label={`Uploading ${uploadProgress.current} of ${uploadProgress.total}`}
+                />
+                <span className={styles.progressText}>
+                  Uploading {uploadProgress.current} of {uploadProgress.total}:{' '}
+                  {uploadProgress.fileName} — {uploadProgress.phase}…
+                </span>
+              </div>
+            )}
             {files.length > 0 && (
               <ul className={styles.fileList} aria-live="polite">
                 {files.map((f, i) => (
@@ -447,6 +542,7 @@ export function ContentPage() {
                       onClick={() => handleRemoveFile(i)}
                       className={styles.fileItemRemove}
                       aria-label={`Remove ${f.name}`}
+                      disabled={saving}
                     >
                       <Icon name="close" size={14} />
                     </button>
@@ -469,13 +565,20 @@ export function ContentPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => {
+          // Never tear down mid-delete: the confirm button holds the
+          // mutation's pending spinner until it settles.
+          if (deleteContent.isPending) return;
+          setDeleteTarget(null);
+        }}
         onConfirm={handleDelete}
         title="Delete marketing tool?"
         message={`This will permanently remove "${deleteTarget?.title ?? ''}" and its uploaded file. This action cannot be undone.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger
+        confirmDisabled={deleteContent.isPending}
+        confirmLoading={deleteContent.isPending}
       />
 
       <ContentEditDialog

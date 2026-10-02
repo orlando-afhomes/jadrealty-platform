@@ -348,6 +348,10 @@ export { adjustmentEntryTypeSchema, adjustmentSchema } from './schemas/adjustmen
 export type { AdjustmentEntryType, Adjustment } from './schemas/adjustment.js';
 export {
   contentKindSchema,
+  contentTitleSchema,
+  validateContentTitle,
+  CONTENT_TITLE_MIN,
+  CONTENT_TITLE_MAX,
   forwardableContentSchema,
   createContentItemRequestSchema,
   updateContentItemRequestSchema,

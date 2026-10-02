@@ -9,6 +9,34 @@ export const contentKindSchema = z.enum(['DOCUMENT', 'IMAGE', 'VIDEO', 'PROMO'])
 
 export type ContentKind = z.infer<typeof contentKindSchema>;
 
+export const CONTENT_TITLE_MIN = 3;
+export const CONTENT_TITLE_MAX = 120;
+
+/**
+ * Marketing-tool title - single source for create/edit dialogs and the API.
+ * Trimmed, 3-120 chars, must contain at least one letter or number (rejects
+ * whitespace-only and symbols-only input), and rejects control characters.
+ * Read models stay `min(1)` so legacy rows keep parsing.
+ */
+export const contentTitleSchema = z
+  .string()
+  .trim()
+  .min(CONTENT_TITLE_MIN, 'Title must be at least 3 characters.')
+  .max(CONTENT_TITLE_MAX, 'Title must be 120 characters or less.')
+  .refine((v) => /[\p{L}\p{N}]/u.test(v), 'Title must include at least one letter or number.')
+  .refine(
+    (v) => !/[\u0000-\u001F\u007F]/.test(v),
+    'Title contains invalid characters.',
+  );
+
+/** UI helper: error message for an invalid title, or null when valid. */
+export function validateContentTitle(value: unknown): string | null {
+  if (typeof value !== 'string') return 'Title is required.';
+  const parsed = contentTitleSchema.safeParse(value);
+  if (parsed.success) return null;
+  return parsed.error.issues[0]?.message ?? 'Enter a valid title.';
+}
+
 /**
  * Forwardable content - `GET /content/forwardable` (API-SPECIFICATION #68,
  * FEAT-061, FR-ADM-003, SCR-MEM-022). Members may forward permitted content via
@@ -45,7 +73,7 @@ export type ForwardableContent = z.infer<typeof forwardableContentSchema>;
  * server-provided share targets from the download URL.
  */
 export const createContentItemRequestSchema = z.object({
-  title: z.string().trim().min(1),
+  title: contentTitleSchema,
   description: z.string().trim().min(1).optional().or(z.literal('')),
   kind: contentKindSchema,
   downloadUrl: z.string().min(1),

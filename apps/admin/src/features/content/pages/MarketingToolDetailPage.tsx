@@ -6,6 +6,7 @@ import {
   Button,
   ConfirmDialog,
   ErrorState,
+  Icon,
   PageHeader,
   Skeleton,
   StatusChip,
@@ -75,6 +76,7 @@ export function MarketingToolDetailPage() {
         description="View marketing tool details."
         actions={
           <Link className={styles.backLink} to="/admin/marketing-tools">
+            <Icon name="chevron-left" size={16} aria-hidden="true" />
             Back to marketing tools
           </Link>
         }
@@ -155,12 +157,13 @@ export function MarketingToolDetailPage() {
               <h3 className={styles.sectionTitle}>Links</h3>
               <div className={styles.links}>
                 <a
-                  className={styles.linkButton}
+                  className={styles.downloadButton}
                   href={item.downloadUrl}
                   download={item.title}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
+                  <Icon name="download" size={16} aria-hidden="true" />
                   Download
                 </a>
               </div>
@@ -173,21 +176,23 @@ export function MarketingToolDetailPage() {
               <div className={styles.links}>
                 {item.share.messengerUrl && (
                   <a
-                    className={styles.linkButton}
+                    className={styles.shareMessenger}
                     href={item.share.messengerUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
+                    <Icon name="messenger" size={16} aria-hidden="true" />
                     Share on Messenger
                   </a>
                 )}
                 {item.share.viberUrl && (
                   <a
-                    className={styles.linkButton}
+                    className={styles.shareViber}
                     href={item.share.viberUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
+                    <Icon name="message" size={16} aria-hidden="true" />
                     Share on Viber
                   </a>
                 )}
@@ -200,6 +205,7 @@ export function MarketingToolDetailPage() {
             <h3 className={styles.sectionTitle}>Danger zone</h3>
             <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <Button variant="secondary" onClick={() => setShowEditDialog(true)}>
+                <Icon name="pencil" size={16} aria-hidden="true" />
                 Edit
               </Button>
               <Button
@@ -207,6 +213,7 @@ export function MarketingToolDetailPage() {
                 onClick={() => setShowDeleteConfirm(true)}
                 aria-label={`Delete ${item.title}`}
               >
+                <Icon name="trash" size={16} aria-hidden="true" />
                 Delete Permanently
               </Button>
             </div>
@@ -222,30 +229,42 @@ export function MarketingToolDetailPage() {
 
       <ConfirmDialog
         open={showDeleteConfirm}
-        onCancel={() => setShowDeleteConfirm(false)}
+        onCancel={() => {
+          // Never tear down mid-delete: the confirm button holds the
+          // mutation's pending spinner until it settles.
+          if (deleteContent.isPending) return;
+          setShowDeleteConfirm(false);
+        }}
         onConfirm={handleDelete}
         title={`Delete "${item?.title ?? ''}"?`}
         message="This will permanently remove this marketing tool and its uploaded file. This action cannot be undone."
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger
+        confirmDisabled={deleteContent.isPending}
+        confirmLoading={deleteContent.isPending}
       />
     </section>
   );
 }
 
 function CopyLinkButton({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      // clipboard API unavailable
+      setCopied(false);
     }
   };
 
   return (
-    <button type="button" className={styles.linkButton} onClick={handleCopy}>
-      Copy Link
+    <button type="button" className={styles.copyButton} onClick={handleCopy} aria-live="polite">
+      <Icon name={copied ? 'check' : 'copy'} size={16} aria-hidden="true" />
+      {copied ? 'Copied' : 'Copy Link'}
     </button>
   );
 }

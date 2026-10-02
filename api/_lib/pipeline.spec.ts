@@ -23,6 +23,7 @@ import {
   mapSaleRow,
   mapVoucherRow,
   mapVoucherTemplateRow,
+  marketingToolReferenceId,
   prefixedId,
   saleReferenceId,
   validateSaleTransition,
@@ -119,6 +120,15 @@ describe('calculateAge / prefixedId', () => {
 
   it('issues human-readable sale references', () => {
     expect(saleReferenceId()).toMatch(/^JAD-SAL-[0-9A-Z]+$/);
+  });
+
+  it('issues JAD-MT-XXXXXX marketing references', () => {
+    expect(marketingToolReferenceId()).toMatch(/^JAD-MT-[A-Z0-9]{6}$/);
+  });
+
+  it('issues unique marketing references', () => {
+    const ids = new Set(Array.from({ length: 100 }, () => marketingToolReferenceId()));
+    expect(ids.size).toBe(100);
   });
 });
 

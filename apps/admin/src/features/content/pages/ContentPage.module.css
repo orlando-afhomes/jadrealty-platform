@@ -155,6 +155,60 @@
   outline-offset: 2px;
 }
 
+.input[aria-invalid='true'] {
+  border-color: var(--color-text-danger);
+}
+
+.input[aria-invalid='true']:focus {
+  outline-color: var(--color-text-danger);
+}
+
+.fieldError {
+  font-size: var(--text-body-s);
+  color: var(--color-text-danger);
+}
+
+/* Type dropdown: shared @jad/ui Select stretched to the form width plus a
+   per-kind requirements hint (icon + accepted formats + size cap). */
+.typeSelect {
+  display: grid;
+}
+
+.typeSelect > div {
+  max-width: none;
+  width: 100%;
+}
+
+.typeHint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+/* Upload progress shown while the sign -> PUT -> create loop runs. Publish
+   stays disabled until it clears (see `canPublish`). */
+.progressWrap {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface-raised);
+}
+
+.progressBar {
+  width: 100%;
+  height: 8px;
+}
+
+.progressText {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
 .fileDropzone {
   display: flex;
   flex-direction: column;
@@ -229,6 +283,19 @@
   flex: 0 0 auto;
   font-size: var(--text-caption);
   color: var(--color-text-muted);
+}
+
+.fileItemType {
+  flex: 0 0 auto;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-surface-raised);
+  white-space: nowrap;
 }
 
 .fileItemStatus {

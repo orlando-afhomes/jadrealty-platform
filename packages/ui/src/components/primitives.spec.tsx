@@ -50,6 +50,16 @@ describe('EmptyState', () => {
     expect(screen.getByText('Queue is clear.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
   });
+
+  it('renders an icon badge when an icon is given', () => {
+    render(<EmptyState title="No matches" description="Try again." icon="search" />);
+    expect(document.querySelector('[class*="iconWrap"] svg')).not.toBeNull();
+  });
+
+  it('omits the icon badge when no icon is given', () => {
+    render(<EmptyState title="Empty" />);
+    expect(document.querySelector('[class*="iconWrap"]')).toBeNull();
+  });
 });
 
 describe('ErrorState', () => {

@@ -8,12 +8,6 @@
   flex-wrap: wrap;
 }
 
-.timeframe {
-  margin: var(--space-3) 0 0;
-  font-size: var(--text-body-s);
-  color: var(--color-text-muted);
-}
-
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -246,34 +240,158 @@
   gap: var(--space-2);
 }
 
-.linkButton {
+/*
+ * Card actions - color psychology:
+ * View (explore/inspect, low commitment) is trust-blue: calm, safe preview.
+ * Download (take/keep, decisive action) is success-green: go, affirmative.
+ */
+.viewButton,
+.downloadButton {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  font-size: var(--text-body-s);
+  font-weight: 600;
+  color: #ffffff;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.viewButton {
+  background-color: var(--color-brand-primary);
+}
+
+.viewButton:hover {
+  background-color: var(--color-brand-primary-hover);
+}
+
+.downloadButton {
+  background-color: var(--color-success);
+}
+
+.downloadButton:hover {
+  background-color: var(--color-success-strong);
+}
+
+.viewButton:focus-visible,
+.downloadButton:focus-visible,
+.iconButton:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
+}
+
+.viewButton:disabled,
+.downloadButton:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* Square icon-only buttons (share, copy) - neutral surface, brand on hover. */
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary);
+}
+
+/* Share dialog - one row per channel with its brand marker. */
+.shareBody {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.shareHint {
+  margin: 0;
+  font-size: var(--text-body-s);
+  color: var(--color-text-muted);
+}
+
+.shareOptions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.shareOption {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
   min-height: 44px;
   font-size: var(--text-body-s);
   font-weight: 600;
-  color: var(--color-text-primary);
-  background-color: var(--color-bg-surface);
+  color: #ffffff;
   text-decoration: none;
-  cursor: pointer;
 }
 
-.linkButton:hover {
-  border-color: var(--color-brand-primary);
-  color: var(--color-brand-primary);
-}
-
-.linkButton:focus-visible {
+.shareOption:focus-visible {
   outline: 2px solid var(--color-brand-primary);
   outline-offset: 2px;
 }
 
-.inlineLink {
+.shareMessenger {
+  background-color: #0084ff;
+  border-color: #0084ff;
+}
+
+.shareMessenger:hover {
+  background-color: #0073e0;
+}
+
+.shareWhatsApp {
+  background-color: #25d366;
+  border-color: #25d366;
+}
+
+.shareWhatsApp:hover {
+  background-color: #1eb856;
+}
+
+/* Real button for the empty-state filter reset (replaces the old text link). */
+.clearButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-4);
+  min-height: 44px;
+  font-size: var(--text-body-s);
   font-weight: 600;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.clearButton:hover {
+  border-color: var(--color-brand-primary);
   color: var(--color-brand-primary);
+  background-color: var(--color-brand-soft);
+}
+
+.clearButton:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
 }
 
 .note {

@@ -10,7 +10,24 @@ import { MOCK_CONTENT } from './data';
  * test double only.
  */
 
-let contentSeq = MOCK_CONTENT.length + 1;
+const MT_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/**
+ * Browser-safe random 6-char suffix mirroring the server's
+ * `marketingToolReferenceId` (`JAD-MT-XXXXXX`). Mock-only: collisions are
+ * irrelevant in a dev/test store.
+ */
+function randomMarketingSuffix(): string {
+  const values = new Uint32Array(6);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(values);
+  } else {
+    for (let i = 0; i < values.length; i++) {
+      values[i] = Math.floor(Math.random() * 0xffffffff);
+    }
+  }
+  return Array.from(values, (n) => MT_ALPHABET.charAt(n % MT_ALPHABET.length)).join('');
+}
 
 export const contentStore: { items: ForwardableContent[] } = {
   items: MOCK_CONTENT.map((item) => ({
@@ -33,7 +50,6 @@ export function resetContentStore(): void {
     ...item,
     share: item.share ? { ...item.share } : undefined,
   }));
-  contentSeq = MOCK_CONTENT.length + 1;
 }
 
 export function createStoreContent(input: {
@@ -47,7 +63,7 @@ export function createStoreContent(input: {
   if (!input.downloadUrl) throw new Error('An uploaded file is required.');
   const downloadUrl = input.downloadUrl;
   const item: ForwardableContent = {
-    id: `cnt-mock-${Date.now().toString(36)}-${contentSeq++}`,
+    id: `JAD-MT-${randomMarketingSuffix()}`,
     title,
     ...(input.description?.trim() && { description: input.description.trim() }),
     kind: input.kind,

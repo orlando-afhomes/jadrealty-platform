@@ -316,6 +316,41 @@ describe('ContentPage', () => {
     expect(await screen.findByText('Marketing tool deleted')).toBeInTheDocument();
   });
 
+  it('shows a spinner on the delete confirm while deletion is in flight', async () => {
+    let releaseDelete!: (value: Response) => void;
+    const deleteGate = new Promise<Response>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const mockFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if ((init?.method ?? 'GET') === 'DELETE' && url.includes('/admin/content/')) {
+        // Hold the request open, then let the real mock handler complete it
+        // so the store removal + response shape stay faithful.
+        await deleteGate;
+        return (mockFetch as typeof fetch)(input, init);
+      }
+      return (mockFetch as typeof fetch)(input, init);
+    }) as typeof fetch;
+
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByRole('button', { name: 'Delete JA&D Membership Overview' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    // Confirm button swaps to its loading spinner and Cancel locks.
+    expect(await within(dialog).findByText('Loading…')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    releaseDelete(new Response(null, { status: 200 }));
+    await waitFor(() =>
+      expect(screen.queryByText('JA&D Membership Overview')).not.toBeInTheDocument(),
+    );
+  });
+
   it('cancelling the delete confirm keeps the tool', async () => {
     const user = userEvent.setup();
     renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
@@ -344,5 +379,101 @@ describe('ContentPage', () => {
 
     expect(await screen.findByText('Updated Overview')).toBeInTheDocument();
     expect(await screen.findByText('Marketing tool updated')).toBeInTheDocument();
+  });
+
+  it('blocks saving an invalid title in the edit dialog', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    const [editButton] = screen.getAllByRole('button', { name: 'Edit' });
+    await user.click(editButton!);
+    const dialog = await screen.findByRole('dialog');
+    const titleInput = within(dialog).getByLabelText('Title');
+    await user.clear(titleInput);
+    await user.type(titleInput, '!!!');
+
+    expect(await within(dialog).findByText(/at least one letter or number/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('rejects short titles with an inline error and keeps Publish disabled', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByText('New Content'));
+    await screen.findByText('New Marketing Tool');
+
+    await user.type(screen.getByLabelText('Title'), 'ab');
+    await user.selectOptions(screen.getByLabelText('Type'), 'IMAGE');
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(['bytes'], 'photo.jpg', { type: 'image/jpeg' }));
+
+    expect(await screen.findByText(/at least 3 characters/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+  });
+
+  it('rejects symbols-only titles with an inline error', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByText('New Content'));
+    await screen.findByText('New Marketing Tool');
+
+    await user.type(screen.getByLabelText('Title'), '!!!');
+    await user.selectOptions(screen.getByLabelText('Type'), 'IMAGE');
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(['bytes'], 'photo.jpg', { type: 'image/jpeg' }));
+
+    expect(await screen.findByText(/at least one letter or number/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+  });
+
+  it('shows per-type file requirements next to the Type dropdown', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByText('New Content'));
+    await screen.findByText('New Marketing Tool');
+    await user.selectOptions(screen.getByLabelText('Type'), 'IMAGE');
+
+    expect(await screen.findByText(/JPEG, PNG, WebP/)).toBeInTheDocument();
+    expect(await screen.findByText(/20.0 MB or less/)).toBeInTheDocument();
+  });
+
+  it('shows upload progress and locks the dialog while publishing', async () => {
+    let resolveSign!: (value: Response) => void;
+    const signGate = new Promise<Response>((resolve) => {
+      resolveSign = resolve;
+    });
+    stubStorageUpload(() => signGate as unknown as Response);
+    const user = userEvent.setup();
+    renderWithProviders(<ContentPage />, { user: MOCK_ADMIN });
+    await screen.findByText('JA&D Membership Overview');
+
+    await user.click(screen.getByText('New Content'));
+    await screen.findByText('New Marketing Tool');
+    await user.type(screen.getByLabelText('Title'), 'Progress Probe Showcase');
+    await user.selectOptions(screen.getByLabelText('Type'), 'IMAGE');
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(fileInput, new File(['bytes'], 'photo.jpg', { type: 'image/jpeg' }));
+    // Capture before clicking: Button renders "Loading…" while `loading`, so
+    // the accessible name changes mid-save and a re-query would miss it.
+    const publishBtn = screen.getByRole('button', { name: 'Publish' });
+    await user.click(publishBtn);
+
+    expect(await screen.findByText(/Uploading 1 of 1/)).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(publishBtn).toBeDisabled();
+    expect(publishBtn).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    resolveSign(
+      Response.json({ signedUrl: 'https://cdn.test/put', publicUrl: 'https://cdn.test/new.jpg' }),
+    );
+    expect(await screen.findByText('Progress Probe Showcase')).toBeInTheDocument();
   });
 });

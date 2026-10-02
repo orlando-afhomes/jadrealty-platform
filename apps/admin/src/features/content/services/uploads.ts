@@ -75,15 +75,22 @@ export function matchesAccept(file: File, accept: string): boolean {
 
 /**
  * Upload one file direct-to-Storage via a signed URL, returning the public
- * download URL. Mirrors the create dialog's upload step.
+ * download URL. Mirrors the create dialog's upload step. `onProgress`
+ * reports coarse phase progress (signing -> uploading -> done) so the
+ * dialog can render a determinate progress bar and keep Publish gated
+ * until every file finishes.
  */
+export type UploadProgressPhase = 'signing' | 'uploading' | 'done';
+
 export async function uploadContentFile(
   selectedFile: File,
   kind: ContentKind,
+  onProgress?: (phase: UploadProgressPhase, ratio: number) => void,
 ): Promise<{ downloadUrl: string } | { error: string }> {
   const supabase = getSupabaseClient();
   if (!supabase) return { error: 'Upload unavailable - please reload and try again.' };
 
+  onProgress?.('signing', 0.1);
   let token: string | undefined;
   try {
     const sess = await supabase.auth.getSession();
@@ -127,6 +134,7 @@ export async function uploadContentFile(
     return { error: `"${selectedFile.name}" failed to upload. Remove and try again.` };
   }
 
+  onProgress?.('uploading', 0.6);
   try {
     const putRes = await fetch(signJson.signedUrl, {
       method: 'PUT',
@@ -138,5 +146,24 @@ export async function uploadContentFile(
     return { error: `"${selectedFile.name}" failed to upload. Remove and try again.` };
   }
 
+  onProgress?.('done', 1);
   return { downloadUrl: signJson.publicUrl };
+}
+
+/**
+ * Best-effort remote file size via HEAD (never throws - null when unknown,
+ * blocked, or not an http(s) URL). Used by the edit dialog's file card so
+ * the attached file shows a size without downloading it.
+ */
+export async function fetchRemoteFileSize(url: string): Promise<number | null> {
+  try {
+    if (!/^https?:\/\//i.test(url)) return null;
+    const res = await fetch(url, { method: 'HEAD' });
+    if (!res.ok) return null;
+    const raw = res.headers.get('content-length');
+    const size = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(size) && size >= 0 ? size : null;
+  } catch {
+    return null;
+  }
 }

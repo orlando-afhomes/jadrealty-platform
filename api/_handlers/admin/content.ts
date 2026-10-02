@@ -3,7 +3,7 @@ import { createContentItemRequestSchema, forwardableContentSchema } from '@jad/c
 import { verifyStaffModule } from '../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
 import { isValidContentItemRow, mapContentItemRow } from '../../_lib/mappers.js';
-import { prefixedId } from '../../_lib/pipeline.js';
+import { marketingToolReferenceId } from '../../_lib/pipeline.js';
 import { methodNotAllowed, okList, readJsonBody, requireService } from '../../_lib/rest.js';
 import { toErrorEnvelope } from '../../_lib/envelope.js';
 
@@ -72,7 +72,7 @@ export async function createAdminContent(req: VercelRequest, res: VercelResponse
   const description = (input.description ?? '').trim() || null;
   const share = input.share ?? buildContentShare(input.title.trim(), input.downloadUrl);
   const row = {
-    id: prefixedId('cnt'),
+    id: marketingToolReferenceId(),
     title: input.title.trim(),
     description,
     kind: input.kind,
