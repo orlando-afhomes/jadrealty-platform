@@ -142,6 +142,43 @@ describe('payout unification', () => {
     });
   });
 
+  it('rejects a card number that fails the checksum without touching the database', async () => {
+    const { res, seen } = capture();
+    await memberPayoutAccounts(
+      {
+        method: 'POST',
+        query: {},
+        headers: memberHeaders,
+        body: {
+          method: 'CREDIT_DEBIT_CARD',
+          accountName: 'Juan Dela Cruz',
+          accountIdentifier: '4111111111111112',
+        },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(400);
+    expect(mocks.calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
+  it('accepts a Luhn-valid card number', async () => {
+    const { res, seen } = capture();
+    await memberPayoutAccounts(
+      {
+        method: 'POST',
+        query: {},
+        headers: memberHeaders,
+        body: {
+          method: 'CREDIT_DEBIT_CARD',
+          accountName: 'Juan Dela Cruz',
+          accountIdentifier: '4111111111111111',
+        },
+      } as VercelRequest,
+      res,
+    );
+    expect(seen.status).toBe(201);
+  });
+
   it('admin review lists member-owned rows', async () => {
     mocks.script.payoutRows = [MEMBER_ROW];
     const { res, seen } = capture();

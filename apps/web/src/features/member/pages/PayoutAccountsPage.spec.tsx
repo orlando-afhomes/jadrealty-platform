@@ -54,8 +54,8 @@ describe('member PayoutAccountsPage', () => {
     mockFetchRoutes({ '/me/payout-accounts': ACCOUNTS });
     renderMember(<PayoutAccountsPage />, { user: MOCK_MEMBER });
 
-    expect(await screen.findByText('Traditional bank')).toBeInTheDocument();
-    expect(screen.getByText('Digital bank')).toBeInTheDocument();
+    expect(await screen.findByText('Traditional Bank')).toBeInTheDocument();
+    expect(screen.getByText('Digital Bank')).toBeInTheDocument();
     expect(screen.getByText(/•••• 7890/)).toBeInTheDocument();
     expect(screen.getByText('Primary')).toBeInTheDocument();
     expect(screen.getAllByText('Pending').length).toBeGreaterThanOrEqual(1);

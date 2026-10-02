@@ -5,6 +5,13 @@ import { Link, useNavigate } from 'react-router';
 
 import { ErrorState, PageHeader, Skeleton } from '@jad/ui';
 import type { PayoutMethod } from '@jad/contracts';
+import {
+  capitalizePersonName,
+  isValidCardNumber,
+  normalizeName,
+  personNameSchema,
+  sanitizePersonName,
+} from '@jad/contracts';
 
 import { PAYOUT_METHOD_OPTIONS } from '../lib/presentation';
 
@@ -20,7 +27,15 @@ import styles from './AddPayoutAccountPage.module.css';
 
 const GCASH_RE = /^09\d{9}$/;
 const BANK_ACCOUNT_RE = /^\d{10,12}$/;
-const ALPHANUMERIC_RE = /^[A-Z0-9]{8,34}$/i;
+
+/** Live person-name shaping: strip non-name characters, auto-capitalize
+ *  the first letter and every letter after a space/hyphen/apostrophe. */
+const shapePersonName = (raw: string): string =>
+  capitalizePersonName(sanitizePersonName(raw));
+
+/** Live identifier shaping: digits only, hard-capped at the method maximum. */
+const shapeIdentifier = (raw: string, maxLength: number): string =>
+  raw.replace(/[^\d]/g, '').slice(0, maxLength);
 
 const TRADITIONAL_BANK_FIELDS = [
   { id: 'bankName', label: 'Bank name', placeholder: 'e.g. BDO, BPI, Metrobank', required: true },
@@ -71,7 +86,9 @@ export function AddPayoutAccountPage() {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (!method) nextErrors.method = 'Select a payout method.';
-    if (!accountName.trim()) nextErrors.accountName = 'Enter the account holder name.';
+    if (!normalizeName(accountName)) nextErrors.accountName = 'Enter the account holder name.';
+    else if (!personNameSchema.safeParse(accountName).success)
+      nextErrors.accountName = 'Enter a valid holder name (letters only).';
 
     const idTrimmed = accountIdentifier.trim();
 
@@ -80,19 +97,24 @@ export function AddPayoutAccountPage() {
       else if (!GCASH_RE.test(idTrimmed))
         nextErrors.accountIdentifier = 'Enter a valid GCash number (09 followed by 9 digits).';
     } else if (method === 'TRADITIONAL_BANK') {
-      if (!bankName.trim()) nextErrors.bankName = 'Enter the bank name.';
+      if (!normalizeName(bankName)) nextErrors.bankName = 'Enter the bank name.';
+      else if (!personNameSchema.safeParse(bankName).success)
+        nextErrors.bankName = 'Enter a valid bank name (letters only).';
       if (!idTrimmed) nextErrors.accountIdentifier = 'Enter your bank account number.';
       else if (!BANK_ACCOUNT_RE.test(idTrimmed))
         nextErrors.accountIdentifier = 'Enter a valid 10-12 digit account number.';
     } else if (method === 'DIGITAL_BANK') {
-      if (!bankName.trim()) nextErrors.bankName = 'Enter the bank / e-wallet name.';
+      if (!normalizeName(bankName)) nextErrors.bankName = 'Enter the bank / e-wallet name.';
+      else if (!personNameSchema.safeParse(bankName).success)
+        nextErrors.bankName = 'Enter a valid bank / e-wallet name (letters only).';
       if (!idTrimmed) nextErrors.accountIdentifier = 'Enter your account number.';
       else if (!BANK_ACCOUNT_RE.test(idTrimmed))
         nextErrors.accountIdentifier = 'Enter a valid 10-12 digit account number.';
-    } else if (method === 'OTHER') {
-      if (!idTrimmed) nextErrors.accountIdentifier = 'Enter the account identifier.';
-      else if (!ALPHANUMERIC_RE.test(idTrimmed))
-        nextErrors.accountIdentifier = 'Enter 8-34 alphanumeric characters.';
+    } else if (method === 'CREDIT_DEBIT_CARD') {
+      if (!idTrimmed) nextErrors.accountIdentifier = 'Enter your card number.';
+      else if (!isValidCardNumber(idTrimmed))
+        nextErrors.accountIdentifier =
+          'This card number doesn’t look valid. Check the digits and try again.';
     }
 
     setErrors(nextErrors);
@@ -154,6 +176,7 @@ export function AddPayoutAccountPage() {
   }
 
   const isGcash = method === 'GCASH';
+  const isCard = method === 'CREDIT_DEBIT_CARD';
 
   return (
     <section>
@@ -202,10 +225,15 @@ export function AddPayoutAccountPage() {
                     name={field.id}
                     label={field.label}
                     value={field.id === 'bankName' ? bankName : branch}
-                    onChange={(v) => (field.id === 'bankName' ? setBankName(v) : setBranch(v))}
+                    onChange={(v) =>
+                      field.id === 'bankName'
+                        ? setBankName(shapePersonName(v))
+                        : setBranch(v)
+                    }
                     error={errors[field.id]}
                     placeholder={field.placeholder}
                     autoComplete="off"
+                    maxLength={field.id === 'bankName' ? 60 : undefined}
                   />
                 ))}
               </>
@@ -221,10 +249,11 @@ export function AddPayoutAccountPage() {
                     name={field.id}
                     label={field.label}
                     value={bankName}
-                    onChange={setBankName}
+                    onChange={(v) => setBankName(shapePersonName(v))}
                     error={errors.bankName}
                     placeholder={field.placeholder}
                     autoComplete="off"
+                    maxLength={60}
                   />
                 ))}
               </>
@@ -233,9 +262,13 @@ export function AddPayoutAccountPage() {
                 Enter your GCash-registered mobile number. Funds will be sent directly to this
                 number.
               </p>
+            ) : isCard ? (
+              <p className={styles.fieldGroupHint}>
+                Enter your credit or debit card details. Payouts will be sent to this card.
+              </p>
             ) : (
               <p className={styles.fieldGroupHint}>
-                Enter a custom identifier for your payout account.
+                Enter the account details for your payout method.
               </p>
             )}
 
@@ -244,27 +277,32 @@ export function AddPayoutAccountPage() {
               name="accountName"
               label="Account holder name"
               value={accountName}
-              onChange={setAccountName}
+              onChange={(v) => setAccountName(shapePersonName(v))}
               error={errors.accountName}
               autoComplete="name"
+              maxLength={60}
               hint="Must match the registered account name for verification."
             />
 
             <TextField
               id="payout-accountIdentifier"
               name="accountIdentifier"
-              label={isGcash ? 'Mobile number' : 'Account number'}
+              label={isGcash ? 'Mobile number' : isCard ? 'Card number' : 'Account number'}
               value={accountIdentifier}
-              onChange={setAccountIdentifier}
+              onChange={(v) =>
+                setAccountIdentifier(shapeIdentifier(v, isGcash ? 11 : isCard ? 19 : 12))
+              }
               error={errors.accountIdentifier}
               autoComplete="off"
               inputMode={isGcash ? 'tel' : 'numeric'}
-              placeholder={isGcash ? '09xxxxxxxxx' : 'Account number'}
-              maxLength={isGcash ? 11 : 34}
+              placeholder={isGcash ? '09xxxxxxxxx' : isCard ? 'Card number' : 'Account number'}
+              maxLength={isGcash ? 11 : isCard ? 19 : 12}
               hint={
                 isGcash
                   ? 'Format: 09 followed by 9 digits.'
-                  : 'Stored securely - only a masked version is shown after submission.'
+                  : isCard
+                    ? 'Enter the 13-19 digit card number. Only a masked version is shown after submission.'
+                    : 'Stored securely - only a masked version is shown after submission.'
               }
             />
           </div>

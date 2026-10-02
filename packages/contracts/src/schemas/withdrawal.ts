@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { exactDecimalStringSchema } from './money.js';
-import { payoutMethodSchema } from './payout.js';
+import { legacyPayoutMethodSchema } from './payout.js';
 
 /**
  * Withdrawal resources (API-SPECIFICATION §6.10, FEAT-048..050, FR-WDR-001..005).
@@ -23,7 +23,7 @@ export type WithdrawalStatus = z.infer<typeof withdrawalStatusSchema>;
  */
 export const withdrawalPayoutAccountSchema = z.object({
   id: z.string().min(1),
-  method: payoutMethodSchema,
+  method: legacyPayoutMethodSchema,
   accountName: z.string().min(1),
   accountIdentifierMasked: z.string().min(1),
   accountIdentifier: z.string().min(1).optional(),

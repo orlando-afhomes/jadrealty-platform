@@ -178,10 +178,11 @@ export function PayoutsPage() {
               }}
               options={[
                 { value: 'ALL', label: 'All methods' },
-                { value: 'TRADITIONAL_BANK', label: 'Traditional bank' },
-                { value: 'DIGITAL_BANK', label: 'Digital bank' },
+                { value: 'CREDIT_DEBIT_CARD', label: 'Credit/Debit Card' },
+                { value: 'DIGITAL_BANK', label: 'Digital Bank' },
                 { value: 'GCASH', label: 'GCash' },
-                { value: 'OTHER', label: 'Other' },
+                { value: 'TRADITIONAL_BANK', label: 'Traditional Bank' },
+                { value: 'OTHER', label: 'Other (legacy)' },
               ]}
             />
             {hasFilters ? (

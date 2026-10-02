@@ -234,6 +234,8 @@ export type {
 export {
   payoutAccountStatusSchema,
   payoutMethodSchema,
+  legacyPayoutMethodSchema,
+  isValidCardNumber,
   payoutAccountSchema,
   createPayoutAccountRequestSchema,
   setPrimaryPayoutAccountRequestSchema,
@@ -241,6 +243,7 @@ export {
 export type {
   PayoutAccountStatus,
   PayoutMethod,
+  LegacyPayoutMethod,
   PayoutAccount,
   CreatePayoutAccountRequest,
   SetPrimaryPayoutAccountRequest,

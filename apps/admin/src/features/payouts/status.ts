@@ -16,8 +16,9 @@ export const PAYOUT_STATUS_TONE: Record<PayoutAccountStatus, StatusTone> = {
 };
 
 export const PAYOUT_METHOD_LABEL: Record<string, string> = {
-  TRADITIONAL_BANK: 'Traditional bank',
-  DIGITAL_BANK: 'Digital bank',
+  CREDIT_DEBIT_CARD: 'Credit/Debit Card',
+  TRADITIONAL_BANK: 'Traditional Bank',
+  DIGITAL_BANK: 'Digital Bank',
   GCASH: 'GCash',
-  OTHER: 'Other',
+  OTHER: 'Other (legacy)',
 };

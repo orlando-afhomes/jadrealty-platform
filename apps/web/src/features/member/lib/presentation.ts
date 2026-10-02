@@ -5,6 +5,7 @@ import type {
   CommissionType,
   ContentKind,
   LedgerEntryType,
+  LegacyPayoutMethod,
   MemberStatus,
   PayoutAccountStatus,
   PayoutMethod,
@@ -127,24 +128,26 @@ export const PAYOUT_ACCOUNT_STATUS_TONE: Record<PayoutAccountStatus, StatusTone>
   REJECTED: 'danger',
 };
 
-export function payoutMethodLabel(method: PayoutMethod): string {
+export function payoutMethodLabel(method: LegacyPayoutMethod): string {
   switch (method) {
+    case 'CREDIT_DEBIT_CARD':
+      return 'Credit/Debit Card';
     case 'TRADITIONAL_BANK':
-      return 'Traditional bank';
+      return 'Traditional Bank';
     case 'DIGITAL_BANK':
-      return 'Digital bank';
+      return 'Digital Bank';
     case 'GCASH':
       return 'GCash';
     case 'OTHER':
-      return 'Other';
+      return 'Other (legacy)';
   }
 }
 
 export const PAYOUT_METHOD_OPTIONS: { value: PayoutMethod; label: string }[] = [
-  { value: 'TRADITIONAL_BANK', label: payoutMethodLabel('TRADITIONAL_BANK') },
+  { value: 'CREDIT_DEBIT_CARD', label: payoutMethodLabel('CREDIT_DEBIT_CARD') },
   { value: 'DIGITAL_BANK', label: payoutMethodLabel('DIGITAL_BANK') },
   { value: 'GCASH', label: payoutMethodLabel('GCASH') },
-  { value: 'OTHER', label: payoutMethodLabel('OTHER') },
+  { value: 'TRADITIONAL_BANK', label: payoutMethodLabel('TRADITIONAL_BANK') },
 ];
 
 export function withdrawalStatusLabel(status: WithdrawalStatus): string {
