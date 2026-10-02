@@ -81,13 +81,15 @@ export function VouchersListPage() {
         <EmptyState
           title="No vouchers yet"
           description="Vouchers issued to you will appear here."
+          icon="wallet"
         />
       ) : filtered.length === 0 ? (
         <EmptyState
           title="No matches"
           description={`No ${voucherStatusLabel(filter as VoucherStatus).toLowerCase()} vouchers match this filter.`}
+          icon="search"
           action={
-            <button type="button" className={styles.inlineLink} onClick={() => setFilter('ALL')}>
+            <button type="button" className={styles.clearButton} onClick={() => setFilter('ALL')}>
               Clear filter
             </button>
           }
@@ -98,38 +100,44 @@ export function VouchersListPage() {
             return (
               <li key={voucher.id}>
                 <Link className={styles.card} to={`/member/vouchers/${voucher.id}`}>
-                  <QrCode
-                    value={voucher.code}
-                    size={120}
-                    alt={`QR code for ${voucher.code}`}
-                    className={styles.qrThumb}
-                  />
-                  <span className={styles.cardMain}>
-                    <span className={styles.title}>{voucher.title}</span>
-                    <span className={styles.code}>{voucher.code}</span>
-                    <span className={styles.meta}>
-                      Original {formatPoints(voucher.originalValue)} · issued{' '}
-                      {formatDate(voucher.createdAt)}
-                    </span>
-                    <span className={styles.remaining}>
-                      Remaining <strong>{formatPoints(voucher.remainingValue)}</strong>
+                  <span className={styles.ticketTop}>
+                    <QrCode
+                      value={voucher.code}
+                      size={120}
+                      alt={`QR code for ${voucher.code}`}
+                      className={styles.qr}
+                    />
+                    <span className={styles.ticketMain}>
+                      <span className={styles.chips}>
+                        <StatusChip
+                          label={voucherStatusLabel(voucher.status)}
+                          tone={VOUCHER_STATUS_TONE[voucher.status as VoucherStatus]}
+                        />
+                        {voucher.status === 'ACTIVE' && isExpired(voucher.expiresAt) ? (
+                          <StatusChip label="Expired" tone="warning" />
+                        ) : null}
+                      </span>
+                      <span className={styles.title}>{voucher.title}</span>
+                      <span className={styles.code}>{voucher.code}</span>
                     </span>
                   </span>
-                  <span
-                    style={{
-                      display: 'flex',
-                      gap: 'var(--space-2)',
-                      alignItems: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <StatusChip
-                      label={voucherStatusLabel(voucher.status)}
-                      tone={VOUCHER_STATUS_TONE[voucher.status as VoucherStatus]}
-                    />
-                    {voucher.status === 'ACTIVE' && isExpired(voucher.expiresAt) ? (
-                      <StatusChip label="Expired" tone="warning" />
-                    ) : null}
+                  <span className={styles.ticketDivider} aria-hidden="true" />
+                  <span className={styles.ticketValues}>
+                    <span className={styles.valueBlock}>
+                      <span className={styles.valueLabel}>Remaining</span>
+                      <strong className={styles.valueRemaining}>
+                        {formatPoints(voucher.remainingValue)}
+                      </strong>
+                    </span>
+                    <span className={styles.valueBlock}>
+                      <span className={styles.valueLabel}>Original</span>
+                      <span className={styles.valueOriginal}>
+                        {formatPoints(voucher.originalValue)}
+                      </span>
+                    </span>
+                    <span className={styles.issued}>
+                      Issued {formatDate(voucher.createdAt)}
+                    </span>
                   </span>
                 </Link>
               </li>

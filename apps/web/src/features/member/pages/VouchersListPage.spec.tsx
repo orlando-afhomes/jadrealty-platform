@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MOCK_MEMBER } from '@jad/mock';
 
 import { VouchersListPage } from './VouchersListPage';
@@ -54,5 +55,41 @@ describe('member VouchersListPage', () => {
     renderMember(<VouchersListPage />, { user: MOCK_MEMBER });
 
     expect(await screen.findByText('No vouchers yet')).toBeInTheDocument();
+    expect(document.querySelector('[class*="iconWrap"]')).not.toBeNull();
+  });
+
+  it('renders ticket cards with QR, code chip, and remaining/original value blocks', async () => {
+    mockFetchRoutes({ '/me/vouchers': VOUCHERS });
+    renderMember(<VouchersListPage />, { user: MOCK_MEMBER });
+    await screen.findByText('Referral Rewards Voucher');
+
+    const card = screen.getByRole('link', { name: /Referral Rewards Voucher/ });
+    expect(card.className).toMatch(/card/);
+    expect(within(card).getByAltText('QR code for JAD-VCH-2026-002')).toBeInTheDocument();
+    expect(within(card).getByText('JAD-VCH-2026-002')).toBeInTheDocument();
+    expect(within(card).getByText('Remaining')).toBeInTheDocument();
+    expect(within(card).getByText('350 Points')).toBeInTheDocument();
+    expect(within(card).getByText('Original')).toBeInTheDocument();
+    expect(within(card).getByText('1,000 Points')).toBeInTheDocument();
+    expect(within(card).getByText('Active')).toBeInTheDocument();
+    expect(card).toHaveAttribute('href', '/member/vouchers/vch-002');
+  });
+
+  it('shows an illustrated empty state with a working Clear filter button on no matches', async () => {
+    mockFetchRoutes({ '/me/vouchers': { data: [VOUCHERS.data[0]], meta: {} } });
+    const user = userEvent.setup();
+    renderMember(<VouchersListPage />, { user: MOCK_MEMBER });
+    await screen.findByText('Referral Rewards Voucher');
+
+    await user.click(screen.getByRole('button', { name: 'Fully redeemed' }));
+    expect(await screen.findByText('No matches')).toBeInTheDocument();
+    expect(screen.getByText('No fully redeemed vouchers match this filter.')).toBeInTheDocument();
+    expect(document.querySelector('[class*="iconWrap"]')).not.toBeNull();
+
+    const clearBtn = screen.getByRole('button', { name: 'Clear filter' });
+    expect(clearBtn.className).toMatch(/clearButton/);
+    await user.click(clearBtn);
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByText('Referral Rewards Voucher')).toBeInTheDocument();
   });
 });

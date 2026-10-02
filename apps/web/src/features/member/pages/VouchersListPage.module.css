@@ -60,75 +60,192 @@
   }
 }
 
+/*
+ * Vouchers list (SCR-MEM-020) - ticket-style gallery. Each card reads like a
+ * gift ticket: a dark brand band (QR + identity + status) torn from the value
+ * block (remaining hero + original + issued date) by a perforated divider.
+ */
+
 .card {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  display: grid;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background-color: var(--color-bg-surface-raised);
   text-decoration: none;
   color: inherit;
+  overflow: hidden;
   transition:
     border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .card:hover {
-  border-color: var(--color-border-strong);
-  box-shadow: var(--shadow-sm);
+  border-color: var(--color-brand-primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 
-.qrThumb {
+.card:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
+}
+
+.ticketTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-brand-deep), var(--color-brand-primary));
+}
+
+.qr {
   flex: 0 0 auto;
-  width: 64px;
-  height: 64px;
+  width: 84px;
+  height: 84px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-default);
-  background-color: var(--color-bg-surface);
+  background-color: #ffffff;
+  padding: 6px;
   object-fit: contain;
 }
 
-.cardMain {
+.ticketMain {
   display: grid;
   gap: var(--space-1);
   flex: 1 1 auto;
   min-width: 0;
 }
 
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
 .title {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .code {
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--text-body-s);
   font-weight: 600;
+  color: var(--color-accent-light);
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+  border-radius: var(--radius-full);
+  padding: 2px 10px;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.ticketDivider {
+  position: relative;
+  border-top: 2px dashed var(--color-border-default);
+  margin: 0 var(--space-4);
+}
+
+.ticketDivider::before,
+.ticketDivider::after {
+  content: '';
+  position: absolute;
+  top: -9px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-bg-canvas);
+  border: 1px solid var(--color-border-strong);
+}
+
+.ticketDivider::before {
+  left: calc(-1 * var(--space-4) - 8px);
+}
+
+.ticketDivider::after {
+  right: calc(-1 * var(--space-4) - 8px);
+}
+
+.ticketValues {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.valueBlock {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.valueLabel {
+  font-size: var(--text-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.valueRemaining {
+  font-size: var(--text-h3);
+  font-weight: 700;
   color: var(--color-accent-strong);
+  line-height: 1.2;
 }
 
-.meta {
+.valueOriginal {
   font-size: var(--text-body-s);
-  color: var(--color-text-muted);
-}
-
-.remaining {
-  font-size: var(--text-body-s);
-  color: var(--color-text-muted);
-}
-
-.remaining strong {
-  color: var(--color-text-primary);
-}
-
-.inlineLink {
   font-weight: 600;
-  color: var(--color-brand-primary);
+  color: var(--color-text-secondary);
+}
+
+.issued {
+  margin-left: auto;
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .loading {
   display: grid;
   gap: var(--space-3);
+}
+
+/* Real button for the empty-state filter reset. */
+.clearButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-4);
+  min-height: 44px;
+  font-size: var(--text-body-s);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.clearButton:hover {
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary);
+  background-color: var(--color-brand-soft);
+}
+
+.clearButton:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
 }
