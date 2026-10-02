@@ -77,9 +77,23 @@ describe('mergeCategory', () => {
 });
 
 describe('nextVoucherCode', () => {
-  it('increments the max suffix with the current year', () => {
+  it('issues random non-sequential codes in the current year', () => {
     const now = new Date('2026-05-01T00:00:00.000Z');
-    expect(nextVoucherCode(['JAD-VCH-2026-101', 'JAD-VCH-2026-109'], now)).toBe('JAD-VCH-2026-110');
-    expect(nextVoucherCode([], now)).toBe('JAD-VCH-2026-101');
+    const first = nextVoucherCode(['JAD-VCH-2026-101', 'JAD-VCH-2026-109'], now);
+    const second = nextVoucherCode(['JAD-VCH-2026-101', 'JAD-VCH-2026-109'], now);
+    expect(first).toMatch(/^JAD-VCH-2026-[A-Z0-9]{6}$/);
+    expect(second).toMatch(/^JAD-VCH-2026-[A-Z0-9]{6}$/);
+    // Random: vanishingly unlikely to repeat or continue the sequence.
+    expect(first).not.toBe(second);
+    expect(first).not.toBe('JAD-VCH-2026-110');
+  });
+
+  it('never reissues a live code', () => {
+    const now = new Date('2026-05-01T00:00:00.000Z');
+    for (let i = 0; i < 25; i++) {
+      const code = nextVoucherCode(['JAD-VCH-2026-ABCDEF'], now);
+      expect(code).not.toBe('JAD-VCH-2026-ABCDEF');
+      expect(code).toMatch(/^JAD-VCH-2026-[A-Z0-9]{6}$/);
+    }
   });
 });

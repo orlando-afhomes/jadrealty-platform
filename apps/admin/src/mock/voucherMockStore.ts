@@ -22,9 +22,15 @@ export const voucherStore: {
   vouchers: MOCK_VOUCHER_ASSIGNMENTS.map((v) => ({ ...v })),
 };
 
+const CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
 function nextCode(): string {
-  seq += 1;
-  return `JAD-VCH-2026-${seq}`;
+  // Random 6-char suffix mirroring production (never sequential).
+  let suffix = '';
+  for (let i = 0; i < 6; i++) {
+    suffix += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  }
+  return `JAD-VCH-2026-${suffix}`;
 }
 
 function memberNameFor(memberId: string): string | undefined {

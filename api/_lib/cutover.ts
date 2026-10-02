@@ -7,6 +7,7 @@ import {
   updatePropertyRequestSchema,
   updateVoucherTemplateRequestSchema,
 } from '@jad/contracts';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 /**
@@ -95,15 +96,33 @@ export function isValidMergedCategory(row: Record<string, unknown>): boolean {
 }
 
 /**
- * Next voucher code (`JAD-VCH-<year>-<nnn>`, suffix = max existing + 1).
- * Mirrors the mock `JAD-VCH-2026-NNN` format with the current year.
+ * Random voucher code (`JAD-VCH-<year>-<XXXXXX>`, 6 chars A-Z0-9, e.g.
+ * `JAD-VCH-2026-1H57MP`). Deliberately NOT sequential: sequential codes are
+ * enumerable, and QR payloads are bearer-adjacent. Collisions against live
+ * codes are retried in-memory; the DB `code` unique index plus the assign
+ * handler's retry loop remain the backstop for cross-instance races.
  */
+export const VOUCHER_CODE_SUFFIX_LENGTH = 6;
+
+const VOUCHER_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function randomCodeSuffix(length: number): string {
+  const bytes = randomBytes(length);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += VOUCHER_CODE_ALPHABET[(bytes[i] as number) % VOUCHER_CODE_ALPHABET.length];
+  }
+  return out;
+}
+
 export function nextVoucherCode(existingCodes: string[], now = new Date()): string {
   const year = now.getUTCFullYear();
-  let max = 100;
-  for (const code of existingCodes) {
-    const match = /-(\d+)$/.exec(code);
-    if (match) max = Math.max(max, Number.parseInt(match[1]!, 10));
+  const taken = new Set(existingCodes);
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const code = `JAD-VCH-${year}-${randomCodeSuffix(VOUCHER_CODE_SUFFIX_LENGTH)}`;
+    if (!taken.has(code)) return code;
   }
-  return `JAD-VCH-${year}-${max + 1}`;
+  // Astronomically unlikely (36^6 space) - timestamp fallback so issuance
+  // never blocks; uniqueness is still enforced by the DB index + retry.
+  return `JAD-VCH-${year}-${Date.now().toString(36).toUpperCase().slice(-6).padStart(6, '0')}`;
 }

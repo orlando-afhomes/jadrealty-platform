@@ -238,7 +238,9 @@ describe('POST /admin/vouchers/assign', () => {
     await assignHandler(req('POST', {}, { templateId: 'vtpl-001', memberId: 'mem-uuid-1' }), res);
     expect(seen.status).toBe(201);
     const body = seen.body as Record<string, unknown>;
-    expect(body.code).toBe('JAD-VCH-2026-102');
+    // Random suffix: well-formed, current year, and not a live code.
+    expect(body.code).toMatch(/^JAD-VCH-\d{4}-[A-Z0-9]{6}$/);
+    expect(body.code).not.toBe('JAD-VCH-2026-101');
     expect(body).toMatchObject({
       templateId: 'vtpl-001',
       memberId: 'mem-uuid-1',
