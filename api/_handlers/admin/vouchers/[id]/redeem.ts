@@ -1,10 +1,12 @@
 import { voucherAssignmentSchema } from '@jad/contracts';
+import { isExpired } from '@jad/shared';
 
 import { ADMIN_STAFF } from '../../../../_lib/access.js';
 import { appendAudit } from '../../../../_lib/audit.js';
 import { verifyStaffModule } from '../../../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../../../_lib/http.js';
 import { mapVoucherAssignmentRow } from '../../../../_lib/pipeline.js';
+import { enforceRateLimit } from '../../../../_lib/rate-limit.js';
 import { methodNotAllowed, requireService } from '../../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../../_lib/envelope.js';
 
@@ -30,6 +32,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if ('error' in auth) {
     const { error, status } = auth.error;
     res.status(status).json({ error });
+    return;
+  }
+  // Redemptions move value - brake floods alongside scan (V2).
+  if (
+    !enforceRateLimit(req, res, {
+      scope: 'admin/vouchers/redeem',
+      max: process.env.VOUCHERS_REDEEM_RATE_LIMIT
+        ? Number(process.env.VOUCHERS_REDEEM_RATE_LIMIT)
+        : 120,
+    })
+  ) {
     return;
   }
   const rawId = req.query.id;
@@ -58,6 +71,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'This voucher has already been redeemed.',
       409,
     );
+    res.status(status).json({ error });
+    return;
+  }
+  // Re-check expiry at confirm time: scan enforces this too, but redeem is a
+  // separate request - the voucher may have expired since the scan, or the
+  // caller may have skipped scan entirely (V1).
+  if (isExpired(typeof current.expiresAt === 'string' ? current.expiresAt : undefined)) {
+    const { error, status } = toErrorEnvelope('CONFLICT', 'This voucher has expired.', 409);
     res.status(status).json({ error });
     return;
   }

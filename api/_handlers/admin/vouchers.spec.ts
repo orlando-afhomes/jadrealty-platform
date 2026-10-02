@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VercelRequest, VercelResponse } from '../../_lib/http.js';
+import { resetRateLimits } from '../../_lib/rate-limit.js';
 
 import templateHandler from './voucher-templates/[id].js';
 import createTemplateHandler from './voucher-templates.js';
@@ -197,11 +198,18 @@ describe('POST /admin/vouchers/assign', () => {
     vi.stubEnv('SUPABASE_URL', 'https://b7.test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
+    resetRateLimits();
     mocks.calls.length = 0;
     mocks.script.roleSlug = 'admin';
     mocks.script.one = {
       VoucherTemplate: TEMPLATE,
-      Member: { id: 'mem-uuid-1', firstName: 'Juan', lastName: 'Dela Cruz', name: null },
+      Member: {
+        id: 'mem-uuid-1',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        name: null,
+        accountStatus: 'ACTIVE',
+      },
     };
     mocks.script.list = { Voucher: [{ code: 'JAD-VCH-2026-101' }] };
     mocks.script.voucherInsertError = null;
@@ -282,7 +290,13 @@ describe('POST /admin/vouchers/assign', () => {
   it('falls back to the platform default expiry when no rule is set', async () => {
     mocks.script.one = {
       VoucherTemplate: TEMPLATE,
-      Member: { id: 'mem-uuid-1', firstName: 'Juan', lastName: 'Dela Cruz', name: null },
+      Member: {
+        id: 'mem-uuid-1',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        name: null,
+        accountStatus: 'ACTIVE',
+      },
       SystemConfig: { value: '45' },
     };
     const { res, seen } = capture();
@@ -298,7 +312,13 @@ describe('POST /admin/vouchers/assign', () => {
   it('prefers the template rule over the platform default expiry', async () => {
     mocks.script.one = {
       VoucherTemplate: { ...TEMPLATE, validityDays: 90 },
-      Member: { id: 'mem-uuid-1', firstName: 'Juan', lastName: 'Dela Cruz', name: null },
+      Member: {
+        id: 'mem-uuid-1',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        name: null,
+        accountStatus: 'ACTIVE',
+      },
       SystemConfig: { value: '45' },
     };
     const { res, seen } = capture();
@@ -314,7 +334,13 @@ describe('POST /admin/vouchers/assign', () => {
   it('leaves the voucher open-ended when no rule or default is configured', async () => {
     mocks.script.one = {
       VoucherTemplate: TEMPLATE,
-      Member: { id: 'mem-uuid-1', firstName: 'Juan', lastName: 'Dela Cruz', name: null },
+      Member: {
+        id: 'mem-uuid-1',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        name: null,
+        accountStatus: 'ACTIVE',
+      },
       SystemConfig: { value: 'not-a-number' },
     };
     const { res, seen } = capture();
@@ -336,6 +362,44 @@ describe('POST /admin/vouchers/assign', () => {
     expect((seen.body as { error: { message: string } }).error.message).toContain(
       'already has this voucher',
     );
+  });
+
+  it('422s an inactive member without touching the database', async () => {
+    mocks.script.one = {
+      VoucherTemplate: TEMPLATE,
+      Member: {
+        id: 'mem-uuid-1',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        name: null,
+        accountStatus: 'INACTIVE',
+      },
+    };
+    const { res, seen } = capture();
+    await assignHandler(req('POST', {}, { templateId: 'vtpl-001', memberId: 'mem-uuid-1' }), res);
+    expect(seen.status).toBe(422);
+    expect((seen.body as { error: { message: string } }).error.message).toContain(
+      'active members',
+    );
+    expect(mocks.calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
+  it('429s once the per-IP assign budget is exceeded', async () => {
+    vi.stubEnv('VOUCHERS_ASSIGN_RATE_LIMIT', '1');
+    try {
+      const attempt = async () => {
+        const { res, seen } = capture();
+        await assignHandler(
+          req('POST', {}, { templateId: 'vtpl-001', memberId: 'mem-uuid-1' }),
+          res,
+        );
+        return seen.status;
+      };
+      expect(await attempt()).toBe(201);
+      expect(await attempt()).toBe(429);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

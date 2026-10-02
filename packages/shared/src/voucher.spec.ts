@@ -39,6 +39,10 @@ describe('computeMemberExpiry', () => {
   it('returns undefined when fixed date is invalid and no validityDays', () => {
     expect(computeMemberExpiry({ expiresAt: 'not-a-date' }, issuedAt)).toBeUndefined();
   });
+
+  it('falls back to open-ended instead of throwing on overflowing windows', () => {
+    expect(computeMemberExpiry({ validityDays: Number.MAX_SAFE_INTEGER }, issuedAt)).toBeUndefined();
+  });
 });
 
 describe('isExpired', () => {

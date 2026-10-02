@@ -8,6 +8,7 @@ import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { mapVoucherAssignmentRow } from '../../../_lib/pipeline.js';
 import { nextVoucherCode } from '../../../_lib/cutover.js';
 import { prefixedId } from '../../../_lib/pipeline.js';
+import { enforceRateLimit } from '../../../_lib/rate-limit.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 
@@ -35,6 +36,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if ('error' in auth) {
     const { error, status } = auth.error;
     res.status(status).json({ error });
+    return;
+  }
+  // Assignment mints value-bearing codes - brake floods (V2).
+  if (
+    !enforceRateLimit(req, res, {
+      scope: 'admin/vouchers/assign',
+      max: process.env.VOUCHERS_ASSIGN_RATE_LIMIT
+        ? Number(process.env.VOUCHERS_ASSIGN_RATE_LIMIT)
+        : 60,
+    })
+  ) {
     return;
   }
   const parsedBody = readJsonBody(req);
@@ -67,11 +79,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const { data: member, error: memberError } = await supabase
     .from('Member')
-    .select('id,firstName,lastName,name')
+    .select('id,firstName,lastName,name,accountStatus')
     .eq('id', parsed.data.memberId)
     .maybeSingle();
   if (memberError || !member) {
     const { error, status } = toErrorEnvelope('NOT_FOUND', 'Member not found.', 404);
+    res.status(status).json({ error });
+    return;
+  }
+  // Mirror the dialog's ACTIVE-only rule server-side: vouchers issued to
+  // inactive/archived members could never be redeemed (V3).
+  if ((member as { accountStatus?: unknown }).accountStatus !== 'ACTIVE') {
+    const { error, status } = toErrorEnvelope(
+      'VALIDATION_ERROR',
+      'Vouchers can only be assigned to active members.',
+      422,
+    );
     res.status(status).json({ error });
     return;
   }

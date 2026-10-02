@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
+import { resetRateLimits } from '../../../_lib/rate-limit.js';
 
 import scanVoucherHandler from './scan.js';
 import redeemVoucherHandler from './[id]/redeem.js';
@@ -142,6 +143,7 @@ describe('POST /admin/vouchers/scan', () => {
     vi.stubEnv('SUPABASE_URL', 'https://vch.test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
+    resetRateLimits();
     mocks.calls.length = 0;
     mocks.script.roleSlug = 'admin';
     mocks.script.one = { Voucher: ACTIVE_VOUCHER };
@@ -187,6 +189,22 @@ describe('POST /admin/vouchers/scan', () => {
       status: 'ACTIVE',
     });
   });
+
+  it('429s once the per-IP scan budget is exceeded', async () => {
+    vi.stubEnv('VOUCHERS_SCAN_RATE_LIMIT', '2');
+    try {
+      const attempt = async () => {
+        const { res, seen } = capture();
+        await scanVoucherHandler(req('POST', {}, { code: 'JAD-VCH-2026-101' }), res);
+        return seen.status;
+      };
+      expect(await attempt()).toBe(200);
+      expect(await attempt()).toBe(200);
+      expect(await attempt()).toBe(429);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('POST /admin/vouchers/:id/redeem', () => {
@@ -207,6 +225,7 @@ describe('POST /admin/vouchers/:id/redeem', () => {
     vi.stubEnv('SUPABASE_URL', 'https://vch.test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
+    resetRateLimits();
     mocks.calls.length = 0;
     mocks.script.roleSlug = 'admin';
     mocks.script.one = { Voucher: ACTIVE_VOUCHER };
@@ -234,6 +253,17 @@ describe('POST /admin/vouchers/:id/redeem', () => {
     expect(seen.status).toBe(409);
   });
 
+  it('409s expired vouchers even when directly redeemed without a scan', async () => {
+    mocks.script.one = {
+      Voucher: { ...ACTIVE_VOUCHER, expiresAt: '2020-01-01T00:00:00.000Z' },
+    };
+    const { res, seen } = capture();
+    await redeemVoucherHandler(req('POST', { id: 'vch-001' }), res);
+    expect(seen.status).toBe(409);
+    expect((seen.body as { error: { message: string } }).error.message).toContain('expired');
+    expect(mocks.calls.some((c) => c.table === 'Voucher' && c.op === 'update')).toBe(false);
+  });
+
   it('200s a redemption, updating remaining to 0.00 with audit', async () => {
     const { res, seen } = capture();
     await redeemVoucherHandler(req('POST', { id: 'vch-001' }), res);
@@ -252,5 +282,20 @@ describe('POST /admin/vouchers/:id/redeem', () => {
     });
     const audit = mocks.calls.find((c) => c.table === 'AuditLog')?.arg as Record<string, unknown>;
     expect(audit).toMatchObject({ action: 'VOUCHER_REDEEMED' });
+  });
+
+  it('429s once the per-IP redeem budget is exceeded', async () => {
+    vi.stubEnv('VOUCHERS_REDEEM_RATE_LIMIT', '1');
+    try {
+      const attempt = async () => {
+        const { res, seen } = capture();
+        await redeemVoucherHandler(req('POST', { id: 'vch-001' }), res);
+        return seen.status;
+      };
+      expect(await attempt()).toBe(200);
+      expect(await attempt()).toBe(429);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

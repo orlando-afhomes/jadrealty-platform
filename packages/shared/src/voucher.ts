@@ -32,7 +32,12 @@ export function computeMemberExpiry(rule: VoucherExpiryRule, issuedAt: Date): st
   // 2. Validity days from issuance
   if (typeof rule.validityDays === 'number' && rule.validityDays > 0) {
     const ms = issuedAt.getTime() + rule.validityDays * 24 * 60 * 60 * 1000;
-    return new Date(ms).toISOString();
+    // Guard absurd windows (e.g. legacy unvalidated rows): an overflowing
+    // date would throw on toISOString, so fall through to open-ended.
+    if (!Number.isSafeInteger(ms)) return undefined;
+    const computed = new Date(ms);
+    if (Number.isNaN(computed.getTime())) return undefined;
+    return computed.toISOString();
   }
 
   // 3. No expiry

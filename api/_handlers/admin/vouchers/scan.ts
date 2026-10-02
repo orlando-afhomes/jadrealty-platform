@@ -5,6 +5,7 @@ import { ADMIN_STAFF } from '../../../_lib/access.js';
 import { verifyStaffModule } from '../../../_lib/auth.js';
 import type { VercelRequest, VercelResponse } from '../../../_lib/http.js';
 import { mapVoucherAssignmentRow } from '../../../_lib/pipeline.js';
+import { enforceRateLimit } from '../../../_lib/rate-limit.js';
 import { methodNotAllowed, readJsonBody, requireService } from '../../../_lib/rest.js';
 import { toErrorEnvelope } from '../../../_lib/envelope.js';
 
@@ -30,6 +31,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if ('error' in auth) {
     const { error, status } = auth.error;
     res.status(status).json({ error });
+    return;
+  }
+  // Voucher codes are sequential - brake enumeration floods (V2).
+  if (
+    !enforceRateLimit(req, res, {
+      scope: 'admin/vouchers/scan',
+      max: process.env.VOUCHERS_SCAN_RATE_LIMIT
+        ? Number(process.env.VOUCHERS_SCAN_RATE_LIMIT)
+        : 120,
+    })
+  ) {
     return;
   }
   const parsedBody = readJsonBody(req);
