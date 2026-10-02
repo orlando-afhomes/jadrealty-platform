@@ -70,7 +70,7 @@ export function LedgerPage() {
     <section>
       <PageHeader
         title="Ledger"
-        description="Append-only financial ledger (BI-005) - cursor-paginated."
+        description="A complete, permanent record of every credit and debit on your account."
         actions={
           <Link className={styles.backLink} to="/member/ewallet" aria-label="Back to eWallet">
             ← Back to eWallet
@@ -89,15 +89,15 @@ export function LedgerPage() {
           placeholder="All types"
           hint={
             type === 'GROUP_INCENTIVE'
-              ? 'Group Incentive is gated - no entries yet until Owner decision OD-006 (FEAT-041).'
-              : 'Filter is shareable via URL - ?type= - and uses a server allowlist.'
+              ? 'Group Incentive entries will appear here if this program becomes available.'
+              : 'Narrow the list by entry type.'
           }
         />
       </div>
       {type === 'GROUP_INCENTIVE' ? (
         <p className={styles.gatedNote}>
-          Group Incentive is gated - no entries yet until Owner decision OD-006 (FEAT-041 BLOCKED on
-          OD-006..012). See <Link to="/member/policies">Policies</Link>.
+          Group Incentive is not available yet. See <Link to="/member/policies">Policies</Link>{' '}
+          for program updates.
         </p>
       ) : null}
 
@@ -118,7 +118,7 @@ export function LedgerPage() {
           <h3 className={styles.emptyTitle}>No ledger entries</h3>
           <p className={styles.emptyBody}>
             {type === 'GROUP_INCENTIVE'
-              ? 'Group Incentive is gated - no entries yet until Owner decision OD-006 (FEAT-041 BLOCKED).'
+              ? 'Group Incentive is not available yet.'
               : 'Transactions appear here once commissions are credited or withdrawals are requested.'}
           </p>
           {type ? (
@@ -135,7 +135,7 @@ export function LedgerPage() {
         <>
           {type ? (
             <p className={styles.filterNote}>
-              Balance is global running balance (not filtered total). Filter is shareable via URL.{' '}
+              The balance beside each entry is your account-wide running balance.{' '}
               <button
                 type="button"
                 className={styles.clearFilter}
@@ -155,7 +155,7 @@ export function LedgerPage() {
                   <span className={styles.meta}>
                     {ledgerDirectionLabel(entry.direction)} · {formatDate(entry.createdAt)}
                     {entry.entryType === 'WITHDRAWAL_COMPLETION'
-                      ? ' · external record - no balance change'
+                      ? ' · recorded - no balance change'
                       : ''}
                   </span>
                 </div>
@@ -170,7 +170,7 @@ export function LedgerPage() {
                     }
                     title={
                       entry.entryType === 'WITHDRAWAL_COMPLETION'
-                        ? 'Recorded external completion - Available already reserved at Reservation (BR-WDR-002)'
+                        ? 'Recorded completion - the amount was already reserved when you requested it'
                         : undefined
                     }
                   >

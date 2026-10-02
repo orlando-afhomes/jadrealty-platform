@@ -58,8 +58,8 @@ export function TotalEarnedPage() {
           </p>
           <p className={styles.figureLabel}>Lifetime earnings</p>
           <p className={styles.figureHint}>
-            Ledger-defined total based on credited commissions and referral earnings. Pending
-            estimates are excluded.
+            Total based on credited commissions and referral earnings. Pending estimates are
+            excluded.
           </p>
         </div>
       ) : (

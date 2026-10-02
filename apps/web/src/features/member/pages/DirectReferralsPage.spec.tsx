@@ -45,7 +45,7 @@ describe('member DirectReferralsPage', () => {
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.getByText(/Qualified · joined/)).toBeInTheDocument();
     expect(screen.getAllByText(/Not qualified · joined/)).toHaveLength(2);
-    expect(screen.getByText(/single-level only/)).toBeInTheDocument();
+    expect(screen.getByText(/only for members you directly referred/)).toBeInTheDocument();
   });
 
   it('shows an empty state with a referral-code link when there are no referrals', async () => {
@@ -57,5 +57,13 @@ describe('member DirectReferralsPage', () => {
       'href',
       '/member/referrals',
     );
+  });
+
+  it('shows no developer reference codes', async () => {
+    mockFetchRoutes({ '/me/direct-referrals': REFERRALS });
+    renderMember(<DirectReferralsPage />, { user: MOCK_MEMBER });
+
+    await screen.findByText('Maria Santos');
+    expect(document.body.textContent ?? '').not.toMatch(/\([A-Z]{2,}-[A-Z]+-?\d*\)/);
   });
 });

@@ -66,8 +66,7 @@ export function DirectReferralsPage() {
       )}
 
       <p className={styles.note}>
-        Referrals are single-level only - commissions apply to members you directly referred
-        (BR-REF-002).
+        You earn referral commissions only for members you directly referred.
       </p>
     </section>
   );

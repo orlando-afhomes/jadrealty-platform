@@ -54,6 +54,16 @@ describe('member LedgerPage', () => {
     expect(screen.getByText('−₱50,000.00')).toBeInTheDocument();
   });
 
+  it('shows no developer reference codes or implementation notes', async () => {
+    mockFetchRoutes({ '/me/ledger': PAGE1 });
+    renderMember(<LedgerPage />, { user: MOCK_MEMBER });
+
+    await screen.findByText('Balance ₱160,000.00');
+    const copy = document.body.textContent ?? '';
+    expect(copy).not.toMatch(/\([A-Z]{2,}-[A-Z]+-?\d*\)/);
+    expect(copy).not.toMatch(/cursor-paginated|allowlist|\?type=|Idempotency/);
+  });
+
   it('loads the next cursor page on demand (API-SPECIFICATION §4)', async () => {
     const fetchFn = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);

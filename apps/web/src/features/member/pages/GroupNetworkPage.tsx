@@ -100,11 +100,10 @@ export function GroupNetworkPage() {
             <dd className={styles.cardValue}>{numberFmt.format(networkQuery.data.rejected)}</dd>
           </div>
         </dl>
-      ) : null}{' '}
-      {/* close the initial { at line 41 */}
+      ) : null}
       <p className={styles.note}>
         This is a network view only. It does not represent or compute multi-level commission
-        entitlement (BR-RPT-002).
+        entitlement.
       </p>
     </section>
   );

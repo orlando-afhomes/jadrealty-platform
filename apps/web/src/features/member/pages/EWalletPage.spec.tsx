@@ -57,7 +57,7 @@ describe('member EWalletPage', () => {
     expect(screen.getByText('₱424,000.00')).toBeInTheDocument();
     expect(screen.queryByText('₱636,000.00')).not.toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
-    expect(screen.getByText('Ready to withdraw (BI-001).')).toBeInTheDocument();
+    expect(screen.getByText('Ready to withdraw.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Withdraw' })).toHaveAttribute(
       'href',
       '/member/withdrawals/new',
@@ -73,5 +73,17 @@ describe('member EWalletPage', () => {
     renderMember(<EWalletPage />, { user: MOCK_MEMBER });
 
     expect(await screen.findByText('Could not load your wallet')).toBeInTheDocument();
+  });
+
+  it('shows no developer reference codes', async () => {
+    mockFetchRoutes({
+      '/me/wallet': WALLET,
+      '/me/payout-accounts': PAYOUT_ACCOUNTS,
+      '/me/commissions': COMMISSIONS,
+    });
+    renderMember(<EWalletPage />, { user: MOCK_MEMBER });
+
+    await screen.findByText('₱140,000.00');
+    expect(document.body.textContent ?? '').not.toMatch(/\([A-Z]{2,}-[A-Z]+-?\d*\)/);
   });
 });

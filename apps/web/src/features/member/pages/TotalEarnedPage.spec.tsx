@@ -27,14 +27,13 @@ describe('member TotalEarnedPage', () => {
     expect(await screen.findByRole('status', { name: 'Total earned' })).toBeInTheDocument();
     expect(screen.getByText('₱876,000.00')).toBeInTheDocument();
     expect(screen.getByText('Lifetime earnings')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Ledger-defined total based on credited commissions/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Total based on credited commissions/)).toBeInTheDocument();
     expect(screen.getByText(/Pending estimates are excluded/)).toBeInTheDocument();
     expect(screen.queryByText(/Illustrative/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Requires approval/)).not.toBeInTheDocument();
     expect(screen.queryByText(/BR-RPT-003/)).not.toBeInTheDocument();
     expect(screen.queryByText(/OD-025/)).not.toBeInTheDocument();
+    expect(document.body.textContent ?? '').not.toMatch(/\([A-Z]{2,}-[A-Z]+-?\d*\)/);
 
     expect(screen.getByRole('link', { name: 'ledger' })).toHaveAttribute(
       'href',

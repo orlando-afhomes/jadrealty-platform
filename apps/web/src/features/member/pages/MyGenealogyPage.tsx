@@ -278,7 +278,7 @@ export function MyGenealogyPage() {
 
       <p className={styles.note}>
         Your genealogy is for reporting only. Referral commissions are strictly single-level and
-        never extend down this tree (BR-RPT-004).
+        never extend down this tree.
       </p>
     </section>
   );

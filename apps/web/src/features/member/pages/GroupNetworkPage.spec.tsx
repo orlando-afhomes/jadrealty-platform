@@ -56,4 +56,11 @@ describe('member GroupNetworkPage', () => {
     // Trail is owned by MemberLayout - no in-page duplicate
     expect(screen.getAllByText('Group Network').length).toBeGreaterThanOrEqual(1);
   });
+
+  it('shows no developer reference codes', async () => {
+    renderMember(<GroupNetworkPage />, { user: MOCK_MEMBER });
+
+    await screen.findByText('Total members');
+    expect(document.body.textContent ?? '').not.toMatch(/\([A-Z]{2,}-[A-Z]+-?\d*\)/);
+  });
 });

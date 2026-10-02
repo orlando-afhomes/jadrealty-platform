@@ -205,4 +205,172 @@ describe('member WithdrawalRequestPage', () => {
 
     expect(await screen.findByText('Enter no more than ₱50,000.00.')).toBeInTheDocument();
   });
+
+  it('formats the amount with thousand separators and drops non-numeric input', async () => {
+    mockFetchRoutes({
+      '/me/wallet': WALLET,
+      '/me/payout-accounts': CONFIRMED_ACCOUNTS,
+    });
+    const user = userEvent.setup();
+    renderMember(<WithdrawalRequestPage />, { user: MOCK_MEMBER });
+
+    const amount = (await screen.findByLabelText('Amount (PHP)')) as HTMLInputElement;
+    await user.type(amount, 'abc10000.5');
+    expect(amount.value).toBe('10,000.5');
+    await user.type(amount, '0');
+    expect(amount.value).toBe('10,000.50');
+  });
+
+  it('offers suggestion cards from minimum to the affordable maximum', async () => {
+    const fetchFn = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/me/withdrawals') && method === 'POST') {
+        return Promise.resolve(json(RESERVED));
+      }
+      if (url.endsWith('/me/payout-accounts')) return Promise.resolve(json(CONFIRMED_ACCOUNTS));
+      if (url.endsWith('/config/public'))
+        return Promise.resolve(
+          json({
+            minimumAge: 18,
+            genders: ['Male', 'Female', 'Others'],
+            withdrawalLimits: { min: '100.00', max: '50000.00' },
+          }),
+        );
+      return Promise.resolve(json(WALLET));
+    });
+    vi.stubGlobal('fetch', fetchFn);
+
+    const user = userEvent.setup();
+    renderMember(<WithdrawalRequestPage />, { user: MOCK_MEMBER });
+
+    // Fixed ladder filtered to the affordable range.
+    const group = await screen.findByRole('group', { name: 'Suggested amounts' });
+    const cards = [...group.querySelectorAll('button')].map((b) => b.textContent);
+    expect(cards).toEqual(['₱10,000.00', '₱20,000.00', '₱40,000.00', '₱50,000.00']);
+
+    await user.click(screen.getByRole('button', { name: '₱50,000.00' }));
+    expect((screen.getByLabelText('Amount (PHP)') as HTMLInputElement).value).toBe('50,000.00');
+
+    await user.selectOptions(screen.getByLabelText('Payout account'), 'pa-001');
+    await user.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+    await user.click(await screen.findByRole('button', { name: 'Request withdrawal' }));
+
+    await waitFor(() => {
+      const createCall = fetchFn.mock.calls.find(
+        (call) =>
+          String(call[0]).endsWith('/me/withdrawals') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      );
+      expect(createCall).toBeTruthy();
+      // Exact-decimal on the wire - never the comma display format.
+      expect(JSON.parse(String((createCall?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+        amount: '50000.00',
+      });
+    });
+  });
+
+  it('hides suggestion cards when the balance is below the minimum', async () => {
+    mockFetchRoutes({
+      '/me/wallet': { availableBalance: '50.00', pendingAmount: '0.00' },
+      '/me/payout-accounts': CONFIRMED_ACCOUNTS,
+      '/config/public': {
+        minimumAge: 18,
+        genders: ['Male', 'Female', 'Others'],
+        withdrawalLimits: { min: '100.00', max: '50000.00' },
+      },
+    });
+    renderMember(<WithdrawalRequestPage />, { user: MOCK_MEMBER });
+
+    await screen.findByLabelText('Amount (PHP)');
+    expect(screen.queryByRole('group', { name: 'Suggested amounts' })).not.toBeInTheDocument();
+  });
+
+  it('reuses the idempotency key for an unchanged retry', async () => {
+    let posts = 0;
+    const fetchFn = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/me/withdrawals') && method === 'POST') {
+        posts += 1;
+        if (posts === 1) return Promise.resolve(json({ error: { code: 'INTERNAL' } }, 500));
+        return Promise.resolve(json(RESERVED));
+      }
+      if (url.endsWith('/me/payout-accounts')) return Promise.resolve(json(CONFIRMED_ACCOUNTS));
+      return Promise.resolve(json(WALLET));
+    });
+    vi.stubGlobal('fetch', fetchFn);
+
+    const user = userEvent.setup();
+    renderMember(<WithdrawalRequestPage />, { user: MOCK_MEMBER });
+
+    await user.type(await screen.findByLabelText('Amount (PHP)'), '25000.00');
+    await user.selectOptions(screen.getByLabelText('Payout account'), 'pa-001');
+    await user.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+    await user.click(await screen.findByRole('button', { name: 'Request withdrawal' }));
+    await screen.findByText('We could not process the withdrawal');
+
+    await user.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+    await user.click(await screen.findByRole('button', { name: 'Request withdrawal' }));
+
+    const keys = fetchFn.mock.calls
+      .filter(
+        (call) =>
+          String(call[0]).endsWith('/me/withdrawals') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      )
+      .map((call) => {
+        const headers = (call[1] as RequestInit | undefined)?.headers as
+          Record<string, string> | undefined;
+        return headers?.['Idempotency-Key'] ?? headers?.['idempotency-key'];
+      });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it('mints a fresh idempotency key when the amount changes after a failure', async () => {
+    const fetchFn = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith('/me/withdrawals') && method === 'POST') {
+        return Promise.resolve(json({ error: { code: 'INTERNAL' } }, 500));
+      }
+      if (url.endsWith('/me/payout-accounts')) return Promise.resolve(json(CONFIRMED_ACCOUNTS));
+      return Promise.resolve(json(WALLET));
+    });
+    vi.stubGlobal('fetch', fetchFn);
+
+    const user = userEvent.setup();
+    renderMember(<WithdrawalRequestPage />, { user: MOCK_MEMBER });
+
+    const amount = (await screen.findByLabelText('Amount (PHP)')) as HTMLInputElement;
+    await user.type(amount, '25000.00');
+    await user.selectOptions(screen.getByLabelText('Payout account'), 'pa-001');
+    await user.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+    await user.click(await screen.findByRole('button', { name: 'Request withdrawal' }));
+    await screen.findByText('We could not process the withdrawal');
+
+    await user.clear(amount);
+    await user.type(amount, '26000.00');
+    await user.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+    await user.click(await screen.findByRole('button', { name: 'Request withdrawal' }));
+    await screen.findByText('We could not process the withdrawal');
+
+    const keys = fetchFn.mock.calls
+      .filter(
+        (call) =>
+          String(call[0]).endsWith('/me/withdrawals') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      )
+      .map((call) => {
+        const headers = (call[1] as RequestInit | undefined)?.headers as
+          Record<string, string> | undefined;
+        return headers?.['Idempotency-Key'] ?? headers?.['idempotency-key'];
+      });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBeTruthy();
+    expect(keys[1]).not.toBe(keys[0]);
+  });
 });

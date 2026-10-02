@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 
@@ -26,6 +26,58 @@ import { payoutMethodLabel } from '../lib/presentation';
 import styles from './WithdrawalRequestPage.module.css';
 
 const AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
+
+/** Hard cap on whole-peso digits (UX guard; the server still enforces balance). */
+const MAX_INTEGER_DIGITS = 12;
+
+function groupThousands(digits: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * Live amount shaping: digits + one dot only, max two decimals, thousand
+ * separators as typed (`10000` → `10,000`). Letters, commas, currency
+ * symbols and extra dots never enter state. Callers strip commas via
+ * `normalizeAmount` before validating or submitting.
+ */
+function shapeAmount(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, '');
+  if (cleaned === '') return '';
+  const dotIndex = cleaned.indexOf('.');
+  const hasDot = dotIndex !== -1;
+  const headRaw = (hasDot ? cleaned.slice(0, dotIndex) : cleaned).slice(0, MAX_INTEGER_DIGITS);
+  const fracRaw = hasDot ? cleaned.slice(dotIndex + 1).replace(/\./g, '') : '';
+  const head = headRaw.replace(/^0+(?=\d)/, '') || '0';
+  if (!hasDot) return groupThousands(head);
+  return `${groupThousands(head)}.${fracRaw.slice(0, 2)}`;
+}
+
+/** Display string → exact-decimal for validation, math, and submission. */
+function normalizeAmount(display: string): string {
+  return display.replace(/,/g, '').trim();
+}
+
+function toCents(value: string): bigint | null {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value);
+  if (!match || match[1] === undefined) return null;
+  return BigInt(match[1]) * 100n + BigInt((match[2] ?? '').padEnd(2, '0'));
+}
+
+function fromCents(cents: bigint): string {
+  return `${(cents / 100n).toString()}.${(cents % 100n).toString().padStart(2, '0')}`;
+}
+
+/** Mint and persist a fresh idempotency key (module scope: impure by design). */
+function mintIdempotencyKey(): string {
+  const fresh =
+    typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `idem-${Date.now()}`;
+  try {
+    sessionStorage.setItem('jad:withdrawal:idempotency', fresh);
+  } catch {
+    // sessionStorage unavailable (SSR/test)
+  }
+  return fresh;
+}
 
 /**
  * Request a withdrawal (SCR-MEM-012, FR-WDR-001..005). Requires at least one
@@ -57,14 +109,7 @@ export function WithdrawalRequestPage() {
     } catch {
       // sessionStorage unavailable (SSR/test)
     }
-    const fresh =
-      typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `idem-${Date.now()}`;
-    try {
-      sessionStorage.setItem('jad:withdrawal:idempotency', fresh);
-    } catch {
-      // ignore
-    }
-    return fresh;
+    return mintIdempotencyKey();
   });
 
   const verifiedAccounts = useMemo(
@@ -73,34 +118,51 @@ export function WithdrawalRequestPage() {
   );
 
   const regenerateKey = () => {
-    const fresh =
-      typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `idem-${Date.now()}`;
-    try {
-      sessionStorage.setItem('jad:withdrawal:idempotency', fresh);
-    } catch {
-      // ignore
-    }
+    const fresh = mintIdempotencyKey();
     setIdempotencyKey(fresh);
+    return fresh;
+  };
+
+  /**
+   * Payload the active idempotency key was minted for. A replayed key always
+   * returns the FIRST stored withdrawal, so a key must never be reused for a
+   * different amount/account (cross-tab or edited retry would otherwise land
+   * on the wrong withdrawal). Unchanged retries keep the key for safe dedup.
+   */
+  const keyPayloadRef = useRef<{ amount: string; payoutAccountId: string } | null>(null);
+
+  const keyForAttempt = (attemptAmount: string, attemptAccountId: string): string => {
+    const current = keyPayloadRef.current;
+    if (
+      current &&
+      current.amount === attemptAmount &&
+      current.payoutAccountId === attemptAccountId
+    ) {
+      return idempotencyKey;
+    }
+    const fresh = regenerateKey();
+    keyPayloadRef.current = { amount: attemptAmount, payoutAccountId: attemptAccountId };
+    return fresh;
   };
 
   const createMutation = useMutation({
     mutationFn: ({
       amount: mutationAmount,
       payoutAccountId: mutationAccountId,
+      key,
     }: {
       amount: string;
       payoutAccountId: string;
+      key: string;
     }) =>
-      createWithdrawal(
-        { amount: mutationAmount, payoutAccountId: mutationAccountId },
-        idempotencyKey,
-      ),
+      createWithdrawal({ amount: mutationAmount, payoutAccountId: mutationAccountId }, key),
     onSuccess: (withdrawal) => {
       try {
         sessionStorage.removeItem('jad:withdrawal:idempotency');
       } catch {
         // ignore
       }
+      keyPayloadRef.current = null;
       regenerateKey();
       // Await the refetches so the destination page (detail + eWallet) shows
       // the server truth (deducted Available, raised Pending reservation).
@@ -121,19 +183,46 @@ export function WithdrawalRequestPage() {
 
   const balance = walletQuery.data?.availableBalance ?? '0.00';
 
+  /**
+   * Quick-pick amounts: a fixed ladder (10,000 / 20,000 / 40,000 / 50,000),
+   * filtered to what the member can actually withdraw (within minimum and
+   * the affordable cap). Cards are always submittable as-is; typing in the
+   * field below stays fully custom and deselects the card.
+   */
+  const suggestions = useMemo(() => {
+    const LADDER = [10000n * 100n, 20000n * 100n, 40000n * 100n, 50000n * 100n];
+    const balanceCents = toCents(balance);
+    if (balanceCents === null || balanceCents <= 0n) return [];
+    if (limits) {
+      const minCents = toCents(limits.min);
+      const maxCents = toCents(limits.max);
+      if (minCents === null || maxCents === null) return [];
+      const cap = balanceCents < maxCents ? balanceCents : maxCents;
+      if (cap < minCents) return [];
+      const valid = LADDER.filter((cents) => cents >= minCents && cents <= cap);
+      if (valid.length > 0) return valid.map(fromCents);
+      return [fromCents(minCents)];
+    }
+    const valid = LADDER.filter((cents) => cents <= balanceCents);
+    if (valid.length > 0) return valid.map(fromCents);
+    return [fromCents(balanceCents)];
+  }, [balance, limits]);
+
+  const normalizedAmount = normalizeAmount(amount);
+
   const onReview = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
-    if (!amount.trim()) nextErrors.amount = 'Enter an amount.';
-    else if (!AMOUNT_RE.test(amount.trim()))
+    if (!normalizedAmount) nextErrors.amount = 'Enter an amount.';
+    else if (!AMOUNT_RE.test(normalizedAmount))
       nextErrors.amount = 'Enter a valid amount with up to two decimal places.';
-    else if (compareMoney(amount.trim(), '0.00') <= 0)
+    else if (compareMoney(normalizedAmount, '0.00') <= 0)
       nextErrors.amount = 'Enter an amount greater than zero.';
-    else if (limits && compareMoney(amount.trim(), limits.min) < 0)
+    else if (limits && compareMoney(normalizedAmount, limits.min) < 0)
       nextErrors.amount = `Enter at least ${formatMoney(limits.min)}.`;
-    else if (compareMoney(amount.trim(), balance) > 0)
+    else if (compareMoney(normalizedAmount, balance) > 0)
       nextErrors.amount = 'The amount exceeds your Available Balance.';
-    else if (limits && compareMoney(amount.trim(), limits.max) > 0)
+    else if (limits && compareMoney(normalizedAmount, limits.max) > 0)
       nextErrors.amount = `Enter no more than ${formatMoney(limits.max)}.`;
     if (!payoutAccountId) nextErrors.payoutAccountId = 'Choose a verified payout account.';
     setErrors(nextErrors);
@@ -154,7 +243,7 @@ export function WithdrawalRequestPage() {
         queryFn: getWallet,
       });
       const freshBalance = fresh.availableBalance;
-      if (compareMoney(amount.trim(), freshBalance) > 0) {
+      if (compareMoney(normalizedAmount, freshBalance) > 0) {
         setServerError(
           'The withdrawal amount exceeds your Available Balance. Enter a lower amount.',
         );
@@ -164,7 +253,7 @@ export function WithdrawalRequestPage() {
       // If fresh fetch fails, rely on server 409 and show generic error below
     }
     createMutation.mutate(
-      { amount: amount.trim(), payoutAccountId },
+      { amount: normalizedAmount, payoutAccountId, key: keyForAttempt(normalizedAmount, payoutAccountId) },
       {
         onError: (error) => {
           if (error instanceof ApiError && error.code === 'INSUFFICIENT_BALANCE') {
@@ -278,7 +367,7 @@ export function WithdrawalRequestPage() {
 
         <EmptyState
           title="No verified payout account"
-          description="Add and confirm a payout account before requesting a withdrawal. Verification typically takes 24-48h (BR-PAY-003/004)."
+          description="Add and confirm a payout account before requesting a withdrawal. Verification typically takes 24-48 hours."
           action={
             <Link to="/member/payouts/new" className={styles.inlineLink}>
               Add a payout account
@@ -322,12 +411,47 @@ export function WithdrawalRequestPage() {
       ) : null}
 
       <form className={styles.form} noValidate onSubmit={onReview}>
+        {suggestions.length > 0 ? (
+          <div>
+            <p className={styles.suggestLabel} id="withdrawal-suggestions-label">
+              Suggested amounts
+            </p>
+            <div
+              className={styles.suggestions}
+              role="group"
+              aria-labelledby="withdrawal-suggestions-label"
+            >
+              {suggestions.map((suggestion) => {
+                const selected = normalizedAmount !== '' && normalizedAmount === suggestion;
+                return (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className={`${styles.suggestion}${selected ? ` ${styles.suggestionActive}` : ''}`}
+                    aria-pressed={selected}
+                    onClick={() => {
+                      setAmount(shapeAmount(suggestion));
+                      setErrors((current) => {
+                        if (current.amount === undefined) return current;
+                        const next = { ...current };
+                        delete next.amount;
+                        return next;
+                      });
+                    }}
+                  >
+                    {formatMoney(suggestion)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <TextField
           id="withdrawal-amount"
           name="amount"
           label="Amount (PHP)"
           value={amount}
-          onChange={setAmount}
+          onChange={(value) => setAmount(shapeAmount(value))}
           error={errors.amount}
           hint={
             limits
@@ -335,20 +459,21 @@ export function WithdrawalRequestPage() {
               : 'The full amount is reserved immediately and cannot be edited after submission.'
           }
           inputMode="decimal"
+          placeholder="0.00"
         />
         {(() => {
-          const trimmed = amount.trim();
-          if (!trimmed || !isExactDecimal(trimmed)) return null;
+          if (!normalizedAmount || !isExactDecimal(normalizedAmount)) return null;
           let availableAfter: string;
           try {
-            if (compareMoney(trimmed, '0.00') <= 0 || compareMoney(trimmed, balance) > 0)
+            if (compareMoney(normalizedAmount, '0.00') <= 0 || compareMoney(normalizedAmount, balance) > 0)
               return null;
             if (
               limits &&
-              (compareMoney(trimmed, limits.min) < 0 || compareMoney(trimmed, limits.max) > 0)
+              (compareMoney(normalizedAmount, limits.min) < 0 ||
+                compareMoney(normalizedAmount, limits.max) > 0)
             )
               return null;
-            availableAfter = formatMoney(subtractMoney(balance, trimmed));
+            availableAfter = formatMoney(subtractMoney(balance, normalizedAmount));
           } catch {
             return null;
           }
@@ -366,7 +491,7 @@ export function WithdrawalRequestPage() {
           onChange={setPayoutAccountId}
           options={accountOptions}
           error={errors.payoutAccountId}
-          hint="Only verified payout accounts can be used (BR-PAY-005)."
+          hint="Only verified payout accounts can be used."
         />
         <div className={styles.actions}>
           <Button type="submit" disabled={createMutation.isPending}>
@@ -385,7 +510,7 @@ export function WithdrawalRequestPage() {
           <>
             <p className={styles.confirmText}>
               Request a withdrawal of{' '}
-              <strong>{formatMoney(isExactDecimal(amount) ? amount : '0.00')}</strong> to your{' '}
+              <strong>{formatMoney(isExactDecimal(normalizedAmount) ? normalizedAmount : '0.00')}</strong> to your{' '}
               <strong>
                 {selectedAccount ? payoutMethodLabel(selectedAccount.method) : 'payout account'}
               </strong>

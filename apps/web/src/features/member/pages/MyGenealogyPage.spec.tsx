@@ -82,4 +82,11 @@ describe('member MyGenealogyPage', () => {
     expect(screen.queryByText('Liza Lopez')).not.toBeInTheDocument();
     expect(screen.queryByText('Maria Santos')).not.toBeInTheDocument();
   });
+
+  it('shows no developer reference codes', async () => {
+    renderMember(<MyGenealogyPage />, { user: MOCK_MEMBER });
+
+    await screen.findByText('Juan Dela Cruz');
+    expect(document.body.textContent ?? '').not.toMatch(/\([A-Z]{2,}-[A-Z]+-?\d*\)/);
+  });
 });

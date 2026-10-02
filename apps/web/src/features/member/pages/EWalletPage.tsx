@@ -83,7 +83,7 @@ export function EWalletPage() {
             <span className={styles.cardValue}>
               {formatMoney(walletQuery.data?.availableBalance ?? '0.00')}
             </span>
-            <span className={styles.cardHint}>Ready to withdraw (BI-001).</span>
+            <span className={styles.cardHint}>Ready to withdraw.</span>
           </div>
           <div className={styles.card}>
             <div className={styles.cardTop}>
@@ -98,7 +98,7 @@ export function EWalletPage() {
             <span className={styles.cardHint}>
               Awaiting admin approval of submitted sales.
               {reservedWithdrawals
-                ? ` Reserved withdrawals (in Pending/Completed payments): ${formatMoney(pendingWithdrawals)}.`
+                ? ` Reserved for withdrawals in progress: ${formatMoney(pendingWithdrawals)}.`
                 : ''}
             </span>
           </div>
@@ -115,7 +115,7 @@ export function EWalletPage() {
             <span className={styles.cardValue}>
               {formatMoney(walletQuery.data?.totalWithdrawals ?? '0.00')}
             </span>
-            <span className={styles.cardHint}>Completed withdrawals • server-computed</span>
+            <span className={styles.cardHint}>All completed withdrawals to date.</span>
           </div>
           <div className={styles.card}>
             <div className={styles.cardTop}>
@@ -127,7 +127,7 @@ export function EWalletPage() {
             <span className={styles.cardValue}>
               {formatMoney(walletQuery.data?.totalEarned ?? '0.00')}
             </span>
-            <span className={styles.cardHint}>Ledger-defined total (BR-RPT-003)</span>
+            <span className={styles.cardHint}>Based on credited commissions.</span>
           </div>
         </div>
       )}
@@ -192,7 +192,7 @@ export function EWalletPage() {
       </div>
 
       <p className={styles.note}>
-        JA&amp;D records commission amounts but never moves money on your behalf (BR-BND-001..003).
+        JA&amp;D records commission amounts but never moves money on your behalf.
       </p>
     </section>
   );
