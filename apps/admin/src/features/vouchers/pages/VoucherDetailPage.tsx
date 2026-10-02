@@ -20,7 +20,7 @@ import {
   TableRow,
   downloadQrImage,
 } from '@jad/ui';
-import { formatMoney, isExpired } from '@jad/shared';
+import { formatPoints, isExpired } from '@jad/shared';
 import type { VoucherAssignment } from '@jad/contracts';
 
 import { formatDate } from '../../../lib/format';
@@ -74,18 +74,24 @@ export function VoucherDetailPage() {
     );
   }
 
-  const handleDeleteAssignment = () => {
-    if (!deleteTarget) return;
-    deleteAssignmentMutation.mutate(deleteTarget.id);
-    setDeleteTarget(null);
-    if (detailTarget?.id === deleteTarget.id) setDetailTarget(null);
+  const revokePending = deleteAssignmentMutation.isPending;
+  const handleDeleteAssignment = async () => {
+    if (!deleteTarget || revokePending) return;
+    try {
+      await deleteAssignmentMutation.mutateAsync(deleteTarget.id);
+      if (detailTarget?.id === deleteTarget.id) setDetailTarget(null);
+      setDeleteTarget(null);
+    } catch {
+      // Keep the dialog open on failure - the row stays visible so the
+      // failed revoke is evident instead of silently vanishing.
+    }
   };
 
   return (
     <section>
       <PageHeader
         title={template.title}
-        description={`Voucher definition worth ${formatMoney(template.originalValue)} - assign to members to issue unique codes and QR codes`}
+        description={`Voucher definition worth ${formatPoints(template.originalValue)} - assign to members to issue unique codes and QR codes`}
         actions={
           <>
             <Button variant="secondary" onClick={() => navigate('/admin/vouchers')}>
@@ -104,7 +110,7 @@ export function VoucherDetailPage() {
           label="Original Value"
           value={
             <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-              {formatMoney(template.originalValue)}
+              {formatPoints(template.originalValue)}
             </span>
           }
         />
@@ -220,7 +226,7 @@ export function VoucherDetailPage() {
                               : 'var(--color-brand-primary)',
                         }}
                       >
-                        {formatMoney(row.remainingValue)}
+                        {formatPoints(row.remainingValue)}
                       </span>
                     </TableCell>
                     <TableCell label="Status">
@@ -275,12 +281,16 @@ export function VoucherDetailPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => {
+          if (!revokePending) setDeleteTarget(null);
+        }}
         onConfirm={handleDeleteAssignment}
         title="Revoke voucher?"
         message={`This will permanently revoke the voucher (${deleteTarget?.code ?? ''}) assigned to ${deleteTarget?.memberName ?? ''}. This action cannot be undone.`}
         confirmLabel="Revoke"
         cancelLabel="Cancel"
+        confirmDisabled={revokePending}
+        confirmLoading={revokePending}
       />
 
       <Dialog
@@ -391,7 +401,7 @@ export function VoucherDetailPage() {
               label="Original Value"
               value={
                 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                  {formatMoney(detailTarget.originalValue)}
+                  {formatPoints(detailTarget.originalValue)}
                 </span>
               }
             />
@@ -408,7 +418,7 @@ export function VoucherDetailPage() {
                         : 'var(--color-brand-primary)',
                   }}
                 >
-                  {formatMoney(detailTarget.remainingValue)}
+                  {formatPoints(detailTarget.remainingValue)}
                 </span>
               }
             />

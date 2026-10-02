@@ -13,7 +13,7 @@ import {
   notifyError,
   notifySuccess,
 } from '@jad/ui';
-import { formatMoney, isExpired } from '@jad/shared';
+import { formatPoints, isExpired } from '@jad/shared';
 import type { VoucherAssignment } from '@jad/contracts';
 
 import { formatDate } from '../../../lib/format';
@@ -304,8 +304,8 @@ export function ScanVoucherPage() {
         {stage.kind === 'result' ? (
           <p className={styles.confirmBody}>
             Redeem <strong>{stage.voucher.code}</strong> ({stage.voucher.memberName}) for{' '}
-            <strong>{formatMoney(stage.voucher.remainingValue)}</strong>? Remaining value will be
-            set to 0.00.
+            <strong>{formatPoints(stage.voucher.remainingValue)}</strong>? Remaining points will
+            be set to 0.
           </p>
         ) : null}
       </Dialog>
@@ -421,7 +421,7 @@ function VoucherResult({
           </div>
         </div>
         <span className={styles.title}>{voucher.title}</span>
-        <span className={styles.value}>{formatMoney(voucher.remainingValue)}</span>
+        <span className={styles.value}>{formatPoints(voucher.remainingValue)}</span>
         <div className={styles.chips}>
           <StatusChip
             label={VOUCHER_STATUS_LABEL[voucher.status]}

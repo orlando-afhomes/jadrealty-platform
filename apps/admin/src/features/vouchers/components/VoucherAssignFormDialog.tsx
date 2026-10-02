@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button, Dialog, Select } from '@jad/ui';
+import { MAX_VALIDITY_DAYS } from '@jad/contracts';
 
+import { useConfig } from '../../config/hooks/useConfig';
 import { useMembers } from '../../members/hooks/useMembers';
 import { useVoucherAssignments } from '../hooks/useVoucherAssignments';
 import { useAssignVoucher } from '../hooks/useAssignVoucher';
@@ -12,6 +14,13 @@ interface VoucherAssignFormDialogProps {
   templateId: string;
 }
 
+/** Local `yyyy-mm-dd` (native date inputs are timezone-naive). */
+function toIsoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 export function VoucherAssignFormDialog({
   open,
   onClose,
@@ -20,11 +29,15 @@ export function VoucherAssignFormDialog({
   const { data: members } = useMembers();
   const { data: assigned } = useVoucherAssignments(templateId);
   const assignMutation = useAssignVoucher(templateId);
+  const { data: configEntries } = useConfig();
   const [memberId, setMemberId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [validityDays, setValidityDays] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | undefined>();
+  // Tracks staff edits so a late-loading config default never clobbers input.
+  const daysEditedRef = useRef(false);
+  const openedRef = useRef(false);
 
   // Only ACTIVE members not already holding this voucher (the API enforces the
   // same rule via the (memberId, templateId) unique index - this is UX only).
@@ -33,21 +46,64 @@ export function VoucherAssignFormDialog({
     return (members ?? []).filter((m) => m.accountStatus === 'ACTIVE' && !assignedIds.has(m.id));
   }, [members, assigned]);
 
+  // Platform default from SystemConfig (VOUCHER_DEFAULT_EXPIRY_DAYS) - the
+  // same value the server falls back to. Empty while loading or misconfigured
+  // (the server fallback still applies, so submission stays valid).
+  const defaultValidityDays = useMemo(() => {
+    const raw = configEntries?.find((entry) => entry.key === 'VOUCHER_DEFAULT_EXPIRY_DAYS')?.value;
+    const days = typeof raw === 'string' && raw.trim() ? Number(raw) : NaN;
+    return Number.isInteger(days) && days > 0 ? String(days) : '';
+  }, [configEntries]);
+
   useEffect(() => {
-    if (open) {
+    if (open && !openedRef.current) {
+      openedRef.current = true;
       setMemberId('');
       setExpiresAt('');
-      setValidityDays('');
+      setValidityDays(defaultValidityDays);
       setErrors({});
       setSubmitError(undefined);
+      daysEditedRef.current = false;
+    } else if (!open) {
+      openedRef.current = false;
     }
-  }, [open]);
+  }, [open, defaultValidityDays]);
+
+  // Backfill the default if the config arrives after the dialog opened and
+  // staff haven't typed anything yet.
+  useEffect(() => {
+    if (open && !daysEditedRef.current && validityDays === '' && defaultValidityDays !== '') {
+      setValidityDays(defaultValidityDays);
+    }
+  }, [open, validityDays, defaultValidityDays]);
+
+  const today = useMemo(() => toIsoDate(new Date()), []);
+  const parsedDays = /^\d+$/.test(validityDays) ? Number(validityDays) : NaN;
+  // Auto-selected expiry shown in the date field: today + Valid-for-Days.
+  // Display-only while the date is untouched - submission sends the explicit
+  // date only, so the days path keeps working.
+  const autoExpiresAt =
+    !expiresAt && Number.isInteger(parsedDays) && parsedDays > 0 && parsedDays <= 36500
+      ? (() => {
+          const computed = new Date();
+          computed.setDate(computed.getDate() + parsedDays);
+          return toIsoDate(computed);
+        })()
+      : '';
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
     if (!memberId) e.memberId = 'Select a member.';
-    if (validityDays && (!/^\d+$/.test(validityDays) || Number(validityDays) < 1))
-      e.validityDays = 'Enter a whole number of days.';
+    if (expiresAt) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(expiresAt)) e.expiresAt = 'Enter a valid date.';
+      else if (expiresAt < today) e.expiresAt = 'Expiry cannot be in the past.';
+    }
+    if (validityDays) {
+      if (!/^\d+$/.test(validityDays) || Number(validityDays) < 1)
+        e.validityDays = 'Enter a whole number of days.';
+      else if (Number(validityDays) > MAX_VALIDITY_DAYS)
+        e.validityDays = `Enter no more than ${MAX_VALIDITY_DAYS.toLocaleString('en-US')} days.`;
+    }
     return e;
   };
 
@@ -117,7 +173,7 @@ export function VoucherAssignFormDialog({
               { value: '', label: 'Select a member…' },
               ...eligibleMembers.map((m) => ({
                 value: m.id,
-                label: `${m.firstName} ${m.lastName}${m.email ? ` · ${m.email}` : ''}`,
+                label: `${m.firstName} ${m.lastName}`,
               })),
             ]}
           />
@@ -141,17 +197,37 @@ export function VoucherAssignFormDialog({
           <input
             id="assign-expires"
             type="date"
-            value={expiresAt}
+            value={expiresAt || autoExpiresAt}
+            min={today}
             onChange={(e) => setExpiresAt(e.target.value)}
             aria-label="Expiry Date"
+            aria-invalid={Boolean(errors.expiresAt)}
+            aria-describedby={errors.expiresAt ? 'assign-expires-error' : undefined}
             style={{
               minHeight: 44,
               padding: '10px 12px',
-              border: '1px solid var(--color-border-default)',
+              border: `1px solid ${errors.expiresAt ? 'var(--color-danger)' : 'var(--color-border-default)'}`,
               borderRadius: 'var(--radius-md)',
               fontSize: 'var(--text-body-s)',
             }}
           />
+          {errors.expiresAt ? (
+            <span
+              id="assign-expires-error"
+              style={{ color: 'var(--color-danger)', fontSize: 'var(--text-caption)' }}
+              role="alert"
+            >
+              {errors.expiresAt}
+            </span>
+          ) : (
+            <span style={{ fontSize: 'var(--text-caption)', color: 'var(--color-text-muted)' }}>
+              {expiresAt
+                ? 'This fixed date overrides Valid for Days.'
+                : autoExpiresAt
+                  ? `Auto-selected from Valid for Days (${validityDays} days). Pick a date to override it.`
+                  : 'Leave empty to use Valid for Days, the template rule, or the system default.'}
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'grid', gap: 6 }}>
@@ -164,7 +240,10 @@ export function VoucherAssignFormDialog({
           <input
             id="assign-validity"
             value={validityDays}
-            onChange={(e) => setValidityDays(e.target.value)}
+            onChange={(e) => {
+              daysEditedRef.current = true;
+              setValidityDays(e.target.value.replace(/[^\d]/g, '').slice(0, 5));
+            }}
             placeholder="90"
             inputMode="numeric"
             aria-label="Valid for days"

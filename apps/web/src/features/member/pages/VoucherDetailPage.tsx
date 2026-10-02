@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router';
 
-import { formatMoney, isExpired } from '@jad/shared';
+import { formatPoints, isExpired } from '@jad/shared';
 import {
   Dialog,
   ErrorState,
@@ -140,12 +140,12 @@ export function VoucherDetailPage() {
             </div>
             <div className={styles.detailItem}>
               <dt>Original value</dt>
-              <dd>{formatMoney(voucherQuery.data.originalValue)}</dd>
+              <dd>{formatPoints(voucherQuery.data.originalValue)}</dd>
             </div>
             <div className={styles.detailItem}>
               <dt>Remaining value</dt>
               <dd className={styles.remainingValue}>
-                {formatMoney(voucherQuery.data.remainingValue)}
+                {formatPoints(voucherQuery.data.remainingValue)}
               </dd>
             </div>
             <div className={styles.detailItem}>

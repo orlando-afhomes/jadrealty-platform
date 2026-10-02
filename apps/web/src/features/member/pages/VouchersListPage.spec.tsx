@@ -37,8 +37,8 @@ describe('member VouchersListPage', () => {
 
     expect(await screen.findByText('Referral Rewards Voucher')).toBeInTheDocument();
     expect(screen.getByText('Season Promo Voucher')).toBeInTheDocument();
-    expect(screen.getByText(/₱350\.00/)).toBeInTheDocument();
-    expect(screen.getByText(/₱1,000\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/350 Points/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000 Points/)).toBeInTheDocument();
     expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Fully redeemed').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('JAD-VCH-2026-002')).toBeInTheDocument();

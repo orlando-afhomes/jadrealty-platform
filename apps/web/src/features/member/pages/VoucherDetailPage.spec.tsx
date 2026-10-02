@@ -43,8 +43,8 @@ describe('member VoucherDetailPage', () => {
     expect(
       await screen.findByRole('heading', { name: 'Referral Rewards Voucher' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('₱1,000.00')).toBeInTheDocument();
-    expect(screen.getByText('₱350.00')).toBeInTheDocument();
+    expect(screen.getByText('1,000 Points')).toBeInTheDocument();
+    expect(screen.getByText('350 Points')).toBeInTheDocument();
     expect(screen.getByText('Active')).toBeInTheDocument();
     expect(screen.getAllByText('JAD-VCH-2026-002').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByAltText('QR code for JAD-VCH-2026-002')).toBeInTheDocument();

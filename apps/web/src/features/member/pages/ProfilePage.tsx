@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { Link } from 'react-router';
 
 import type { UpdateProfileRequest } from '@jad/contracts';
-import { formatMoney } from '@jad/shared';
+import { formatPoints } from '@jad/shared';
 import {
   ConfirmDialog,
   ErrorState,
@@ -135,7 +135,7 @@ function VoucherSummary() {
           <div>
             <p className={styles.linkedText}>
               <span className={styles.code}>{active.code}</span> ·{' '}
-              {formatMoney(active.remainingValue)} left
+              {formatPoints(active.remainingValue)} remaining
             </p>
             <Link className={styles.linkedLink} to="/member/vouchers">
               View vouchers

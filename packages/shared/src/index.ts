@@ -6,5 +6,6 @@ export {
   multiplyMoney,
   subtractMoney,
 } from './money.js';
+export { formatPoints } from './points.js';
 export { computeMemberExpiry, isExpired } from './voucher.js';
 export type { VoucherExpiryRule } from './voucher.js';

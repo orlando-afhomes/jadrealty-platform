@@ -14,6 +14,40 @@ export const voucherStatusSchema = z.enum(['ACTIVE', 'FULLY_REDEEMED']);
 export type VoucherStatus = z.infer<typeof voucherStatusSchema>;
 
 /**
+ * Upper bound for validity windows (100 years). Generous for any real use;
+ * unbounded values overflow PG `timestamptz` into a 500 downstream.
+ */
+export const MAX_VALIDITY_DAYS = 36500;
+
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/;
+
+/**
+ * Strict calendar date (`YYYY-MM-DD`, optionally with a time part as the
+ * assign/template endpoints already accept full ISO datetimes). Real
+ * month/day ranges including leap years.
+ */
+export function isValidIsoDate(value: string): boolean {
+  const match = ISO_DATE_RE.exec(value);
+  if (!match?.[1] || !match[2] || !match[3]) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day <= daysInMonth;
+}
+
+/**
+ * Past-date check on the calendar-day part (deterministic server-side UTC;
+ * the client additionally guards with its local today). Invalid shapes count
+ * as past so one refine covers both.
+ */
+export function isPastIsoDate(value: string, todayIso = new Date().toISOString().slice(0, 10)): boolean {
+  if (!isValidIsoDate(value)) return true;
+  return value.slice(0, 10) < todayIso;
+}
+
+/**
  * Voucher - `GET /me/vouchers` / `GET /vouchers/:id` (API-SPECIFICATION #61/#62,
  * FEAT-053, FR-VCH-001..003, SCR-MEM-020/021). The member sees their OWN vouchers
  * only (object-level, NFR-AUTHZ-002); ownership is server-authoritative. Values
@@ -58,8 +92,13 @@ export type VoucherTemplate = z.infer<typeof voucherTemplateSchema>;
 export const createVoucherTemplateRequestSchema = z.object({
   title: z.string().min(1),
   originalValue: exactDecimalStringSchema,
-  expiresAt: z.string().optional(),
-  validityDays: z.number().int().positive().optional(),
+  expiresAt: z
+    .string()
+    .optional()
+    .refine((value) => value === undefined || !isPastIsoDate(value), {
+      message: 'Expiry cannot be in the past.',
+    }),
+  validityDays: z.number().int().min(1).max(MAX_VALIDITY_DAYS).optional(),
 });
 
 export type CreateVoucherTemplateRequest = z.infer<typeof createVoucherTemplateRequestSchema>;
@@ -67,8 +106,14 @@ export type CreateVoucherTemplateRequest = z.infer<typeof createVoucherTemplateR
 /** `PATCH /admin/voucher-templates/:id` - mirrors the admin mock update rules. */
 export const updateVoucherTemplateRequestSchema = z.object({
   title: z.string().min(1).optional(),
-  expiresAt: z.string().nullable().optional(),
-  validityDays: z.number().int().positive().nullable().optional(),
+  expiresAt: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((value) => value == null || !isPastIsoDate(value), {
+      message: 'Expiry cannot be in the past.',
+    }),
+  validityDays: z.number().int().min(1).max(MAX_VALIDITY_DAYS).nullable().optional(),
 });
 
 export type UpdateVoucherTemplateRequest = z.infer<typeof updateVoucherTemplateRequestSchema>;
@@ -81,8 +126,13 @@ export type UpdateVoucherTemplateRequest = z.infer<typeof updateVoucherTemplateR
 export const assignVoucherRequestSchema = z.object({
   templateId: z.string().min(1),
   memberId: z.string().min(1),
-  expiresAt: z.string().optional(),
-  validityDays: z.number().int().positive().optional(),
+  expiresAt: z
+    .string()
+    .optional()
+    .refine((value) => value === undefined || !isPastIsoDate(value), {
+      message: 'Expiry cannot be in the past.',
+    }),
+  validityDays: z.number().int().min(1).max(MAX_VALIDITY_DAYS).optional(),
 });
 
 export type AssignVoucherRequest = z.infer<typeof assignVoucherRequestSchema>;

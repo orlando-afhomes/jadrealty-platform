@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
-import { formatMoney, isExpired } from '@jad/shared';
+import { formatPoints, isExpired } from '@jad/shared';
 import { EmptyState, ErrorState, PageHeader, QrCode, Skeleton, StatusChip } from '@jad/ui';
 import type { VoucherStatus } from '@jad/contracts';
 
@@ -108,11 +108,11 @@ export function VouchersListPage() {
                     <span className={styles.title}>{voucher.title}</span>
                     <span className={styles.code}>{voucher.code}</span>
                     <span className={styles.meta}>
-                      Original {formatMoney(voucher.originalValue)} · issued{' '}
+                      Original {formatPoints(voucher.originalValue)} · issued{' '}
                       {formatDate(voucher.createdAt)}
                     </span>
                     <span className={styles.remaining}>
-                      Remaining <strong>{formatMoney(voucher.remainingValue)}</strong>
+                      Remaining <strong>{formatPoints(voucher.remainingValue)}</strong>
                     </span>
                   </span>
                   <span

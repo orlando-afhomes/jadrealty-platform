@@ -34,11 +34,11 @@ describe('VouchersPage', () => {
     expect(screen.getByText('Season Promo')).toBeInTheDocument();
   });
 
-  it('shows formatted currency values', async () => {
+  it('shows formatted point values', async () => {
     renderWithProviders(<VouchersPage />, { user: MOCK_ADMIN });
     await screen.findByText('Welcome Gift');
-    expect(screen.getAllByText('₱500.00').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('₱1,000.00')).toBeInTheDocument();
+    expect(screen.getAllByText('500 Points').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('1,000 Points')).toBeInTheDocument();
   });
 
   it('shows assignment counts', async () => {
@@ -52,9 +52,27 @@ describe('VouchersPage', () => {
     await screen.findByText('Welcome Gift');
     await userEvent.click(screen.getByText('Create Voucher'));
     expect(screen.getByLabelText('Title')).toBeInTheDocument();
-    expect(screen.getByLabelText('Original Value')).toBeInTheDocument();
+    expect(screen.getByLabelText('Points')).toBeInTheDocument();
     expect(screen.queryByLabelText('Member')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Expiry Date')).not.toBeInTheDocument();
+  });
+
+  it('shapes the title and points while typing and submits normalized values', async () => {
+    renderWithProviders(<VouchersPage />, { user: MOCK_ADMIN });
+    await screen.findByText('Welcome Gift');
+    await userEvent.click(screen.getByText('Create Voucher'));
+
+    const title = screen.getByLabelText('Title') as HTMLInputElement;
+    await userEvent.type(title, 'season123 promo!');
+    expect(title.value).toBe('Season Promo');
+
+    const points = screen.getByLabelText('Points') as HTMLInputElement;
+    await userEvent.type(points, 'ab5000');
+    expect(points.value).toBe('5,000');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create voucher' }));
+    // 5,000 Points is unique to this test (no seed template uses it).
+    expect(await screen.findByText('5,000 Points')).toBeInTheDocument();
   });
 
   it('edits a voucher title and persists the change', async () => {
@@ -115,9 +133,7 @@ describe('VouchersPage', () => {
       }),
     );
 
-    expect(
-      screen.getByText(/permanently delete "Season Promo"/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/permanently delete "Season Promo"/i)).toBeInTheDocument();
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 

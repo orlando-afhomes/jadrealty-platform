@@ -18,7 +18,7 @@ import {
   notifyError,
   notifySuccess,
 } from '@jad/ui';
-import { formatMoney } from '@jad/shared';
+import { formatPoints } from '@jad/shared';
 import type { VoucherTemplate } from '@jad/contracts';
 
 import { formatDate } from '../../../lib/format';
@@ -37,7 +37,7 @@ function TableSkeleton() {
       <TableHead>
         <TableRow>
           <TableHeaderCell>Title</TableHeaderCell>
-          <TableHeaderCell align="right">Value</TableHeaderCell>
+          <TableHeaderCell align="right">Points</TableHeaderCell>
           <TableHeaderCell align="right">Assigned</TableHeaderCell>
           <TableHeaderCell>Created</TableHeaderCell>
           <TableHeaderCell>Actions</TableHeaderCell>
@@ -141,7 +141,7 @@ export function VouchersPage() {
               <TableHead>
                 <TableRow>
                   <TableHeaderCell>Title</TableHeaderCell>
-                  <TableHeaderCell align="right">Value</TableHeaderCell>
+                  <TableHeaderCell align="right">Points</TableHeaderCell>
                   <TableHeaderCell align="right">Assigned</TableHeaderCell>
                   <TableHeaderCell>Created</TableHeaderCell>
                   <TableHeaderCell>Actions</TableHeaderCell>
@@ -167,9 +167,9 @@ export function VouchersPage() {
                       <TableCell label="Title">
                         <span style={{ fontWeight: 600 }}>{row.title}</span>
                       </TableCell>
-                      <TableCell label="Value" align="right">
+                      <TableCell label="Points" align="right">
                         <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                          {formatMoney(row.originalValue)}
+                          {formatPoints(row.originalValue)}
                         </span>
                       </TableCell>
                       <TableCell label="Assigned" align="right">

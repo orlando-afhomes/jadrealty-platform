@@ -255,6 +255,30 @@ describe('POST /admin/vouchers/assign', () => {
     expect(body.expiresAt).toBe('2027-01-01T00:00:00.000Z');
   });
 
+  it('400s a past expiry date without touching the database', async () => {
+    const { res, seen } = capture();
+    await assignHandler(
+      req(
+        'POST',
+        {},
+        { templateId: 'vtpl-001', memberId: 'mem-uuid-1', expiresAt: '2020-01-01T00:00:00.000Z' },
+      ),
+      res,
+    );
+    expect(seen.status).toBe(400);
+    expect(mocks.calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
+  it('400s an unbounded validity window', async () => {
+    const { res, seen } = capture();
+    await assignHandler(
+      req('POST', {}, { templateId: 'vtpl-001', memberId: 'mem-uuid-1', validityDays: 99999999 }),
+      res,
+    );
+    expect(seen.status).toBe(400);
+    expect(mocks.calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
   it('falls back to the platform default expiry when no rule is set', async () => {
     mocks.script.one = {
       VoucherTemplate: TEMPLATE,

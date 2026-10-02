@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 
 import { Button, Dialog } from '@jad/ui';
+import {
+  capitalizePersonName,
+  normalizeName,
+  personNameSchema,
+  sanitizePersonName,
+} from '@jad/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { createVoucher } from '../services/vouchers';
@@ -11,6 +17,34 @@ interface VoucherCreateDialogProps {
 }
 
 const MONEY_RE = /^\d+(\.\d{1,2})?$/;
+
+/** Hard cap on whole-point digits (UX guard; the exact-decimal check still applies). */
+const MAX_INTEGER_DIGITS = 12;
+
+function groupThousands(digits: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * Live points shaping: digits + one dot only, max two decimals, thousand
+ * separators as typed (`5000` → `5,000`). Submitted comma-stripped.
+ */
+function shapePoints(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, '');
+  if (cleaned === '') return '';
+  const dotIndex = cleaned.indexOf('.');
+  const hasDot = dotIndex !== -1;
+  const headRaw = (hasDot ? cleaned.slice(0, dotIndex) : cleaned).slice(0, MAX_INTEGER_DIGITS);
+  const fracRaw = hasDot ? cleaned.slice(dotIndex + 1).replace(/\./g, '') : '';
+  const head = headRaw.replace(/^0+(?=\d)/, '') || '0';
+  if (!hasDot) return groupThousands(head);
+  return `${groupThousands(head)}.${fracRaw.slice(0, 2)}`;
+}
+
+/** Display string → exact-decimal for validation and submission. */
+function normalizePoints(display: string): string {
+  return display.replace(/,/g, '').trim();
+}
 
 /** Create a voucher definition (title + value). Members are assigned afterwards. */
 export function VoucherCreateDialog({ open, onClose }: VoucherCreateDialogProps) {
@@ -32,11 +66,13 @@ export function VoucherCreateDialog({ open, onClose }: VoucherCreateDialogProps)
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
-    if (!title.trim()) e.title = 'Enter a voucher title.';
-    const value = originalValue.trim();
-    if (!value) e.originalValue = 'Enter an original value.';
+    if (!normalizeName(title)) e.title = 'Enter a voucher title.';
+    else if (!personNameSchema.safeParse(title).success)
+      e.title = 'Enter a valid title (letters only).';
+    const value = normalizePoints(originalValue);
+    if (!value) e.originalValue = 'Enter the points for this voucher.';
     else if (!MONEY_RE.test(value) || Number(value) <= 0)
-      e.originalValue = 'Enter a valid amount (e.g. 500.00).';
+      e.originalValue = 'Enter valid points (e.g. 500).';
     return e;
   };
 
@@ -47,7 +83,7 @@ export function VoucherCreateDialog({ open, onClose }: VoucherCreateDialogProps)
     setSubmitError(undefined);
     setIsPending(true);
     try {
-      await createVoucher({ title: title.trim(), originalValue: originalValue.trim() });
+      await createVoucher({ title: normalizeName(title), originalValue: normalizePoints(originalValue) });
       await qc.invalidateQueries({ queryKey: ['admin', 'vouchers'] });
       onClose();
     } catch (e) {
@@ -89,7 +125,7 @@ export function VoucherCreateDialog({ open, onClose }: VoucherCreateDialogProps)
           <input
             id="voucher-title"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => setTitle(capitalizePersonName(sanitizePersonName(e.target.value)))}
             placeholder="Welcome Gift"
             aria-label="Title"
             aria-invalid={Boolean(errors.title)}
@@ -118,15 +154,15 @@ export function VoucherCreateDialog({ open, onClose }: VoucherCreateDialogProps)
             htmlFor="voucher-value"
             style={{ fontSize: 'var(--text-body-s)', fontWeight: 600 }}
           >
-            Original Value <span style={{ color: 'var(--color-danger)' }}>*</span>
+            Points <span style={{ color: 'var(--color-danger)' }}>*</span>
           </label>
           <input
             id="voucher-value"
             value={originalValue}
-            onChange={(e) => setOriginalValue(e.target.value)}
-            placeholder="500.00"
+            onChange={(e) => setOriginalValue(shapePoints(e.target.value))}
+            placeholder="5,000"
             inputMode="decimal"
-            aria-label="Original Value"
+            aria-label="Points"
             aria-invalid={Boolean(errors.originalValue)}
             aria-describedby={errors.originalValue ? 'voucher-value-error' : undefined}
             style={{
